@@ -1,40 +1,32 @@
-name: Build VST3 for Windows
+name: Build MIDI Forge
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
-
+    runs-on: windows-2022
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Clone JUCE
-      run: git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
-    - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
 
-    - name: Build
-      run: cmake --build build --config Release --parallel
+      - name: Package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # Раньше искали ровно "MidiForge.vst3", но JUCE называет бандл по PRODUCT_NAME
+          # ("MIDI Forge"), поэтому файл с таким именем никогда не находился и шаг падал.
+          $vst = Get-ChildItem build -Filter "*.vst3" -Recurse | Select-Object -First 1
+          if (-not $vst) { throw "No .vst3 file was found under build/" }
+          Compress-Archive -Path $vst.FullName -DestinationPath dist\MidiForge-Windows-x64.zip -Force
 
-    - name: Package VST3
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path artifact
-        $vst = Get-ChildItem -Path build -Recurse -Filter "*.vst3" -Directory | Select-Object -First 1
-        if ($vst) {
-          Copy-Item -Path $vst.FullName -Destination artifact -Recurse
-        }
-        Compress-Archive -Path artifact\* -DestinationPath MidiForge-VST3.zip
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: MidiForge-VST3
-        path: MidiForge-VST3.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MidiForge-Windows-x64
+          path: dist/MidiForge-Windows-x64.zip

@@ -21,17 +21,27 @@ void MidiForgeAudioProcessorEditor::DragHandle::paint (juce::Graphics& g)
 
 void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEvent& e)
 {
+    // mouseDrag fires repeatedly (on every mouse-move during the gesture), not once.
+    // Starting a new native OS drag session on each of those calls stacked overlapping
+    // drag operations on top of each other — this is what made the drag look broken,
+    // and could leave an orphaned OS/COM drag handle alive that later blocked Windows
+    // from unloading the plugin DLL when it was removed from the mixer.
     if (dragStarted)
         return;
+
+    // Small threshold so a click doesn't immediately count as a drag.
     if (e.getDistanceFromDragStart() < 6)
         return;
+
     dragStarted = true;
+
     auto file = owner.processor.writeTemporaryMidiFile();
     if (!file.existsAsFile())
     {
         dragStarted = false;
         return;
     }
+
     owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
 }
 
@@ -41,9 +51,9 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     setSize(900,980);
 
     title.setText("MIDI FORGE",juce::dontSendNotification);
-    title.setFont (juce::Font (31.0f, juce::Font::bold));
+    title.setFont(juce::Font(31.f,juce::Font::bold));
     sectionLabel.setText("COMPOSITION ENGINE",juce::dontSendNotification);
-    sectionLabel.setFont (juce::Font (12.0f));
+    sectionLabel.setFont(juce::Font(12.f));
     addAndMakeVisible(title);addAndMakeVisible(sectionLabel);
 
     root.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"},1);
@@ -109,7 +119,6 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
 
     chords.setButtonText("CHORDS");bass.setButtonText("BASS");melody.setButtonText("MELODY");arp.setButtonText("ARP");
     extensions.setButtonText("7/9 EXT");inversions.setButtonText("INV");hookModeButton.setButtonText("HOOK");
-
     chords.setToggleState(p.isChordsEnabled(),juce::dontSendNotification);
     bass.setToggleState(p.isBassEnabled(),juce::dontSendNotification);
     melody.setToggleState(p.isMelodyEnabled(),juce::dontSendNotification);
@@ -117,7 +126,6 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     extensions.setToggleState(p.getChordExtensions(),juce::dontSendNotification);
     inversions.setToggleState(p.getInversions(),juce::dontSendNotification);
     hookModeButton.setToggleState(p.getHookMode(),juce::dontSendNotification);
-
     chords.onClick=[this]{processor.setChordsEnabled(chords.getToggleState());};
     bass.onClick=[this]{processor.setBassEnabled(bass.getToggleState());};
     melody.onClick=[this]{processor.setMelodyEnabled(melody.getToggleState());};
@@ -125,7 +133,6 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     extensions.onClick=[this]{processor.setChordExtensions(extensions.getToggleState());};
     inversions.onClick=[this]{processor.setInversions(inversions.getToggleState());};
     hookModeButton.onClick=[this]{processor.setHookMode(hookModeButton.getToggleState());};
-
     addAndMakeVisible(chords);addAndMakeVisible(bass);addAndMakeVisible(melody);addAndMakeVisible(arp);
     addAndMakeVisible(extensions);addAndMakeVisible(inversions);addAndMakeVisible(hookModeButton);
 
@@ -137,17 +144,16 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     newSeed.setButtonText("NEW SEED");
     applyVariation.setButtonText("USE VAR");
     exportMidi.setButtonText("EXPORT .MID");
-
     generate.onClick=[this]{processor.regenerateVariations();};
     newSeed.onClick=[this]{processor.setSeed(juce::Random::getSystemRandom().nextInt());};
     applyVariation.onClick=[this]{processor.chooseVariation(variationBox.getSelectedId()-1);};
-
     exportMidi.onClick=[this]{
         fileChooser = std::make_unique<juce::FileChooser>(
             "Export MIDI",
             juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                 .getChildFile("MIDI_Forge_Song.mid"),
             "*.mid");
+
         fileChooser->launchAsync(
             juce::FileBrowserComponent::saveMode |
             juce::FileBrowserComponent::canSelectFiles,
@@ -156,7 +162,9 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
                 const auto result = chooser.getResult();
                 if (result == juce::File{})
                     return;
+
                 const bool ok = processor.exportMidi(result);
+
                 juce::AlertWindow::showMessageBoxAsync(
                     ok ? juce::MessageBoxIconType::InfoIcon
                        : juce::MessageBoxIconType::WarningIcon,
@@ -166,9 +174,9 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
                     "OK");
             });
     };
-
     addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
 
+    // --- Экспорт MIDI ---
     exportButton.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser> ("Save MIDI file", juce::File(), "*.mid");
@@ -185,23 +193,21 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     addAndMakeVisible (dragHandle);
     addAndMakeVisible (pianoRoll);
 
+    // --- Smart Lock: заморозка партии при GENERATE 8 ---
     lockChordsBtn.setToggleState(p.getLockChords(), juce::dontSendNotification);
     lockBassBtn.setToggleState(p.getLockBass(), juce::dontSendNotification);
     lockMelodyBtn.setToggleState(p.getLockMelody(), juce::dontSendNotification);
     lockArpBtn.setToggleState(p.getLockArp(), juce::dontSendNotification);
-
     lockChordsBtn.onClick=[this]{processor.setLockChords(lockChordsBtn.getToggleState());};
     lockBassBtn.onClick=[this]{processor.setLockBass(lockBassBtn.getToggleState());};
     lockMelodyBtn.onClick=[this]{processor.setLockMelody(lockMelodyBtn.getToggleState());};
     lockArpBtn.onClick=[this]{processor.setLockArp(lockArpBtn.getToggleState());};
-
     addAndMakeVisible(lockChordsBtn);addAndMakeVisible(lockBassBtn);
     addAndMakeVisible(lockMelodyBtn);addAndMakeVisible(lockArpBtn);
 
+    // --- Раздельный drag-and-drop по партиям ---
     addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
     addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);
-
-    startTimerHz (10);
 }
 
 void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
@@ -211,7 +217,6 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(12.f),12.f,1.f);
     g.setColour(juce::Colours::white);
     g.setFont(13.f);
-
     g.drawFittedText("SOURCE / HARMONY",24,108,820,20,juce::Justification::left,1);
     g.drawFittedText("PART DENSITY",24,196,820,20,juce::Justification::left,1);
     g.drawFittedText("MOTIF / ARRANGEMENT",24,336,820,20,juce::Justification::left,1);
@@ -241,10 +246,12 @@ void MidiForgeAudioProcessorEditor::resized()
     bassDensity.setBounds(112,252,640,24);
     melodyDensity.setBounds(112,284,640,24);
     arpDensity.setBounds(112,316,640,24);
+
     motifStrength.setBounds(112,360,640,24);
     variationAmount.setBounds(112,392,640,24);
     fillAmount.setBounds(112,424,640,24);
     energy.setBounds(112,456,640,24);
+
     melodyLength.setBounds(112,480,640,24);
     pauseChance.setBounds(112,512,640,24);
     leapChance.setBounds(112,544,640,24);
@@ -274,11 +281,4 @@ void MidiForgeAudioProcessorEditor::resized()
     dragBass.setBounds(154,930,120,32);
     dragMelody.setBounds(284,930,120,32);
     dragArp.setBounds(414,930,120,32);
-}
-
-void MidiForgeAudioProcessorEditor::timerCallback()
-{
-    const int id = processor.getSelectedVariation() + 1;
-    if (id >= 1 && variationBox.getSelectedId() != id)
-        variationBox.setSelectedId (id, juce::dontSendNotification);
 }

@@ -3,21 +3,19 @@
 #include "PluginProcessor.h"
 
 class MidiForgeAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                      public juce::DragAndDropContainer,
-                                      private juce::Timer
+                                       public juce::DragAndDropContainer
 {
 public:
     explicit MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor&);
-    ~MidiForgeAudioProcessorEditor() override { stopTimer(); }
+    ~MidiForgeAudioProcessorEditor() override = default;
+
     void paint(juce::Graphics&) override;
     void resized() override;
 
 private:
-    void timerCallback() override;
-
     MidiForgeAudioProcessor& processor;
-    juce::Label title, sectionLabel;
 
+    juce::Label title, sectionLabel;
     juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox;
     juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
     juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
@@ -26,9 +24,12 @@ private:
     juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
     juce::TextButton generate,newSeed,applyVariation,exportMidi;
 
+    // --- Экспорт MIDI ---
     juce::TextButton exportButton { "Export MIDI..." };
     std::unique_ptr<juce::FileChooser> fileChooser;
 
+    // Небольшой компонент-"ручка": тащишь мышкой прямо в плейлист/пиано-ролл FL Studio,
+    // плагин пишет временный .mid файл и запускает системный drag-and-drop.
     struct DragHandle : public juce::Component
     {
         explicit DragHandle (MidiForgeAudioProcessorEditor& o) : owner (o) {}
@@ -36,15 +37,18 @@ private:
         void mouseDown (const juce::MouseEvent&) override { dragStarted = false; }
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
+
         MidiForgeAudioProcessorEditor& owner;
         bool dragStarted = false;
     };
     DragHandle dragHandle { *this };
 
+    // Раздельный drag-and-drop по партиям: тащишь только бас, только аккорды и т.д.
     struct LayerDragHandle : public juce::Component
     {
         LayerDragHandle (MidiForgeAudioProcessorEditor& o, int ch, juce::String lbl)
             : owner (o), channel (ch), label (std::move (lbl)) {}
+
         void paint (juce::Graphics& g) override
         {
             g.setColour (juce::Colour (0xff3a3a3a));
@@ -59,22 +63,25 @@ private:
             if (dragStarted) return;
             if (e.getDistanceFromDragStart() < 6) return;
             dragStarted = true;
+
             auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
             if (!file.existsAsFile()) { dragStarted = false; return; }
             owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
         }
         void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
+
         MidiForgeAudioProcessorEditor& owner;
         int channel;
         juce::String label;
         bool dragStarted = false;
     };
-
     LayerDragHandle dragChords { *this, 1, "Drag Chords" };
     LayerDragHandle dragBass   { *this, 2, "Drag Bass" };
     LayerDragHandle dragMelody { *this, 3, "Drag Melody" };
     LayerDragHandle dragArp    { *this, 4, "Drag Arp" };
 
+    // Мини пиано-ролл: показывает текущий выбранный вариант и бегущую полоску
+    // воспроизведения. Цвет ноты = канал (аккорды/бас/мелодия/арпеджио).
     struct PianoRoll : public juce::Component, private juce::Timer
     {
         explicit PianoRoll (MidiForgeAudioProcessor& proc) : processor (proc)
@@ -91,18 +98,16 @@ private:
             const auto notes = processor.getVisibleNotes();
             const int bars = juce::jmax (1, processor.getVisibleBars());
             const int totalSteps = bars * 16;
-
             if (notes.empty()) return;
 
             const float w = (float) getWidth() / (float) totalSteps;
-            int lowNote = 127, highNote = 0;
 
+            int lowNote = 127, highNote = 0;
             for (const auto& n : notes)
             {
                 lowNote = juce::jmin (lowNote, n.note);
                 highNote = juce::jmax (highNote, n.note);
             }
-
             if (highNote <= lowNote) { lowNote -= 3; highNote += 3; }
             const int span = juce::jmax (1, highNote - lowNote);
             const float h = (float) getHeight() / (float) (span + 2);
@@ -132,7 +137,6 @@ private:
         void timerCallback() override { repaint(); }
         MidiForgeAudioProcessor& processor;
     };
-
     PianoRoll pianoRoll { processor };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessorEditor)

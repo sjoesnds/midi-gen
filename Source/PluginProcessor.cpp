@@ -3,20 +3,14 @@
 #include <algorithm>
 #include <cmath>
 
-MidiForgeAudioProcessor::MidiForgeAudioProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+MidiForgeAudioProcessor::MidiForgeAudioProcessor() : AudioProcessor(BusesProperties())
 {
     regenerate();
 }
 
-bool MidiForgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+void MidiForgeAudioProcessor::prepareToPlay(double sr, int bs)
 {
-    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
-}
-
-void MidiForgeAudioProcessor::prepareToPlay(double sr, int)
-{
-    sampleRate = sr; lastGlobalStep.store (-1);
+    sampleRate = sr; blockSize = bs; lastGlobalStep = -1;
     samplePosition = 0;
     pendingOffs.clear();
 }
@@ -115,13 +109,25 @@ bool MidiForgeAudioProcessor::rhythmHit(int x) const
     return((x*7)%16)<7;
 }
 
+int MidiForgeAudioProcessor::humanVelocity(int base,bool accent,bool ghost)
+{
+    const int a=(int)(14.f*humanize);
+    int n=base+(rng.nextInt(a*2+1)-a);
+    if(accent)n+=7;
+    if(ghost)n-=20;
+    return juce::jlimit(1,127,n);
+}
+
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
+    const bool minorish=(scale==Minor||scale==Dorian||scale==Phrygian||scale==HarmonicMinor||scale==MelodicMinor);
     std::vector<int> chordDegrees={degree,degree+2,degree+4};
     if(chordExtensions && (complexity>0.45f || r.nextFloat()<0.4f)) chordDegrees.push_back(degree+6);
     if(chordExtensions && complexity>0.75f && r.nextFloat()<0.45f) chordDegrees.push_back(degree+8);
+
     int root=degreeToPitch(degree,octave-1);
     int transpose=r.nextFloat()<voicingWidth*.25f?(r.nextBool()?12:-12):0;
+
     for(int i=0;i<(int)chordDegrees.size();++i){
         if(r.nextFloat()>juce::jlimit(0.f,1.f,chordDensity*(0.65f+0.35f*e)))continue;
         int note=juce::jlimit(24,108,degreeToPitch(chordDegrees[(size_t)i],octave-1)+transpose);
@@ -130,6 +136,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
         }
         s.notes.push_back({barOffset*16,16,note,72-i*4,1,false});
     }
+
     if((genre==House||genre==Techno) && r.nextFloat()<e)
         s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,root+12),63,1,false});
 }
@@ -141,6 +148,7 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
     if(genre==Trap)steps={0,3,6,10,14};
     else if(genre==House||genre==Techno)steps={0,4,8,12};
     else steps={0,8,12};
+
     for(int x:steps){
         if(!rhythmHit(x)||r.nextFloat()>bassDensity*e)continue;
         int note=root;
@@ -157,6 +165,10 @@ void MidiForgeAudioProcessor::addMelody(
     Section& s, int barOffset, float e, juce::Random& r,
     const std::vector<NoteEvent>* inherited, int variationSalt)
 {
+    // Hook-oriented generator:
+    // repetition + rhythmic identity + chord-tone gravity + controlled variation.
+    const int total = 16;
+
     std::vector<int> preferred;
     switch (genre)
     {
@@ -174,6 +186,7 @@ void MidiForgeAudioProcessor::addMelody(
         if (rhythmHit(x))
             candidates.push_back(x);
 
+    // Never let rhythm mode remove the main pulse entirely.
     for (int x : {0,4,8,12})
         if (std::find(candidates.begin(), candidates.end(), x) == candidates.end())
             candidates.push_back(x);
@@ -181,6 +194,8 @@ void MidiForgeAudioProcessor::addMelody(
     std::sort(candidates.begin(), candidates.end());
 
     const bool hook = hookMode;
+
+    // Dense enough to feel like a hook, but not a wall of 16ths.
     int targetCount = hook
         ? 9 + (int)std::round(4.0f * melodyDensity) + (int)std::round(2.0f * e)
         : 6 + (int)std::round(5.0f * melodyDensity) + (int)std::round(2.0f * e);
@@ -197,19 +212,23 @@ void MidiForgeAudioProcessor::addMelody(
     {
         if (x < 0 || x >= 16 || used[(size_t)x])
             return;
+
         if (!forced && !hook && (x % 4) != 0 &&
             r.nextFloat() < pauseChance)
             return;
+
         used[(size_t)x] = true;
         chosen.push_back(x);
     };
 
+    // Pulse skeleton.
     for (int x : {0,4,8,12})
     {
         if ((int)chosen.size() >= targetCount) break;
         addStep(x, true);
     }
 
+    // Recognizable hook rhythms; odd bars can still mutate them.
     if (hook)
     {
         static const int skeletons[4][6] = {
@@ -218,6 +237,7 @@ void MidiForgeAudioProcessor::addMelody(
             {0,2,4,6,10,12},
             {0,3,4,7,8,11}
         };
+
         const auto& row = skeletons[(barOffset + variationSalt) % 4];
         for (int x : row)
         {
@@ -228,11 +248,11 @@ void MidiForgeAudioProcessor::addMelody(
 
     std::vector<int> shuffled = candidates;
     for (int i = static_cast<int>(shuffled.size()) - 1; i > 0; --i)
-    {
-        const int j = r.nextInt(i + 1);
-        std::swap(shuffled[static_cast<size_t>(i)],
-                  shuffled[static_cast<size_t>(j)]);
-    }
+{
+    const int j = r.nextInt(i + 1);
+    std::swap(shuffled[static_cast<size_t>(i)],
+              shuffled[static_cast<size_t>(j)]);
+}
 
     for (int x : shuffled)
     {
@@ -240,6 +260,7 @@ void MidiForgeAudioProcessor::addMelody(
         addStep(x, false);
     }
 
+    // Safety fill makes Density behave predictably.
     for (int x : candidates)
     {
         if ((int)chosen.size() >= targetCount) break;
@@ -252,6 +273,7 @@ void MidiForgeAudioProcessor::addMelody(
 
     std::sort(chosen.begin(), chosen.end());
 
+    // Previous bar/section supplies the motif to repeat.
     std::vector<NoteEvent> prevBar;
     const int prevStart = (barOffset - 1) * 16;
     if (barOffset > 0)
@@ -270,6 +292,7 @@ void MidiForgeAudioProcessor::addMelody(
     const auto prog = progressionDegrees();
     const int degree = prog[(size_t)(barOffset % (int)prog.size())];
 
+    // Chord tones are derived from scale degrees, so melody remains harmonic.
     const std::array<int,4> chordTones = {
         degreeToPitch(degree,     octave),
         degreeToPitch(degree + 2, octave),
@@ -302,7 +325,9 @@ void MidiForgeAudioProcessor::addMelody(
                     return std::abs((a.step % 16) - x) <
                            std::abs((b.step % 16) - x);
                 });
+
             target = (it != prevBar.end()) ? it->note : previous;
+
             if (r.nextFloat() < variationAmount)
                 target += r.nextInt(juce::Range<int>(-3,4));
         }
@@ -317,7 +342,12 @@ void MidiForgeAudioProcessor::addMelody(
         {
             const bool leap =
                 r.nextFloat() < (0.05f + 0.22f * leapChance + 0.10f * complexity);
+
+            // Каждая вариация получает свой "уклон" мелодии вверх/вниз — раньше все
+            // 8 вариаций тянулись к одним и тем же нотам аккорда почти одинаково,
+            // и звучали как копии друг друга с чуть другой громкостью.
             const int contourBias = ((variationSalt % 2) == 0) ? 1 : -1;
+
             target += leap
                 ? contourBias * r.nextInt(juce::Range<int>(4,9))
                 : r.nextInt(juce::Range<int>(-3,4));
@@ -372,6 +402,7 @@ void MidiForgeAudioProcessor::addMelody(
         len = juce::jmin(len, 16 - x);
 
         const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
+
         int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
         if (phraseEnd) velocity += 5;
         velocity = juce::jlimit(45,118,velocity);
@@ -384,6 +415,8 @@ void MidiForgeAudioProcessor::addMelody(
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
     if(arpDensity<=0.001f)return;
+    int root=degreeToPitch(degree,octave);
+    bool minorish=(scale!=Major&&scale!=Dorian&&scale!=Pentatonic);
     std::array<int,4> c={degreeToPitch(degree,octave),degreeToPitch(degree+2,octave),degreeToPitch(degree+4,octave),degreeToPitch(degree+6,octave)};
     int stride=juce::jmax(1,8/juce::jmax(1,arpRate));
     for(int x=0;x<16;x+=stride){
@@ -391,13 +424,13 @@ void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e
         int idx=(x/stride+barOffset)%4;
         if((barOffset/2)%2==1)idx=3-idx;
         s.notes.push_back({barOffset*16+x,1,snapToScale(c[(size_t)idx]),
-                           64+(x%4==0?8:0),4,false});
+                            64+(x%4==0?8:0),4,false});
     }
 }
 
 void MidiForgeAudioProcessor::buildSection(Section& section,int sectionIndex,
-    const std::vector<int>& prog,juce::Random& r,
-    const std::vector<NoteEvent>* inherited, int variationSalt)
+                                           const std::vector<int>& prog,juce::Random& r,
+                                           const std::vector<NoteEvent>* inherited, int variationSalt)
 {
     const juce::String names[]={"INTRO","VERSE","PRE-CHORUS","CHORUS","BREAK","DROP","OUTRO"};
     section.name=names[std::min(sectionIndex,6)];
@@ -409,7 +442,6 @@ void MidiForgeAudioProcessor::buildSection(Section& section,int sectionIndex,
     if(sectionIndex==3||sectionIndex==5)targetEnergy=juce::jmin(1.f,targetEnergy+0.28f);
     if(sectionIndex==4)targetEnergy*=0.45f;
     if(sectionIndex==6)targetEnergy*=0.40f;
-
     section.energy=targetEnergy;
     section.densityMultiplier=0.55f+0.65f*targetEnergy;
 
@@ -424,6 +456,7 @@ void MidiForgeAudioProcessor::buildSection(Section& section,int sectionIndex,
         if(arpEnabled && (sectionIndex>=2 || genre==Ambient))
             addArp(section,bar,deg,targetEnergy,r);
 
+        // Fill at the end of every fourth bar.
         if(fillAmount>0.01f && bar==bars-1 && r.nextFloat()<fillAmount){
             for(int x=12;x<16;++x){
                 int n=snapToScale(72+r.nextInt (juce::Range<int> (-6, 7)));
@@ -432,6 +465,7 @@ void MidiForgeAudioProcessor::buildSection(Section& section,int sectionIndex,
         }
     }
 
+    // Section-level transformations.
     if(sectionIndex==3||sectionIndex==5){
         for(auto& e:section.notes){
             if(e.channel==3) e.velocity=juce::jlimit(1,127,e.velocity+10);
@@ -446,15 +480,18 @@ void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int 
 {
     song.sections.clear();
     const auto prog=progressionDegrees();
-    int sectionCount=sectionMode==Loop?1:(sectionMode == SongMode?5:7);
 
+    int sectionCount=sectionMode==Loop?1:(sectionMode == SongMode?5:7);
     for(int i=0;i<sectionCount;++i){
         Section sec;
         const std::vector<NoteEvent>* inherited=nullptr;
+
         if(i>0 && !song.sections.empty()){
+            // Inherit a motif from the previous section's melody.
             for(const auto& ev:song.sections[i-1].notes)
                 if(ev.channel==3){ inherited=&song.sections[i-1].notes; break; }
         }
+
         buildSection(sec,i,prog,r,inherited,variationSalt);
         song.sections.push_back(std::move(sec));
     }
@@ -462,6 +499,8 @@ void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int 
 
 void MidiForgeAudioProcessor::buildVariationBank()
 {
+    // Замораживаем текущую (уже услышанную) вариацию перед перестройкой — если
+    // какая-то партия залочена, её ноты возьмём отсюда вместо новой генерации.
     Section previousSelected;
     {
         const juce::ScopedLock sl (variationsLock);
@@ -469,6 +508,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
             previousSelected = variations[(size_t) selectedVariation];
     }
 
+    // Строим полностью в локальный вектор и только в конце публикуем под локом —
+    // раньше audio-поток мог прочитать variations прямо во время его пересборки
+    // (data race, потенциальные щелчки/крэши при смене параметров на лету).
     std::vector<Section> result;
     result.reserve (8);
 
@@ -477,6 +519,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         SongData s;
         float oldVariation=variationAmount;
 
+        // Each variant changes the mutation pressure, density and section treatment.
         variationAmount=juce::jlimit(0.f,1.f,oldVariation + (v-3.5f)*0.08f);
         buildBaseSong(s,local,v);
         variationAmount=oldVariation;
@@ -496,6 +539,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
             }
         }
 
+        // Smart Lock: подменяем ноты залоченных партий на замороженный снимок,
+        // так что регенерация трогает только незалоченные слои.
         auto applyLock = [&](int channel, bool locked)
         {
             if (!locked) return;
@@ -505,7 +550,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 if (n.channel == channel && n.step < flat.bars * 16)
                     flat.notes.push_back(n);
         };
-
         applyLock(1, lockChordsLayer);
         applyLock(2, lockBassLayer);
         applyLock(3, lockMelodyLayer);
@@ -520,19 +564,20 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
 void MidiForgeAudioProcessor::regenerate()
 {
+    rng=juce::Random((juce::int64)seed);
     buildVariationBank();
-    chooseVariation (0);
+    {
+        const juce::ScopedLock sl (variationsLock);
+        selectedVariation=0;
+    }
+    lastGlobalStep=-1;
 }
 
 void MidiForgeAudioProcessor::regenerateVariations()
 {
-    int keep = 0;
-    {
-        const juce::ScopedLock sl (variationsLock);
-        keep = selectedVariation;
-    }
     buildVariationBank();
-    chooseVariation (keep);
+    const juce::ScopedLock sl (variationsLock);
+    selectedVariation=juce::jlimit(0,7,selectedVariation);
 }
 
 void MidiForgeAudioProcessor::chooseVariation(int index)
@@ -544,6 +589,7 @@ void MidiForgeAudioProcessor::chooseVariation(int index)
         const juce::ScopedLock sl(variationsLock);
         if (variations.empty())
             return;
+
         selectedVariation=juce::jlimit(0,(int)variations.size()-1,index);
         selectedNotes = variations[(size_t)selectedVariation].notes;
         selectedBars = variations[(size_t)selectedVariation].bars;
@@ -555,11 +601,12 @@ void MidiForgeAudioProcessor::chooseVariation(int index)
         activeBars = selectedBars;
     }
 
-    lastGlobalStep.store (-1);
+    lastGlobalStep=-1;
 }
 
 MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::mergedSelectedSong() const
 {
+    // Вызывающий код обязан держать variationsLock снаружи.
     if(variations.empty())return {};
     return variations[(size_t)selectedVariation];
 }
@@ -571,11 +618,18 @@ void MidiForgeAudioProcessor::emitNote(const NoteEvent& e,juce::MidiBuffer& midi
     int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
     midi.addEvent(juce::MidiMessage::noteOn(e.channel,e.note,(juce::uint8)velocity),sampleOffset);
 
+    // Длина шага в сэмплах теперь считается от реального темпа хоста (currentBpm),
+    // а не от захардкоженных 120 BPM.
     const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm) / 4.0;
+
+    // Note-off планируется в глобальном времени и складывается в очередь —
+    // раньше он пытался влезть в текущий блок и обрезал длинные ноты (аккорды на
+    // весь такт) почти до нуля, если длина ноты в сэмплах превышала blockSize.
     const juce::int64 offGlobal = samplePosition + sampleOffset
-        + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
+                                 + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
     pendingOffs.push_back ({ offGlobal, e.channel, e.note });
 }
+
 
 bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
 {
@@ -592,9 +646,8 @@ bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
     file.setTicksPerQuarterNote(ppq);
 
     juce::MidiMessageSequence conductor;
-    const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm));
-    conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
-    conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
+    conductor.addEvent(juce::MidiMessage::tempoMetaEvent(140.0), 0.0);
+    conductor.addEvent(juce::MidiMessage::timeSignatureMetaEvent(4, 2), 0.0);
 
     const int totalSteps = juce::jmax(1, song.bars * 16);
     const double endTick = (double) totalSteps * ticksPerStep;
@@ -604,16 +657,20 @@ bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
     for (int channel = 1; channel <= 4; ++channel)
     {
         juce::MidiMessageSequence track;
+
         for (const auto& e : song.notes)
         {
             if (e.channel != channel)
                 continue;
+
             const double onTick = (double) e.step * ticksPerStep;
             const double offTick = onTick + (double) juce::jmax(1, e.length) * ticksPerStep;
             const int velocity = juce::jlimit(1, 127, e.velocity);
+
             track.addEvent(juce::MidiMessage::noteOn(channel, e.note, (juce::uint8) velocity), onTick);
             track.addEvent(juce::MidiMessage::noteOff(channel, e.note), offTick);
         }
+
         track.updateMatchedPairs();
         track.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
         file.addTrack(track);
@@ -623,7 +680,8 @@ bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
     auto stream = output.createOutputStream();
     if (stream == nullptr)
         return false;
-    return file.writeTo (*stream, 1);
+
+    return file.writeTo(*stream, 0);
 }
 
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer& midi)
@@ -638,11 +696,10 @@ void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce:
             const double ppq=pos->getPpqPosition().orFallback(0.0);
             const int globalStep=(int)std::floor(ppq*4.0);
 
-            if (globalStep != lastGlobalStep.load())
-            {
-                lastGlobalStep.store (globalStep);
-                const juce::ScopedLock sl(activeNotesLock);
+            if(globalStep!=lastGlobalStep){
+                lastGlobalStep=globalStep;
 
+                const juce::ScopedLock sl(activeNotesLock);
                 if(!activeNotes.empty()){
                     const int period=juce::jmax(16,activeBars*16);
                     int local=globalStep%period;
@@ -653,8 +710,7 @@ void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce:
                     int offset=0;
                     if((local%2)==1)
                         offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm)/8.0);
-
-                    int velBias=(int)((realtimeRng.nextFloat()*2.f-1.f)*14.f*humanize);
+                    int velBias=(int)((rng.nextFloat()*2.f-1.f)*14.f*humanize);
 
                     for(const auto& e:activeNotes){
                         if(e.step==local) emitNote(e,out,offset,velBias);
@@ -664,6 +720,8 @@ void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce:
         }
     }
 
+    // Пропускаем через все отложенные note-off и выпускаем те, чьё время попало
+    // в текущий блок; остальные остаются в очереди на будущие блоки.
     const juce::int64 blockEnd = samplePosition + audio.getNumSamples();
     for (size_t i = 0; i < pendingOffs.size(); )
     {
@@ -671,7 +729,7 @@ void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce:
         if (p.globalSample < blockEnd)
         {
             const juce::int64 local = juce::jlimit<juce::int64> (0, juce::jmax (0, audio.getNumSamples() - 1),
-                p.globalSample - samplePosition);
+                                                                   p.globalSample - samplePosition);
             out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), (int) local);
             p = pendingOffs.back();
             pendingOffs.pop_back();
@@ -714,15 +772,18 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
     chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
     int savedSelection=i.readInt();
     regenerate();
-    chooseVariation (savedSelection);
+    const juce::ScopedLock sl (variationsLock);
+    selectedVariation=juce::jlimit(0,7,savedSelection);
 }
+
+// --- MIDI export --------------------------------------------------------
 
 juce::MidiFile MidiForgeAudioProcessor::buildMidiFile (int channelFilter) const
 {
     juce::MidiFile midiFile;
     constexpr int ticksPerQuarter = 960;
     midiFile.setTicksPerQuarterNote (ticksPerQuarter);
-    const int ticksPerStep = ticksPerQuarter / 4;
+    const int ticksPerStep = ticksPerQuarter / 4; // одна ступень = 16-я нота
 
     Section pattern;
     {
@@ -735,19 +796,24 @@ juce::MidiFile MidiForgeAudioProcessor::buildMidiFile (int channelFilter) const
     for (int channel = 1; channel <= 4; ++channel)
     {
         if (channelFilter != 0 && channel != channelFilter) continue;
+
         juce::MidiMessageSequence track;
         track.addEvent (juce::MidiMessage::textMetaEvent (3, trackNames[channel]), 0.0);
 
         for (const auto& n : pattern.notes)
         {
             if (n.channel != channel) continue;
+
             const double onTick  = n.step * (double) ticksPerStep;
             const double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+
             auto on = juce::MidiMessage::noteOn (channel, n.note, (juce::uint8) juce::jlimit (1, 127, n.velocity));
             auto off = juce::MidiMessage::noteOff (channel, n.note);
+
             track.addEvent (on, onTick);
             track.addEvent (off, offTick);
         }
+
         track.updateMatchedPairs();
         midiFile.addTrack (track);
     }
@@ -774,7 +840,7 @@ bool MidiForgeAudioProcessor::exportMidiFileToChannel (const juce::File& file, i
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFile() const
 {
     auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
+                    .getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
     exportMidiFileTo (file);
     return file;
 }
@@ -783,11 +849,12 @@ juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForChannel (int channe
 {
     static const char* names[5] = { "All", "Chords", "Bass", "Melody", "Arp" };
     auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 4, channel)])
-                       + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
+                    .getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 4, channel)])
+                                   + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
     exportMidiFileToChannel (file, channel);
     return file;
 }
+
 
 std::vector<MidiForgeAudioProcessor::VisibleNote> MidiForgeAudioProcessor::getVisibleNotes() const
 {
