@@ -1,0 +1,10 @@
+﻿build/
+JUCE/
+.vs/
+.vscode/
+*.user
+*.sln
+*.vcxproj*
+cmake-build-*/
+x64/
+out/

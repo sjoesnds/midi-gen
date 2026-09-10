@@ -1,0 +1,40 @@
+name: Build VST3 for Windows
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Clone JUCE
+      run: git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Package VST3
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifact
+        $vst = Get-ChildItem -Path build -Recurse -Filter "*.vst3" -Directory | Select-Object -First 1
+        if ($vst) {
+          Copy-Item -Path $vst.FullName -Destination artifact -Recurse
+        }
+        Compress-Archive -Path artifact\* -DestinationPath MidiForge-VST3.zip
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MidiForge-VST3
+        path: MidiForge-VST3.zip
