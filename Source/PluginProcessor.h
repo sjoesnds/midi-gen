@@ -31,10 +31,11 @@ public:
     // как самостоятельные генераторы: плагин с isMidiEffect()==true определяется
     // как категория "Effect" и живёт только в слотах микшера, где у него нет
     // аудиовхода для подключения — из-за этого он не появлялся в списке
-    // генераторов Channel Rack. isSynth()==true сообщает хосту, что это
-    // MIDI-инструмент, и FL показывает его как обычный генератор.
+    // генераторов Channel Rack. Категорию "инструмент" теперь задаёт CMake
+    // (IS_SYNTH TRUE) — отдельного C++ метода isSynth() в этой версии JUCE
+    // у AudioProcessor нет, override на несуществующий виртуальный метод
+    // ломает сборку (C3668).
     bool isMidiEffect() const override { return false; }
-    bool isSynth() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
