@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.22)
 project(MidiForge VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -7,7 +7,7 @@ add_subdirectory(JUCE)
 
 juce_add_plugin(MidiForge
     COMPANY_NAME "MidiForge"
-    IS_SYNTH FALSE
+    IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
     IS_MIDI_EFFECT FALSE
