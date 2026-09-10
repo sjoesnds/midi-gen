@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+﻿cmake_minimum_required(VERSION 3.22)
 project(MidiForge VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -17,6 +17,8 @@ juce_add_plugin(MidiForge
     PLUGIN_CODE Mfrg
     FORMATS VST3
     PRODUCT_NAME "MIDI Forge")
+
+juce_generate_juce_header(MidiForge)
 
 target_sources(MidiForge
     PRIVATE
