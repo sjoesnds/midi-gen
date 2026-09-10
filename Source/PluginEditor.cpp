@@ -41,9 +41,9 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
     setSize(900,980);
 
     title.setText("MIDI FORGE",juce::dontSendNotification);
-    title.setFont (juce::Font (juce::FontOptions (31.0f, juce::Font::bold)));
+    title.setFont (juce::Font (31.0f, juce::Font::bold));
     sectionLabel.setText("COMPOSITION ENGINE",juce::dontSendNotification);
-    sectionLabel.setFont (juce::Font (juce::FontOptions (12.0f)));
+    sectionLabel.setFont (juce::Font (12.0f));
     addAndMakeVisible(title);addAndMakeVisible(sectionLabel);
 
     root.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"},1);
