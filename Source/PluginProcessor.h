@@ -3,7 +3,6 @@
 #include <array>
 #include <vector>
 #include <atomic>
-
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -28,7 +27,9 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
-    bool isSynth() const override { return true; }
+    // Без override: переопределяет виртуальный метод базы, если он есть в этой
+    // версии JUCE, и гарантированно компилируется, если его там нет.
+    bool isSynth() const { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
@@ -64,7 +65,7 @@ public:
     void setChordsEnabled(bool); void setBassEnabled(bool);
     void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
 
-    // Smart Lock
+    // --- Smart Lock: заморозка отдельной партии при регенерации ---
     void setLockChords(bool v) { lockChordsLayer = v; }
     void setLockBass(bool v)   { lockBassLayer = v; }
     void setLockMelody(bool v) { lockMelodyLayer = v; }
@@ -110,14 +111,17 @@ public:
     int getVariationCount() const { return static_cast<int>(variations.size()); }
     int getSelectedVariation() const { return selectedVariation; }
 
-    // MIDI export
-    juce::MidiFile buildMidiFile(int channelFilter = 0) const;
-    bool exportMidiFileTo(const juce::File& file) const;
-    bool exportMidiFileToChannel(const juce::File& file, int channel) const;
-    juce::File writeTemporaryMidiFile() const;
-    juce::File writeTemporaryMidiFileForChannel(int channel) const;
+    // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
+    // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
+    juce::MidiFile buildMidiFile (int channelFilter = 0) const;
+    bool exportMidiFileTo (const juce::File& file) const;
+    bool exportMidiFileToChannel (const juce::File& file, int channel) const;
 
-    // For UI
+    // Пишет во временную папку — используется для drag-and-drop прямо в FL Studio
+    juce::File writeTemporaryMidiFile() const;
+    juce::File writeTemporaryMidiFileForChannel (int channel) const;
+
+    // --- Для визуализации в UI (мини пиано-ролл) ---
     struct VisibleNote { int step; int length; int note; int velocity; int channel; };
     std::vector<VisibleNote> getVisibleNotes() const;
     int getVisibleBars() const;
@@ -169,7 +173,6 @@ private:
     std::atomic<int> uiCurrentStep { -1 };
     double currentBpm = 120.0;
     juce::int64 samplePosition = 0;
-
     struct PendingOff { juce::int64 globalSample; int channel; int note; };
     std::vector<PendingOff> pendingOffs;
 
