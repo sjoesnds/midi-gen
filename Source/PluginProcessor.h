@@ -3,6 +3,7 @@
 #include <array>
 #include <vector>
 #include <atomic>
+#include <memory>
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -160,7 +161,7 @@ juce::Random realtimeRng { 0x51eed };
 // Текущий шаг воспроизведения (для метра/пиано-ролла в UI), обновляется в processBlock.
 std::atomic<int> uiCurrentStep { -1 };
 // Реальный темп хоста (BPM) — берётся из PlayHead каждый блок, раньше был захардкожен на 120.
-double currentBpm = 120.0;
+std::atomic<double> currentBpm { 120.0 };
 // Глобальный счётчик сэмплов и очередь отложенных note-off — раньше note-off
 // пытались влезть в текущий блок и обрезали длинные ноты (аккорды/бас) почти до нуля.
 juce::int64 samplePosition = 0;

@@ -1,5 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
+#include <memory>
+#include <utility>
 #include "PluginProcessor.h"
 class MidiForgeAudioProcessorEditor : public juce::AudioProcessorEditor,
 public juce::DragAndDropContainer,

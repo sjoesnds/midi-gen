@@ -131,15 +131,20 @@ fileChooser = std::make_unique<juce::FileChooser>(
 juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
 .getChildFile("MIDI_Forge_Song.mid"),
 "*.mid");
+
+auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
 fileChooser->launchAsync(
 juce::FileBrowserComponent::saveMode |
-juce::FileBrowserComponent::canSelectFiles,
-[this](const juce::FileChooser& chooser)
+juce::FileBrowserComponent::canSelectFiles |
+juce::FileBrowserComponent::warnAboutOverwriting,
+[safeThis](const juce::FileChooser& chooser)
 {
+if (safeThis == nullptr)
+return;
 const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
-const bool ok = processor.exportMidi(result);
+const bool ok = safeThis->processor.exportMidi(result);
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
@@ -170,13 +175,15 @@ addAndMakeVisible(tasteLabel);
 exportButton.onClick = [this]
 {
 fileChooser = std::make_unique<juce::FileChooser> ("Save MIDI file", juce::File(), "*.mid");
+auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
 fileChooser->launchAsync (
 juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-[this] (const juce::FileChooser& fc)
+[safeThis] (const juce::FileChooser& fc)
 {
+if (safeThis == nullptr) return;
 auto file = fc.getResult();
 if (file != juce::File())
-processor.exportMidiFileTo (file.withFileExtension ("mid"));
+safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid"));
 });
 };
 addAndMakeVisible (exportButton);

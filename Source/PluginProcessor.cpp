@@ -640,7 +640,7 @@ int sampleOffset,int velocityBias)
 if(e.step<0)return;
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 midi.addEvent(juce::MidiMessage::noteOn(e.channel,e.note,(juce::uint8)velocity),sampleOffset);
-const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm) / 4.0;
+const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
 const juce::int64 offGlobal = samplePosition + sampleOffset
 + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
 pendingOffs.push_back ({ offGlobal, e.channel, e.note });
@@ -656,7 +656,7 @@ constexpr int ticksPerStep = ppq / 4;
 juce::MidiFile file;
 file.setTicksPerQuarterNote(ppq);
 juce::MidiMessageSequence conductor;
-const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm));
+const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm.load()));
 conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
 conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
 const int totalSteps = juce::jmax(1, song.bars * 16);
@@ -693,7 +693,7 @@ juce::MidiBuffer out;
 for(const auto m:midi)out.addEvent(m.getMessage(),m.samplePosition);
 if(auto* ph=getPlayHead()){
 if(auto pos=ph->getPosition()){
-currentBpm = pos->getBpm().orFallback (120.0);
+currentBpm.store (pos->getBpm().orFallback (120.0));
 const double ppq=pos->getPpqPosition().orFallback(0.0);
 const int globalStep=(int)std::floor(ppq*4.0);
 if (globalStep != lastGlobalStep.load())
@@ -707,7 +707,7 @@ if(local<0)local+=period;
 uiCurrentStep.store (local);
 int offset=0;
 if((local%2)==1)
-offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm)/8.0);
+offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm.load())/8.0);
 int velBias=(int)((realtimeRng.nextFloat()*2.f-1.f)*14.f*humanize);
 for(const auto& e:activeNotes){
 if(e.step==local) emitNote(e,out,offset,velBias);
@@ -801,14 +801,14 @@ return midiFile;
 bool MidiForgeAudioProcessor::exportMidiFileTo (const juce::File& file) const
 {
 auto midiFile = buildMidiFile (0);
-if (auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+if (auto stream = file.createOutputStream())
 return midiFile.writeTo (*stream);
 return false;
 }
 bool MidiForgeAudioProcessor::exportMidiFileToChannel (const juce::File& file, int channel) const
 {
 auto midiFile = buildMidiFile (channel);
-if (auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+if (auto stream = file.createOutputStream())
 return midiFile.writeTo (*stream);
 return false;
 }
