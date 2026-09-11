@@ -3,6 +3,7 @@
 #include <array>
 #include <vector>
 #include <atomic>
+#include <fstream>
 
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
@@ -12,13 +13,13 @@ public:
     enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
     enum Rhythm { Straight, Syncopated, Broken, Euclidean };
     enum SectionMode { Loop, SongMode, SongExtended };
-
+    
     MidiForgeAudioProcessor();
     ~MidiForgeAudioProcessor() override = default;
 
     void prepareToPlay(double, int) override;
     void releaseResources() override {}
-    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+    bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -27,14 +28,6 @@ public:
     const juce::String getName() const override { return "MIDI Forge"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
-    // FL Studio (и многие другие DAW) плохо умеют использовать VST3 MIDI-эффекты
-    // как самостоятельные генераторы: плагин с isMidiEffect()==true определяется
-    // как категория "Effect" и живёт только в слотах микшера, где у него нет
-    // аудиовхода для подключения — из-за этого он не появлялся в списке
-    // генераторов Channel Rack. Категорию "инструмент" теперь задаёт CMake
-    // (IS_SYNTH TRUE) — отдельного C++ метода isSynth() в этой версии JUCE
-    // у AudioProcessor нет, override на несуществующий виртуальный метод
-    // ломает сборку (C3668).
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
@@ -51,12 +44,12 @@ public:
     void regenerateVariations();
     void chooseVariation(int index);
     bool exportMidi(const juce::File& targetFile) const;
-
+    
     // Main controls
     void setRoot(int); void setGenre(int); void setScale(int);
     void setProgression(int); void setRhythm(int); void setBars(int);
     void setSeed(int); void setOctave(int); void setSectionMode(int);
-
+    
     // Musical controls
     void setChordDensity(float); void setBassDensity(float);
     void setMelodyDensity(float); void setArpDensity(float);
@@ -67,11 +60,10 @@ public:
     void setChordExtensions(bool); void setInversions(bool);
     void setMotifStrength(float); void setVariationAmount(float);
     void setFillAmount(float); void setEnergy(float);
-
     void setChordsEnabled(bool); void setBassEnabled(bool);
     void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
-
-    // --- Smart Lock: заморозка отдельной партии при регенерации ---
+    
+    // Smart Lock
     void setLockChords(bool v) { lockChordsLayer = v; }
     void setLockBass(bool v)   { lockBassLayer = v; }
     void setLockMelody(bool v) { lockMelodyLayer = v; }
@@ -80,7 +72,7 @@ public:
     bool getLockBass() const   { return lockBassLayer; }
     bool getLockMelody() const { return lockMelodyLayer; }
     bool getLockArp() const    { return lockArpLayer; }
-
+    
     int getRoot() const { return rootPc; }
     int getGenre() const { return genre; }
     int getScale() const { return scale; }
@@ -90,7 +82,6 @@ public:
     int getSeed() const { return seed; }
     int getOctave() const { return octave; }
     int getSectionMode() const { return sectionMode; }
-
     float getChordDensity() const { return chordDensity; }
     float getBassDensity() const { return bassDensity; }
     float getMelodyDensity() const { return melodyDensity; }
@@ -110,30 +101,32 @@ public:
     float getVariationAmount() const { return variationAmount; }
     float getFillAmount() const { return fillAmount; }
     float getEnergy() const { return energy; }
-
     bool isChordsEnabled() const { return chordsEnabled; }
     bool isBassEnabled() const { return bassEnabled; }
     bool isMelodyEnabled() const { return melodyEnabled; }
     bool isArpEnabled() const { return arpEnabled; }
     bool getHookMode() const { return hookMode; }
-
     int getVariationCount() const { return static_cast<int>(variations.size()); }
     int getSelectedVariation() const { return selectedVariation; }
-
-    // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
-    // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
+    
+    // --- Like/Dislike system ---
+    void likeVariation(int varIndex);
+    void dislikeVariation(int varIndex);
+    int getLikeCount(int varIndex) const;
+    int getDislikeCount(int varIndex) const;
+    float getVariationScore(int varIndex) const;
+    
+    // --- MIDI export ---
     juce::MidiFile buildMidiFile (int channelFilter = 0) const;
     bool exportMidiFileTo (const juce::File& file) const;
     bool exportMidiFileToChannel (const juce::File& file, int channel) const;
-    // Пишет во временную папку — используется для drag-and-drop прямо в FL Studio
     juce::File writeTemporaryMidiFile() const;
     juce::File writeTemporaryMidiFileForChannel (int channel) const;
-
-    // --- Для визуализации в UI (мини пиано-ролл) ---
+    
+    // --- UI data ---
     struct VisibleNote { int step; int length; int note; int velocity; int channel; };
     std::vector<VisibleNote> getVisibleNotes() const;
     int getVisibleBars() const;
-    // Текущий шаг воспроизведения внутри паттерна (0..bars*16-1), -1 если не играет.
     int getVisiblePlayheadStep() const { return uiCurrentStep.load(); }
 
 private:
@@ -155,58 +148,56 @@ private:
         std::vector<Section> sections;
     };
 
-    // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
-    // из GUI-потока (регенерация, выбор варианта) — доступ защищён этим локом.
     mutable juce::CriticalSection variationsLock;
     mutable juce::CriticalSection activeNotesLock;
     std::vector<Section> variations;
     int selectedVariation = 0;
-
     std::vector<NoteEvent> activeNotes;
     int activeBars = 4;
 
     double sampleRate = 44100.0;
-    int blockSize = 512;
-
     int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
     int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
     int sectionMode = SongMode;
-
     float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
     float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;
     float melodyLength = 0.35f, pauseChance = 0.10f, leapChance = 0.18f, ghostChance = 0.08f;
     float voicingWidth = 0.45f;
     float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
     int arpRate = 4;
-
     bool chordExtensions = true, inversions = true;
     bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
     bool hookMode = true;
-
     bool lockChordsLayer = false, lockBassLayer = false, lockMelodyLayer = false, lockArpLayer = false;
 
-    int lastGlobalStep = -1;
-    mutable juce::Random rng{1337};
-
-    // Текущий шаг воспроизведения (для метра/пиано-ролла в UI), обновляется в processBlock.
+    std::atomic<int> lastGlobalStep { -1 };
+    juce::Random realtimeRng { 0x51eed };
     std::atomic<int> uiCurrentStep { -1 };
-
-    // Реальный темп хоста (BPM) — берётся из PlayHead каждый блок, раньше был захардкожен на 120.
     double currentBpm = 120.0;
-
-    // Глобальный счётчик сэмплов и очередь отложенных note-off — раньше note-off
-    // пытались влезть в текущий блок и обрезали длинные ноты (аккорды/бас) почти до нуля.
     juce::int64 samplePosition = 0;
+    
     struct PendingOff { juce::int64 globalSample; int channel; int note; };
     std::vector<PendingOff> pendingOffs;
+
+    // --- Learning system ---
+    struct VariationFeedback {
+        int likes = 0;
+        int dislikes = 0;
+        float avgDensity = 0.5f;
+        float avgEnergy = 0.5f;
+        float avgComplexity = 0.5f;
+    };
+    std::vector<VariationFeedback> feedback;
+    juce::File preferencesFile;
+    void loadPreferences();
+    void savePreferences();
+    void applyLearnedWeights();
 
     std::vector<int> scaleSemitones() const;
     std::vector<int> progressionDegrees() const;
     int degreeToPitch(int degree, int baseOctave) const;
     int snapToScale(int midi) const;
     bool rhythmHit(int stepInBar) const;
-    int humanVelocity(int base, bool accent, bool ghost);
-
     void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
     void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                       const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
@@ -215,10 +206,8 @@ private:
     void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
                    const std::vector<NoteEvent>* inheritedMotif, int variationSalt = 0);
     void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
-
     void buildVariationBank();
     Section mergedSelectedSong() const;
-
     void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessor)
