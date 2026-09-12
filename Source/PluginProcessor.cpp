@@ -186,9 +186,9 @@ void MidiForgeAudioProcessor::loadPreferences()
 if(!preferencesFile.existsAsFile())return;
 juce::var v=juce::JSON::parse(preferencesFile.loadFileAsString());
 if(auto* o=v.getDynamicObject()){
-likedN=(int)o->getProperty("likedN",0); disN=(int)o->getProperty("disN",0);
-likedD=(float)o->getProperty("likedD",0.0); likedE=(float)o->getProperty("likedE",0.0); likedC=(float)o->getProperty("likedC",0.0);
-disD=(float)o->getProperty("disD",0.0); disE=(float)o->getProperty("disE",0.0); disC=(float)o->getProperty("disC",0.0);
+likedN=(int)o->getProperty("likedN"); disN=(int)o->getProperty("disN");
+likedD=(float)o->getProperty("likedD"); likedE=(float)o->getProperty("likedE"); likedC=(float)o->getProperty("likedC");
+disD=(float)o->getProperty("disD"); disE=(float)o->getProperty("disE"); disC=(float)o->getProperty("disC");
 if(auto* la=o->getProperty("likes").getArray())
 for(int i=0;i<8&&i<la->size();++i) likeCounts[(size_t)i]=(int)(*la)[i];
 if(auto* da=o->getProperty("dislikes").getArray())
