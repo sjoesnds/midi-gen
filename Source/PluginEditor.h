@@ -20,6 +20,8 @@ juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox;
+ juce::ComboBox tempoModeBox;
+ juce::Slider manualBpmSlider;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;

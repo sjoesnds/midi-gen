@@ -60,6 +60,7 @@ enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pe
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
 enum SectionMode { Loop, SongMode, SongExtended };
+enum TempoMode { DAW_Sync, Manual_Tempo };
 MidiForgeAudioProcessor();
 ~MidiForgeAudioProcessor() override = default;
 void prepareToPlay(double, int) override;
@@ -101,6 +102,12 @@ void setFillAmount(float); void setEnergy(float);
 void setChordsEnabled(bool); void setBassEnabled(bool);
 void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
 void setLeadStyleSoundCloud(bool v) { leadStyleSoundCloud = v; }
+// --- DAW Tempo Sync -------------------------------------------------------
+void setTempoMode(int mode) { tempoMode = (TempoMode)juce::jlimit(0, 1, mode); }
+void setManualBpm(float bpm) { manualBpm = juce::jlimit(40.0f, 300.0f, bpm); }
+int getTempoMode() const { return (int)tempoMode; }
+float getManualBpm() const { return manualBpm; }
+float getCurrentBpm() const { return (tempoMode == DAW_Sync) ? (float)currentBpm.load() : manualBpm; }
 // --- Smart Lock: заморозка отдельной партии при регенерации ---
 void setLockChords(bool v) { lockChordsLayer = v; }
 void setLockBass(bool v)   { lockBassLayer = v; }
@@ -216,6 +223,9 @@ bool hookMode = true;
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
 bool leadStyleSoundCloud = false;
 bool lockChordsLayer = false, lockBassLayer = false, lockMelodyLayer = false, lockArpLayer = false;
+// --- DAW Tempo Sync -------------------------------------------------------
+TempoMode tempoMode = DAW_Sync;  // по умолчанию DAW Sync
+float manualBpm = 120.0f;        // ручной BPM для режима Manual
 std::atomic<int> lastGlobalStep { -1 };
 juce::Random realtimeRng { 0x51eed };
 // Текущий шаг воспроизведения (для метра/пиано-ролла в UI), обновляется в processBlock.

@@ -1074,7 +1074,8 @@ int sampleOffset,int velocityBias)
 if(e.step<0)return;
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 midi.addEvent(juce::MidiMessage::noteOn(e.channel,e.note,(juce::uint8)velocity),sampleOffset);
-const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
+const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpmValue) / 4.0;
 const juce::int64 offGlobal = samplePosition + sampleOffset
 + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
 pendingOffs.push_back ({ offGlobal, e.channel, e.note });
@@ -1090,7 +1091,8 @@ constexpr int ticksPerStep = ppq / 4;
 juce::MidiFile file;
 file.setTicksPerQuarterNote(ppq);
 juce::MidiMessageSequence conductor;
-const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm.load()));
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
+const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpmValue));
 conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
 conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
 const int totalSteps = juce::jmax(1, song.bars * 16);
@@ -1140,8 +1142,9 @@ int local=globalStep%period;
 if(local<0)local+=period;
 uiCurrentStep.store (local);
 int offset=0;
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
 if((local%2)==1)
-offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm.load())/8.0);
+offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpmValue)/8.0);
 int velBias=(int)((realtimeRng.nextFloat()*2.f-1.f)*14.f*humanize);
 for(const auto& e:activeNotes){
 if(e.step==local) emitNote(e,out,offset,velBias);
@@ -1182,6 +1185,7 @@ o.writeInt(arpRate);o.writeFloat(voicingWidth);o.writeBool(chordExtensions);o.wr
 o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
 o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
 o.writeInt(selectedVariation);
+o.writeInt((int)tempoMode);o.writeFloat(manualBpm);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -1196,6 +1200,8 @@ arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inve
 motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
+if (i.getNumBytesRemaining() >= (int)sizeof(int)) tempoMode = (TempoMode)i.readInt();
+if (i.getNumBytesRemaining() >= (int)sizeof(float)) manualBpm = i.readFloat();
 regenerate();
 chooseVariation (savedSelection);
 }
