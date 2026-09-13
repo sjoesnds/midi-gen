@@ -85,11 +85,8 @@ juce::Label title, sectionLabel;
  // воспроизведения. Цвет ноты = канал (аккорды/бас/мелодия/арпеджио).
  struct PianoRoll : public juce::Component, private juce::Timer
  {
-     explicit PianoRoll (MidiForgeAudioProcessor& proc,
-                       juce::TextButton& undoButton,
-                       juce::TextButton& redoButton,
-                       juce::Label& historyStatus)
-          : processor (proc), undoBtn (undoButton), redoBtn (redoButton), historyLabel (historyStatus)
+     PianoRoll (MidiForgeAudioProcessor& proc, juce::TextButton& undoButton, juce::TextButton& redoButton, juce::Label& historyText)
+          : processor (proc), undoBtn (undoButton), redoBtn (redoButton), historyLabel (historyText)
      {
          setWantsKeyboardFocus (true);
          startTimerHz (30);
@@ -229,7 +226,7 @@ juce::Label title, sectionLabel;
          }
          else
          {
-             const int step = snapStep (static_cast<float> (xToStep (e.position.x)));
+             const int step = snapStep (xToStep (e.position.x));
              const int note = yToPitch (e.position.y);
                  processor.addVisibleNote (step, note, defaultLengthSteps, 100, selectedChannel);
              selectedNote = (int) processor.getVisibleNotes().size() - 1;
@@ -463,6 +460,10 @@ juce::Label title, sectionLabel;
          return contentW / (float) visibleSteps;
      }
 
+     juce::TextButton& undoBtn;
+     juce::TextButton& redoBtn;
+     juce::Label& historyLabel;
+
      static bool sameNotes (const std::vector<MidiForgeAudioProcessor::VisibleNote>& a,
                             const std::vector<MidiForgeAudioProcessor::VisibleNote>& b)
      {
@@ -476,6 +477,7 @@ juce::Label title, sectionLabel;
          return true;
      }
 
+ public:
      void resetEditHistory()
      {
          history.clear();
