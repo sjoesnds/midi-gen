@@ -842,5 +842,112 @@ int MidiForgeAudioProcessor::getVisibleBars() const
 const juce::ScopedLock sl (activeNotesLock);
 return activeBars;
 }
+
+void MidiForgeAudioProcessor::syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes)
+{
+    const juce::ScopedLock sl (variationsLock);
+    if (selectedVariation < 0 || selectedVariation >= static_cast<int> (variations.size()))
+        return;
+
+    auto& section = variations[static_cast<size_t> (selectedVariation)];
+    section.notes.clear();
+    section.notes.reserve (notes.size());
+    for (const auto& n : notes)
+        section.notes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+}
+
+bool MidiForgeAudioProcessor::addVisibleNote (int step, int note, int length, int velocity, int channel)
+{
+    VisibleNote created { juce::jmax (0, step), juce::jmax (1, length),
+                          juce::jlimit (0, 127, note), juce::jlimit (1, 127, velocity),
+                          juce::jlimit (1, 4, channel) };
+    std::vector<VisibleNote> snapshot;
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        activeNotes.push_back ({ created.step, created.length, created.note, created.velocity, created.channel, false });
+        snapshot.reserve (activeNotes.size());
+        for (const auto& n : activeNotes)
+            snapshot.push_back ({ n.step, n.length, n.note, n.velocity, n.channel });
+    }
+    syncEditedNotesToSelectedVariation (snapshot);
+    return true;
+}
+
+bool MidiForgeAudioProcessor::editVisibleNote (int index, int step, int note, int length, int velocity)
+{
+    std::vector<VisibleNote> snapshot;
+    bool changed = false;
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        if (index < 0 || index >= static_cast<int> (activeNotes.size()))
+            return false;
+        auto& n = activeNotes[static_cast<size_t> (index)];
+        n.step = juce::jmax (0, step);
+        n.note = juce::jlimit (0, 127, note);
+        n.length = juce::jmax (1, length);
+        n.velocity = juce::jlimit (1, 127, velocity);
+        snapshot.reserve (activeNotes.size());
+        for (const auto& item : activeNotes)
+            snapshot.push_back ({ item.step, item.length, item.note, item.velocity, item.channel });
+        changed = true;
+    }
+    if (changed)
+        syncEditedNotesToSelectedVariation (snapshot);
+    return changed;
+}
+
+bool MidiForgeAudioProcessor::deleteVisibleNote (int index)
+{
+    std::vector<VisibleNote> snapshot;
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        if (index < 0 || index >= static_cast<int> (activeNotes.size()))
+            return false;
+        activeNotes.erase (activeNotes.begin() + index);
+        snapshot.reserve (activeNotes.size());
+        for (const auto& n : activeNotes)
+            snapshot.push_back ({ n.step, n.length, n.note, n.velocity, n.channel });
+    }
+    syncEditedNotesToSelectedVariation (snapshot);
+    return true;
+}
+
+void MidiForgeAudioProcessor::replaceVisibleNotes (const std::vector<VisibleNote>& notes)
+{
+    std::vector<VisibleNote> cleaned;
+    cleaned.reserve (notes.size());
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        activeNotes.clear();
+        for (const auto& n : notes)
+        {
+            const auto step = juce::jlimit (0, juce::jmax (0, activeBars * 16 - 1), n.step);
+            const auto length = juce::jmax (1, n.length);
+            const auto note = juce::jlimit (0, 127, n.note);
+            const auto velocity = juce::jlimit (1, 127, n.velocity);
+            const auto channel = juce::jlimit (1, 4, n.channel);
+            activeNotes.push_back ({ step, length, note, velocity, channel, false });
+            cleaned.push_back ({ step, length, note, velocity, channel });
+        }
+    }
+    syncEditedNotesToSelectedVariation (cleaned);
+}
+
+void MidiForgeAudioProcessor::quantizeVisibleNotes (int gridSteps)
+{
+    const int grid = juce::jmax (1, gridSteps);
+    std::vector<VisibleNote> snapshot;
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        snapshot.reserve (activeNotes.size());
+        for (auto& n : activeNotes)
+        {
+            n.step = juce::jmax (0, (n.step + grid / 2) / grid * grid);
+            snapshot.push_back ({ n.step, n.length, n.note, n.velocity, n.channel });
+        }
+    }
+    syncEditedNotesToSelectedVariation (snapshot);
+}
+
 juce::AudioProcessorEditor* MidiForgeAudioProcessor::createEditor(){return new MidiForgeAudioProcessorEditor(*this);}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter(){return new MidiForgeAudioProcessor();}

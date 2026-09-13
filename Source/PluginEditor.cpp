@@ -40,7 +40,7 @@ owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
 {
-setSize(900,980);
+setSize(900,1180);
 title.setText("MIDI FORGE",juce::dontSendNotification);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (31.0f, juce::Font::bold));
@@ -232,11 +232,11 @@ g.drawFittedText("MOTIF / ARRANGEMENT",24,336,820,20,juce::Justification::left,1
 g.drawFittedText("MELODY",24,456,820,20,juce::Justification::left,1);
 g.drawFittedText("FEEL",24,574,820,20,juce::Justification::left,1);
 g.drawFittedText("PIANO ROLL",24,628,820,20,juce::Justification::left,1);
-g.drawFittedText("VARIATIONS",24,780,560,20,juce::Justification::left,1);
-g.drawFittedText("LEARN (like/dislike current variation)",610,780,264,20,juce::Justification::left,1);
-g.drawFittedText("EXPORT",24,832,820,20,juce::Justification::left,1);
-g.drawFittedText("LOCK LAYERS (freeze while generating new variations)",24,876,820,20,juce::Justification::left,1);
-g.drawFittedText("DRAG SINGLE LAYER TO FL STUDIO",24,910,820,20,juce::Justification::left,1);
+g.drawFittedText("VARIATIONS",24,962,560,20,juce::Justification::left,1);
+g.drawFittedText("LEARN (like/dislike current variation)",610,962,264,20,juce::Justification::left,1);
+g.drawFittedText("EXPORT",24,1014,820,20,juce::Justification::left,1);
+g.drawFittedText("LOCK LAYERS (freeze while generating new variations)",24,1058,820,20,juce::Justification::left,1);
+g.drawFittedText("DRAG SINGLE LAYER TO FL STUDIO",24,1092,820,20,juce::Justification::left,1);
 }
 void MidiForgeAudioProcessorEditor::resized()
 {
@@ -263,25 +263,25 @@ ghostChance.setBounds(112,576,640,24);
 swing.setBounds(112,612,250,24);
 humanize.setBounds(390,612,250,24);
 complexity.setBounds(668,612,120,24);
-pianoRoll.setBounds(24,648,850,140);
-variationBox.setBounds(24,804,110,28);
-generate.setBounds(146,800,110,34);
-newSeed.setBounds(264,800,105,34);
-applyVariation.setBounds(377,800,95,34);
-exportMidi.setBounds(480,800,125,34);
-likeBtn.setBounds(610,800,80,34);
-dislikeBtn.setBounds(700,800,90,34);
-exportButton.setBounds(24,852,150,32);
-dragHandle.setBounds(184,852,170,32);
-tasteLabel.setBounds(610,852,264,20);
-lockChordsBtn.setBounds(24,896,140,24);
-lockBassBtn.setBounds(174,896,140,24);
-lockMelodyBtn.setBounds(324,896,140,24);
-lockArpBtn.setBounds(474,896,140,24);
-dragChords.setBounds(24,930,120,32);
-dragBass.setBounds(154,930,120,32);
-dragMelody.setBounds(284,930,120,32);
-dragArp.setBounds(414,930,120,32);
+pianoRoll.setBounds(24,648,850,300);
+variationBox.setBounds(24,986,110,28);
+generate.setBounds(146,982,110,34);
+newSeed.setBounds(264,982,105,34);
+applyVariation.setBounds(377,982,95,34);
+exportMidi.setBounds(480,982,125,34);
+likeBtn.setBounds(610,982,80,34);
+dislikeBtn.setBounds(700,982,90,34);
+exportButton.setBounds(24,1034,150,32);
+dragHandle.setBounds(184,1034,170,32);
+tasteLabel.setBounds(610,1034,264,20);
+lockChordsBtn.setBounds(24,1078,140,24);
+lockBassBtn.setBounds(174,1078,140,24);
+lockMelodyBtn.setBounds(324,1078,140,24);
+lockArpBtn.setBounds(474,1078,140,24);
+dragChords.setBounds(24,1112,120,32);
+dragBass.setBounds(154,1112,120,32);
+dragMelody.setBounds(284,1112,120,32);
+dragArp.setBounds(414,1112,120,32);
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {

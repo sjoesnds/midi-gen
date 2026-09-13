@@ -116,6 +116,12 @@ juce::File writeTemporaryMidiFileForChannel (int channel) const;
 struct VisibleNote { int step; int length; int note; int velocity; int channel; };
 std::vector<VisibleNote> getVisibleNotes() const;
 int getVisibleBars() const;
+// --- Piano Roll editing -------------------------------------------------
+bool addVisibleNote (int step, int note, int length, int velocity, int channel);
+bool editVisibleNote (int index, int step, int note, int length, int velocity);
+bool deleteVisibleNote (int index);
+void replaceVisibleNotes (const std::vector<VisibleNote>& notes);
+void quantizeVisibleNotes (int gridSteps);
 // Текущий шаг воспроизведения внутри паттерна (0..bars*16-1), -1 если не играет.
 int getVisiblePlayheadStep() const { return uiCurrentStep.load(); }
 private:
@@ -141,6 +147,7 @@ mutable juce::CriticalSection activeNotesLock;
 std::vector<Section> variations;
 int selectedVariation = 0;
 std::vector<NoteEvent> activeNotes;
+void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);
 int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
