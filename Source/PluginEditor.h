@@ -304,13 +304,13 @@ juce::Label title, sectionLabel;
          }
          if (key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier, 0))
          {
-             undo(undoBtn, redoBtn, historyLabel);
+             undo();
              return true;
          }
          if (key == juce::KeyPress ('y', juce::ModifierKeys::ctrlModifier, 0)
              || key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
          {
-             redo(undoBtn, redoBtn, historyLabel);
+             redo();
              return true;
          }
          if (key == juce::KeyPress::backspaceKey || key == juce::KeyPress::deleteKey)
@@ -479,23 +479,41 @@ juce::Label title, sectionLabel;
          historyCursor = -1;
      }
 
-     void undo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
-     void redo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
-     void clearAllNotes(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
-
- private:
-     void updateHistoryButtons(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
+     void undo()
      {
-         const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
-         const bool canRedo = historyCursor >= 0 && historyCursor + 1 < (int) history.size();
-         uBtn.setEnabled (canUndo);
-         rBtn.setEnabled (canRedo);
-         hLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
-                               + juce::String (canRedo ? (int) history.size() - historyCursor - 1 : 0) + " redo",
-                               juce::dontSendNotification);
+         if (history.empty())
+             history.push_back (processor.getVisibleNotes());
+         if (historyCursor <= 0)
+             return;
+         --historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         repaint();
      }
 
- public:
+     void redo()
+     {
+         if (historyCursor + 1 >= (int) history.size())
+             return;
+         ++historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         repaint();
+     }
+
+     void clearAllNotes()
+     {
+         const auto current = processor.getVisibleNotes();
+         if (current.empty())
+             return;
+         beginEditHistory();
+         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
+         commitEditHistory();
+         selectedNote = -1;
+         repaint();
+     }
+
+ private:
      void beginEditHistory()
      {
          if (history.empty())
@@ -527,41 +545,6 @@ juce::Label title, sectionLabel;
              }
              historyCursor = (int) history.size() - 1;
          }
-     }
-     void undo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
-     {
-         if (history.empty())
-             history.push_back (processor.getVisibleNotes());
-         if (historyCursor <= 0)
-             return;
-         --historyCursor;
-         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
-         selectedNote = -1;
-         updateHistoryButtons(uBtn, rBtn, hLabel);
-         repaint();
-     }
-
-     void redo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
-     {
-         if (historyCursor + 1 >= (int) history.size())
-             return;
-         ++historyCursor;
-         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
-         selectedNote = -1;
-         updateHistoryButtons(uBtn, rBtn, hLabel);
-         repaint();
-    
-     }
-     void clearAllNotes(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
-     {
-         const auto current = processor.getVisibleNotes();
-         if (current.empty())
-             return;
-         beginEditHistory();
-         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
-         commitEditHistory();
-         selectedNote = -1;
-         repaint();
      }
 
      void copySelection()
