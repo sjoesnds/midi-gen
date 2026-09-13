@@ -201,47 +201,109 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     Motif motif;
     motif.baseNote = baseNote;
     
-    // Создаём короткий мотив из 3-5 нот (характерная музыкальная мысль)
-    const int motifLength = 3 + random.nextInt(3); // 3, 4 или 5 нот
+    // Создаём короткий мотив из 2-6 нот для большего разнообразия
+    const int motifLength = 2 + random.nextInt(5); // 2-6 нот
     motif.length = motifLength;
     
-    // Генерируем ритмический паттерн мотива
-    std::vector<int> availableSteps = {0, 2, 4, 6, 8, 10, 12, 14};
-    if (genre == Trap || genre == BoomBap)
-        availableSteps = {0, 3, 6, 9, 12, 14};
-    else if (genre == House || genre == Techno)
-        availableSteps = {0, 4, 8, 12};
+    // Разнообразные ритмические паттерны в зависимости от жанра
+    std::vector<std::vector<int>> rhythmPatterns = {
+        {0, 4, 8, 12},           // Четверти
+        {0, 6, 12},              // Дактиль
+        {0, 3, 7, 12},           // Синкопа
+        {0, 2, 5, 8, 11, 14},    // Шестнадцатые с пропусками
+        {0, 8},                  // Половинные
+        {0, 5, 10, 15},          // Триоли
+        {0, 2, 8, 10},           // Двойная синкопа
+        {0, 4, 6, 10, 14}        // Сложный паттерн
+    };
     
-    // Выбираем шаги для нот мотива
-    for (int i = 0; i < motifLength && !availableSteps.empty(); ++i)
+    // Выбираем случайный ритмический паттерн
+    int patternIdx = random.nextInt((int)rhythmPatterns.size());
+    std::vector<int> availableSteps = rhythmPatterns[(size_t)patternIdx];
+    
+    // Для Trap/House добавляем характерные паттерны
+    if (genre == Trap || genre == BoomBap)
     {
-        const int idx = random.nextInt((int)availableSteps.size());
-        motif.steps.push_back(availableSteps[(size_t)idx]);
-        availableSteps.erase(availableSteps.begin() + idx);
+        std::vector<std::vector<int>> trapPatterns = {
+            {0, 3, 8, 12}, {0, 4, 9, 14}, {0, 2, 6, 10, 14}
+        };
+        if (random.nextBool())
+            availableSteps = trapPatterns[(size_t)random.nextInt((int)trapPatterns.size())];
     }
+    else if (genre == House || genre == Techno)
+    {
+        std::vector<std::vector<int>> housePatterns = {
+            {0, 4, 8, 12}, {0, 2, 6, 10, 14}, {0, 8}
+        };
+        if (random.nextBool())
+            availableSteps = housePatterns[(size_t)random.nextInt((int)housePatterns.size())];
+    }
+    
+    // Выбираем шаги для нот мотива (не все, а с вероятностью)
+    for (int step : availableSteps)
+    {
+        if (motif.steps.size() < (size_t)motifLength && 
+            (motif.steps.empty() || random.nextFloat() > 0.3f))
+        {
+            motif.steps.push_back(step);
+        }
+    }
+    
+    // Если нот слишком мало, добавляем ещё
+    while (motif.steps.size() < (size_t)juce::jmax(2, motifLength - 1))
+    {
+        int newStep = random.nextInt(16);
+        if (std::find(motif.steps.begin(), motif.steps.end(), newStep) == motif.steps.end())
+            motif.steps.push_back(newStep);
+    }
+    
     std::sort(motif.steps.begin(), motif.steps.end());
     
-    // Генерируем интервалы мотива (в полутонах)
+    // Генерируем интервалы мотива (в полутонах) с большим разнообразием
     const auto scale = scaleSemitones();
     const int scaleSize = (int)scale.size();
     
     // Первый интервал - базовая нота (0)
     motif.intervals.push_back(0);
     
-    // Остальные интервалы выбираем из гаммы
-    for (int i = 1; i < motifLength; ++i)
+    // Разнообразные стратегии выбора интервалов
+    int intervalStrategy = random.nextInt(4);
+    
+    for (size_t i = 1; i < motif.steps.size(); ++i)
     {
-        // Предпочитаем консонансные интервалы: унисон, терция, кварта, квинта, секста, октава
-        const int consonantDegrees = random.nextBool() ? 4 : 6;
-        int degree = random.nextInt(consonantDegrees);
+        int degree = 0;
         
-        // Добавляем немного хроматизма для интереса
-        if (random.nextFloat() < complexity * 0.3f)
-            degree = (degree + random.nextInt(3)) % scaleSize;
+        switch (intervalStrategy)
+        {
+            case 0: // Консонансная мелодия (терции, квинты, октавы)
+                degree = random.nextInt(4) * 2; // 0, 2, 4, 6
+                break;
+                
+            case 1: // Шаговая мелодия (преимущественно секунды)
+                degree = (int)i % scaleSize;
+                if (random.nextFloat() < 0.3f)
+                    degree = (degree + random.nextInt(2)) % scaleSize;
+                break;
+                
+            case 2: // Скачкообразная мелодия (квинты, сексты, октавы)
+                degree = 4 + random.nextInt(4); // 4-7 степени
+                break;
+                
+            case 3: // Хроматическая/джазовая (с проходами)
+                degree = random.nextInt(scaleSize);
+                if (random.nextFloat() < complexity * 0.5f)
+                    degree = (degree + random.nextInt(5) - 2 + scaleSize) % scaleSize;
+                break;
+        }
+        
+        // Добавляем октавные смещения для разнообразия
+        int octaveShift = 0;
+        if (random.nextFloat() < 0.25f)
+            octaveShift = random.nextBool() ? 1 : -1;
         
         const int semitone = scale[(size_t)(degree % scaleSize)];
-        const int octave = degree / scaleSize;
-        motif.intervals.push_back(semitone + octave * 12);
+        const int finalInterval = semitone + (degree / scaleSize + octaveShift) * 12;
+        motif.intervals.push_back(juce::jlimit(-24, 24, finalInterval));
     }
     
     // Сохраняем характерный ритмический паттерн
@@ -614,34 +676,41 @@ const auto prog = progressionDegrees();
 const int degree = prog[(size_t)(barOffset % (int)prog.size())];
 const int baseNote = degreeToPitch(degree, octave);
 
-// Генерируем новый мотив в начале каждой фразы или если это первый такт
-static Motif currentMotif;
-static bool motifInitialized = false;
-static int lastPhraseStart = -1;
+// Добавляем_variationSalt к рандому для уникальности каждой генерации
+const int motifSeed = seed + variationSalt + barOffset * 7;
+juce::Random motifRandom(motifSeed);
 
-if (barInPhrase == 0 && barOffset != lastPhraseStart)
+// Генерируем новый мотив в начале каждой фразы
+if (barInPhrase == 0)
 {
-    // Начало новой фразы: создаём новый мотив
-    currentMotif = generateMotif(r, baseNote, degree);
-    motifInitialized = true;
-    lastPhraseStart = barOffset;
-}
-else if (motifInitialized && barInPhrase > 0)
-{
-    // Развитие мотива внутри фразы через helper-метод
-    Motif developedMotif = generateMotifVariation(currentMotif, phase, variationAmount, r);
+    // Начало новой фразы: создаём новый мотив с большим разнообразием
+    Motif currentMotif = generateMotif(motifRandom, baseNote, degree);
     
-    // Применяем развитый мотив
-    applyMotifToMelody(s, barOffset, developedMotif, motifStrength, r, baseNote);
+    // Применяем мотив
+    applyMotifToMelody(s, barOffset, currentMotif, motifStrength, motifRandom, baseNote);
     
     // Call & Response: нечётные такты отвечают на терцию ниже
-    if (barInPhrase % 2 == 1 && hookMode && r.nextFloat() < motifStrength * 0.5f)
+    if (hookMode && motifRandom.nextFloat() < motifStrength * 0.6f)
     {
-        applyCallAndResponse(s, barOffset, developedMotif, motifStrength, r, baseNote);
+        applyCallAndResponse(s, barOffset, currentMotif, motifStrength, motifRandom, baseNote);
     }
-    
-    return; // Если мотив применён, продолжаем стандартную генерацию
 }
+else
+{
+    // Развитие мотива внутри фразы через helper-метод
+    Motif baseMotifForPhrase = generateMotif(motifRandom, baseNote, degree);
+    Motif developedMotif = generateMotifVariation(baseMotifForPhrase, phase, variationAmount, motifRandom);
+    
+    // Применяем развитый мотив с повышенной вариативностью
+    applyMotifToMelody(s, barOffset, developedMotif, motifStrength * 0.8f, motifRandom, baseNote);
+    
+    // Call & Response: каждый второй такт с большей вероятностью
+    if (hookMode && barInPhrase % 2 == 1 && motifRandom.nextFloat() < motifStrength * 0.7f)
+    {
+        applyCallAndResponse(s, barOffset, developedMotif, motifStrength, motifRandom, baseNote);
+    }
+}
+// Продолжаем стандартную генерацию для заполнения
 
 // Hook-oriented generator + flagship SoundCloud techniques:
 // repetition + rhythmic identity + chord-tone gravity + controlled variation,

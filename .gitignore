@@ -1,46 +1,78 @@
 ```
-# Compiled and build artifacts
+# Build directories
+build/
+_dist/
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+*.bin
 *.o
+*.d
+
+# JUCE framework build artifacts
+*_artefacts/
+_deps/
+
+# VST3 helper artifacts
+vst3_helpers/
+
+# Compiler output
+*.a
+*.lib
 *.obj
+*.out
 *.exe
 *.dll
 *.so
-*.a
-*.out
+*.dylib
 
-# Dependencies
-node_modules/
-venv/
-.venv/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
-target/
-.gradle/
-
-# Editors
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# System
-.DS_Store
-Thumbs.db
-.env
-.env.local
-*.env.*
-
-# Logs and temp files
+# Log files
 *.log
-*.tmp
 
-# Coverage
+# Coverage reports
 coverage/
 htmlcov/
-.coverage
 
-# Build directories
-build/
-dist/
+# Environment files
+.env
+.env.local
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Compressed archives
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+
 ```
