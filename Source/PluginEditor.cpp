@@ -40,7 +40,9 @@ owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
 {
-setSize(900,1180);
+setSize(900,800);
+setResizable(true, true);
+setResizeLimits(760, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (31.0f, juce::Font::bold));
@@ -223,65 +225,100 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
 {
 g.fillAll(juce::Colour(0xff0d1015));
 g.setColour(juce::Colour(0xff252a33));
-g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(12.f),12.f,1.f);
+g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(10.f),12.f,1.f);
 g.setColour(juce::Colours::white);
-g.setFont(13.f);
-g.drawFittedText("SOURCE / HARMONY",24,108,820,20,juce::Justification::left,1);
-g.drawFittedText("PART DENSITY",24,196,820,20,juce::Justification::left,1);
-g.drawFittedText("MOTIF / ARRANGEMENT",24,336,820,20,juce::Justification::left,1);
-g.drawFittedText("MELODY",24,456,820,20,juce::Justification::left,1);
-g.drawFittedText("FEEL",24,574,820,20,juce::Justification::left,1);
-g.drawFittedText("PIANO ROLL",24,628,820,20,juce::Justification::left,1);
-g.drawFittedText("VARIATIONS",24,962,560,20,juce::Justification::left,1);
-g.drawFittedText("LEARN (like/dislike current variation)",610,962,264,20,juce::Justification::left,1);
-g.drawFittedText("EXPORT",24,1014,820,20,juce::Justification::left,1);
-g.drawFittedText("LOCK LAYERS (freeze while generating new variations)",24,1058,820,20,juce::Justification::left,1);
-g.drawFittedText("DRAG SINGLE LAYER TO FL STUDIO",24,1092,820,20,juce::Justification::left,1);
+g.setFont(12.f);
+g.drawFittedText("SOURCE / HARMONY",20,82,860,18,juce::Justification::left,1);
+g.drawFittedText("PART DENSITY",20,146,860,18,juce::Justification::left,1);
+g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
+g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
+g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
+g.drawFittedText("PIANO ROLL",20,452,860,18,juce::Justification::left,1);
+g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left,1);
 }
 void MidiForgeAudioProcessorEditor::resized()
 {
-title.setBounds(24,20,360,38);sectionLabel.setBounds(27,63,500,20);
-root.setBounds(24,130,70,28);genre.setBounds(103,130,110,28);scale.setBounds(222,130,125,28);
-progression.setBounds(356,130,120,28);rhythm.setBounds(485,130,110,28);
-mode.setBounds(604,130,100,28);bars.setBounds(713,130,52,28);octave.setBounds(774,130,50,28);
-chords.setBounds(24,158,88,24);bass.setBounds(116,158,84,24);melody.setBounds(204,158,98,24);
-arp.setBounds(306,158,75,24);extensions.setBounds(385,158,88,24);inversions.setBounds(477,158,75,24);
-arpRate.setBounds(560,158,65,24);
-hookModeButton.setBounds(632,158,75,24);
-chordDensity.setBounds(112,220,640,24);
-bassDensity.setBounds(112,252,640,24);
-melodyDensity.setBounds(112,284,640,24);
-arpDensity.setBounds(112,316,640,24);
-motifStrength.setBounds(112,360,640,24);
-variationAmount.setBounds(112,392,640,24);
-fillAmount.setBounds(112,424,640,24);
-energy.setBounds(112,456,640,24);
-melodyLength.setBounds(112,480,640,24);
-pauseChance.setBounds(112,512,640,24);
-leapChance.setBounds(112,544,640,24);
-ghostChance.setBounds(112,576,640,24);
-swing.setBounds(112,612,250,24);
-humanize.setBounds(390,612,250,24);
-complexity.setBounds(668,612,120,24);
-pianoRoll.setBounds(24,648,850,300);
-variationBox.setBounds(24,986,110,28);
-generate.setBounds(146,982,110,34);
-newSeed.setBounds(264,982,105,34);
-applyVariation.setBounds(377,982,95,34);
-exportMidi.setBounds(480,982,125,34);
-likeBtn.setBounds(610,982,80,34);
-dislikeBtn.setBounds(700,982,90,34);
-exportButton.setBounds(24,1034,150,32);
-dragHandle.setBounds(184,1034,170,32);
-tasteLabel.setBounds(610,1034,264,20);
-lockChordsBtn.setBounds(24,1078,140,24);
-lockBassBtn.setBounds(174,1078,140,24);
-lockMelodyBtn.setBounds(324,1078,140,24);
-lockArpBtn.setBounds(474,1078,140,24);
-dragChords.setBounds(24,1112,120,32);
-dragBass.setBounds(154,1112,120,32);
-dragMelody.setBounds(284,1112,120,32);
-dragArp.setBounds(414,1112,120,32);
+const int W = getWidth();
+const int left = 20;
+const int contentW = W - 40;
+
+// Header
+title.setBounds(left,14,360,32);
+sectionLabel.setBounds(23,48,500,18);
+
+// Source / harmony
+const int gap = 7;
+int x = left;
+root.setBounds(x,82,68,26); x += 68 + gap;
+genre.setBounds(x,82,106,26); x += 106 + gap;
+scale.setBounds(x,82,118,26); x += 118 + gap;
+progression.setBounds(x,82,112,26); x += 112 + gap;
+rhythm.setBounds(x,82,104,26); x += 104 + gap;
+mode.setBounds(x,82,90,26); x += 90 + gap;
+bars.setBounds(x,82,48,26); x += 48 + gap;
+octave.setBounds(x,82,46,26);
+
+chords.setBounds(20,112,82,22);
+bass.setBounds(106,112,76,22);
+melody.setBounds(186,112,90,22);
+arp.setBounds(280,112,70,22);
+extensions.setBounds(354,112,82,22);
+inversions.setBounds(440,112,68,22);
+arpRate.setBounds(512,112,58,22);
+hookModeButton.setBounds(574,112,72,22);
+
+// Two-column compact control layout.
+const int sliderH = 21;
+const int colW = juce::jmax(240, (contentW - 16) / 2);
+const int x1 = left;
+const int x2 = left + colW + 16;
+
+chordDensity.setBounds(x1,164,colW,sliderH);
+bassDensity.setBounds(x2,164,colW,sliderH);
+melodyDensity.setBounds(x1,190,colW,sliderH);
+arpDensity.setBounds(x2,190,colW,sliderH);
+
+motifStrength.setBounds(x1,252,colW,sliderH);
+variationAmount.setBounds(x2,252,colW,sliderH);
+fillAmount.setBounds(x1,278,colW,sliderH);
+energy.setBounds(x2,278,colW,sliderH);
+
+melodyLength.setBounds(x1,340,colW,sliderH);
+pauseChance.setBounds(x2,340,colW,sliderH);
+leapChance.setBounds(x1,366,colW,sliderH);
+ghostChance.setBounds(x2,366,colW,sliderH);
+
+swing.setBounds(x1,428,(contentW - 16) / 3,21);
+humanize.setBounds(x1 + (contentW - 16) / 3 + 8,428,(contentW - 16) / 3,21);
+complexity.setBounds(x1 + 2 * ((contentW - 16) / 3) + 16,428,(contentW - 16) / 3,21);
+
+// Piano roll is kept large enough to remain usable, but no longer pushes the
+// action controls below the host window.
+pianoRoll.setBounds(left,472,contentW,190);
+
+// Bottom action rows — always visible in the default 800px editor.
+variationBox.setBounds(20,690,98,28);
+generate.setBounds(126,687,102,32);
+newSeed.setBounds(236,687,98,32);
+applyVariation.setBounds(342,687,92,32);
+exportMidi.setBounds(442,687,118,32);
+likeBtn.setBounds(568,687,70,32);
+dislikeBtn.setBounds(644,687,82,32);
+tasteLabel.setBounds(732,690,W - 752,28);
+
+exportButton.setBounds(20,733,142,28);
+lockChordsBtn.setBounds(174,733,104,24);
+lockBassBtn.setBounds(284,733,104,24);
+lockMelodyBtn.setBounds(394,733,112,24);
+lockArpBtn.setBounds(512,733,96,24);
+
+dragHandle.setBounds(620,731,132,28);
+
+dragChords.setBounds(20,764,118,28);
+dragBass.setBounds(146,764,118,28);
+dragMelody.setBounds(272,764,118,28);
+dragArp.setBounds(398,764,118,28);
+tasteLabel.setBounds(530,764,W - 550,28);
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {
