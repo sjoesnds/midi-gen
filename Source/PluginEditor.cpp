@@ -164,9 +164,9 @@ addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVa
 
 // --- P2: Undo / Redo / Clear ------------------------------------------
 pianoRoll.resetEditHistory();
-undoBtn.onClick = [this] { pianoRoll.undo(undoBtn, redoBtn, historyLabel); };
-redoBtn.onClick = [this] { pianoRoll.redo(undoBtn, redoBtn, historyLabel); };
-clearBtn.onClick = [this] { pianoRoll.clearAllNotes(undoBtn, redoBtn, historyLabel); };
+undoBtn.onClick = [this] { pianoRoll.undo(); };
+redoBtn.onClick = [this] { pianoRoll.redo(); };
+clearBtn.onClick = [this] { pianoRoll.clearAllNotes(); };
 historyLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
 historyLabel.setFont (juce::Font (11.0f));
 historyLabel.setJustificationType (juce::Justification::centredLeft);
