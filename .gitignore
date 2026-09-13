@@ -1,49 +1,73 @@
 ```
-# Compiled and build artifacts
+# CMake build artifacts
+build/
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# JUCE framework artifacts
+*_artefacts/
+_deps/
+
+# VST3 helper artifacts
+vst3_helpers/
+
+# Compiler object files
 *.o
 *.obj
+*.d
+
+# Executables
 *.exe
-*.dll
-*.so
-*.a
 *.out
 
-# Dependencies
-node_modules/
-venv/
-.venv/
-__pycache__/
-dist/
-build/
-target/
-.gradle/
-
-# Logs and temp files
-*.log
+# Temporary files
 *.tmp
-*.swp
+*.log
 
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
+# IDE files
 .vscode/
 .idea/
 
-# System files
+# Package managers
+node_modules/
+
+# Virtual environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Distribution / packaging
+dist/
+target/
+
+# OS generated files
 .DS_Store
 Thumbs.db
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
+# Compression / archives
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 
-# MyPy
-.mypy_cache/
-
-# PyTest
-.pytest_cache/
 ```

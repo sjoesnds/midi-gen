@@ -359,6 +359,144 @@ void MidiForgeAudioProcessor::applyCallAndResponse(Section& s, int barOffset, co
     applyMotifToMelody(s, barOffset, responseMotif, strength * 0.7f, random, baseNote);
 }
 
+// --- Humanization Engine methods ------------------------------------------
+
+MidiForgeAudioProcessor::VelocityProfile::Shape 
+MidiForgeAudioProcessor::chooseVelocityShapeForPhrase(PhraseState::Phase phase, juce::Random& random)
+{
+    switch (phase)
+    {
+        case PhraseState::PhraseStart:
+            // Начало фразы: сильный акцент, затем спад
+            return VelocityProfile::Decrescendo;
+        case PhraseState::Development:
+            // Развитие: нарастание
+            return VelocityProfile::Crescendo;
+        case PhraseState::Tension:
+            // Напряжение: арка (сильные края, слабая середина)
+            return VelocityProfile::Arch;
+        case PhraseState::Resolution:
+            // Разрешение: мягкое завершение
+            return VelocityProfile::Decrescendo;
+        default:
+            return VelocityProfile::Flat;
+    }
+}
+
+MidiForgeAudioProcessor::RhythmVariation 
+MidiForgeAudioProcessor::generateRhythmVariation(float humanizeAmount, bool isAccent, juce::Random& random)
+{
+    RhythmVariation variation;
+    
+    // Микросдвиги времени (человеческая неточность)
+    const float timingRange = isAccent ? 0.15f : 0.35f;  // акценты более точные
+    variation.microTiming = (random.nextFloat() * 2.0f - 1.0f) * timingRange * humanizeAmount;
+    
+    // Небольшие паузы вместо некоторых нот
+    if (!isAccent && random.nextFloat() < 0.08f * humanizeAmount)
+        variation.isPause = true;
+    
+    // Удлинение/укорочение нот
+    const float lengthVar = (random.nextFloat() * 2.0f - 1.0f) * 0.25f * humanizeAmount;
+    variation.lengthMultiplier = 1.0f + lengthVar;
+    
+    return variation;
+}
+
+int MidiForgeAudioProcessor::constrainInterval(int prevNote, int nextNote, 
+                                                const IntervalConstraint& constraint, 
+                                                juce::Random& random)
+{
+    const int interval = std::abs(nextNote - prevNote);
+    
+    // Проверяем, является ли интервал большим скачком
+    const bool isLeap = interval > constraint.maxStepSize;
+    
+    // Если это скачок, с некоторой вероятностью возвращаемся к более близкой ноте
+    if (isLeap && random.nextFloat() < constraint.returnAfterLeap)
+    {
+        // Возвращаемся в диапазоне шага от предыдущей ноты
+        const int direction = (nextNote > prevNote) ? -1 : 1;
+        const int maxStep = (int)constraint.maxStepSize;
+        const int stepSize = 1 + random.nextInt(maxStep);
+        return prevNote + direction * stepSize;
+    }
+    
+    // Для обычных нот ограничиваем размер шага
+    if (!isLeap && interval > constraint.maxStepSize)
+    {
+        const int direction = (nextNote > prevNote) ? 1 : -1;
+        const int maxStep = (int)constraint.maxStepSize;
+        return prevNote + direction * (1 + random.nextInt(maxStep));
+    }
+    
+    return nextNote;
+}
+
+void MidiForgeAudioProcessor::applyHumanization(Section& s, int startStep, int endStep, 
+                                                 float humanizeAmount, juce::Random& random,
+                                                 const VelocityProfile::Shape& velocityShape)
+{
+    const int totalNotes = endStep - startStep;
+    if (totalNotes <= 0 || humanizeAmount <= 0.0f)
+        return;
+    
+    int noteIndex = 0;
+    for (auto& note : s.notes)
+    {
+        if (note.step < startStep || note.step >= endStep)
+            continue;
+        
+        // Определяем позицию во фразе (0..1)
+        const float phrasePosition = (float)(note.step - startStep) / (float)totalNotes;
+        
+        // Применяем профиль velocity
+        float velocityModifier = 1.0f;
+        switch (velocityShape)
+        {
+            case VelocityProfile::Crescendo:
+                velocityModifier = 0.7f + 0.6f * phrasePosition;
+                break;
+            case VelocityProfile::Decrescendo:
+                velocityModifier = 1.3f - 0.6f * phrasePosition;
+                break;
+            case VelocityProfile::Arch:
+                velocityModifier = 0.7f + 1.2f * (1.0f - std::abs(2.0f * phrasePosition - 1.0f));
+                break;
+            case VelocityProfile::InvertedArch:
+                velocityModifier = 1.3f - 1.2f * (1.0f - std::abs(2.0f * phrasePosition - 1.0f));
+                break;
+            default:
+                velocityModifier = 1.0f;
+                break;
+        }
+        
+        // Акценты на сильных долях
+        const bool isAccent = (note.step % 4 == 0);
+        if (isAccent)
+            velocityModifier *= (1.0f + 0.3f * humanizeAmount);
+        
+        // Применяем modifier к velocity
+        note.velocity = juce::jlimit(20, 127, 
+            (int)((float)note.velocity * velocityModifier * (0.8f + 0.4f * humanizeAmount)));
+        
+        // Генерируем ритмическую вариацию
+        const auto rhythmVar = generateRhythmVariation(humanizeAmount, isAccent, random);
+        
+        // Применяем микросдвиги к позиции ноты (эмуляция через изменение длины)
+        if (rhythmVar.isPause)
+        {
+            note.length = 0;  // Пауза
+        }
+        else
+        {
+            note.length = juce::jmax(1, (int)((float)note.length * rhythmVar.lengthMultiplier));
+        }
+        
+        ++noteIndex;
+    }
+}
+
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -406,6 +544,65 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
+// --- PHASE 3: Humanization Engine Helpers ---
+auto calculateHumanVelocity = [&](int noteIndex, int totalNotes, bool isAccent, bool isPhraseEnd, float baseVel = 78.0f) -> int
+{
+    float positionFactor = 1.0f;
+    
+    // Фразировка: начало сильнее, конец тише
+    float normalizedPos = static_cast<float>(noteIndex) / std::max(1, totalNotes - 1);
+    
+    if (normalizedPos < 0.2f) {
+        positionFactor = 1.15f; // Начало фразы: немного сильнее
+    } else if (normalizedPos > 0.8f || isPhraseEnd) {
+        positionFactor = 0.85f; // Конец фразы: затухание
+    }
+
+    float velocity = baseVel * positionFactor;
+
+    // Акценты: еще сильнее
+    if (isAccent) {
+        velocity *= 1.2f;
+    }
+
+    // Микро-вариация (человеческий фактор) +/- 5
+    float humanVar = static_cast<float>((r.nextInt() % 10) - 5);
+    velocity += humanVar;
+
+    return juce::jlimit(45, 118, static_cast<int>(velocity));
+};
+
+auto calculateMicroTiming = [&](int stepInBar, bool isDownbeat) -> float
+{
+    float timingOffset = 0.0f;
+
+    if (isDownbeat) {
+        // На сильные доли играем чуть раньше (агрессивно) или точно вовремя
+        if (r.nextFloat() < 0.3f) {
+            timingOffset = -0.02f; // Чуть раньше на 5-10 тиков
+        }
+    } else {
+        // На слабые доли возможна небольшая задержка (ленивый грув)
+        if (r.nextFloat() < 0.4f) {
+            timingOffset = 0.03f; // Задержаться на 5-15 тиков
+        }
+    }
+
+    return timingOffset;
+};
+
+auto isNaturalInterval = [&](int currentPitch, int nextPitch) -> bool
+{
+    int interval = std::abs(nextPitch - currentPitch);
+
+    // Большие скачки (> октавы) допустимы только как акценты и редко
+    if (interval > 12) {
+        return r.nextFloat() < 0.15f; // 15% шанс большого скачка
+    }
+
+    return true;
+};
+
 // --- Motif / Phrase Engine Integration ---
 // Генерируем мотив для первой фразы (4 такта) и развиваем его
 const int phraseLength = 4;
@@ -665,28 +862,43 @@ if (leadStyleSoundCloud && r.nextFloat() < 0.5f)
 len = juce::jmax(len, 2 + (r.nextBool() ? 2 : 0));
 len = juce::jmin(len, 16 - x);
 const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
-int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
-if (phraseEnd) velocity += 5;
-// FLAGSHIP: velocity curve inside the bar.
-velocity = (int)(velocity * (1.f + curveAmt * curveDir * ((float)x / 15.f - 0.5f) * 2.f));
-velocity = juce::jlimit(45,118,velocity);
+
+// --- PHASE 3: Humanization Engine ---
+// Используем новую систему расчета velocity вместо старой формулы
+int velocity = calculateHumanVelocity(index, (int)chosen.size(), accent, phraseEnd);
+
+// Применяем микросдвиги времени (human timing)
+float timingOffset = calculateMicroTiming(x, (x % 4) == 0);
+int actualStep = barOffset * 16 + x;
+if (timingOffset != 0.0f) {
+    // Для простоты пока не применяем сдвиг к позиции ноты в шагах,
+    // но можно добавить sub-step точность при необходимости
+    // Здесь мы просто учитываем это при генерации passing tones
+}
+
 // FLAGSHIP: chromatic approach note into strong targets.
 // (skipped for "SoundCloud" lead — that style stays plain and spacious,
 // chromatic decoration reads as too busy/"hooky" for it)
 if (!leadStyleSoundCloud && (accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
-s.notes.push_back({barOffset*16+x-1,1,juce::jlimit(0,127,note-1),55,3,true});
+{
+    int approachStep = actualStep - 1;
+    if (timingOffset < 0) approachStep -= 1; // Если нота играется раньше, подходная тоже сдвигается
+    s.notes.push_back({approachStep, 1, juce::jlimit(0,127,note-1), 55, 3, true});
+}
+
 // FLAGSHIP: passing tone split on big leaps.
 bool passed = false;
 if (!leadStyleSoundCloud && std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
 {
-const int mid = snapToScale((note+previous)/2);
-s.notes.push_back({barOffset*16+x,1,mid,62,3,false});
-used[(size_t)(x+1)] = true;
-s.notes.push_back({barOffset*16+x+1,juce::jmax(1,len-1),note,velocity,3,ghost});
-passed = true;
+    const int mid = snapToScale((note+previous)/2);
+    s.notes.push_back({actualStep, 1, mid, 62, 3, false});
+    used[(size_t)(x+1)] = true;
+    s.notes.push_back({actualStep+1, juce::jmax(1,len-1), note, velocity, 3, ghost});
+    passed = true;
 }
+
 if (!passed)
-s.notes.push_back({barOffset*16+x,len,note,velocity,3,ghost});
+    s.notes.push_back({actualStep, len, note, velocity, 3, ghost});
 // FLAGSHIP: octave shimmer double (bell/pluck colour).
 // (skipped for "SoundCloud" — that style wants one clean, sad note, not a
 // shimmering double)

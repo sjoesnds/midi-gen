@@ -9,6 +9,28 @@ class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
 // --- Motif / Phrase Engine ------------------------------------------------
+// --- Humanization Engine --------------------------------------------------
+struct VelocityProfile
+{
+    enum Shape { Flat, Crescendo, Decrescendo, Arch, InvertedArch };
+    Shape shape = Flat;
+    float accentStrength = 0.5f;  // сила акцентов на важных долях
+};
+
+struct RhythmVariation
+{
+    float microTiming = 0.0f;     // микросдвиги времени (-1..1, в долях шага)
+    bool isPause = false;         // небольшая пауза вместо ноты
+    float lengthMultiplier = 1.0f; // удлинение/укорочение ноты
+};
+
+struct IntervalConstraint
+{
+    float maxStepSize = 3.0f;     // макс. размер шага в полутонах для обычных нот
+    float leapChance = 0.15f;     // вероятность большого скачка
+    float returnAfterLeap = 0.7f; // вероятность возврата после скачка
+};
+
 struct Motif
 {
     std::vector<int> steps;      // шаги внутри такта (0..15)
@@ -16,6 +38,11 @@ struct Motif
     int baseNote = 60;           // базовая нота мотива
     int length = 4;              // длина мотива в шагах
     float rhythmPattern = 0.0f;  // характерный ритмический паттерн
+    
+    // Humanization данные
+    std::vector<VelocityProfile> velocityProfiles;  // профиль velocity для каждой ноты
+    std::vector<RhythmVariation> rhythmVariations;  // ритмические вариации для каждой ноты
+    IntervalConstraint intervalConstraint;          // ограничения на интервалы
 };
 
 struct PhraseState
@@ -228,6 +255,12 @@ Motif generateMotifVariation(const Motif& baseMotif, PhraseState::Phase phase,
                              float variationAmt, juce::Random& random);
 void applyCallAndResponse(Section& s, int barOffset, const Motif& motif,
                           float strength, juce::Random& random, int baseNote);
+// --- Humanization Engine methods ------------------------------------------
+void applyHumanization(Section& s, int startStep, int endStep, float humanizeAmount,
+                       juce::Random& random, const VelocityProfile::Shape& velocityShape);
+VelocityProfile::Shape chooseVelocityShapeForPhrase(PhraseState::Phase phase, juce::Random& random);
+RhythmVariation generateRhythmVariation(float humanizeAmount, bool isAccent, juce::Random& random);
+int constrainInterval(int prevNote, int nextNote, const IntervalConstraint& constraint, juce::Random& random);
 void addChords(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addBass(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
