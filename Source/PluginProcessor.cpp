@@ -2,6 +2,119 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+namespace
+{
+    // Chart-informed melodic prior.
+    //
+    // The July-2025 top-10k Spotify snapshot provides useful macro priors
+    // (popularity, tempo, key/mode, danceability, energy and time signature),
+    // while Pop-K (2025) supplies a large symbolic-pop reference set with
+    // lead/chord/bass MIDI.  Neither source publishes a single authoritative
+    // "2025 top-10k melody-note histogram", so these are deliberately broad
+    // priors rather than copied song patterns.
+    struct ChartMelodyProfile
+    {
+        static constexpr float stepWeight[16] =
+        {
+            1.35f, 0.46f, 0.92f, 0.52f,
+            1.18f, 0.55f, 0.88f, 0.48f,
+            1.28f, 0.44f, 0.90f, 0.54f,
+            1.16f, 0.58f, 0.84f, 0.68f
+        };
+
+        // Probability mass for scale-degree distance from the previous note.
+        // The centre-heavy distribution favours singable motion while leaving
+        // enough room for memorable skips.
+        static constexpr float intervalWeight[8] =
+        {
+            1.00f, // same/near repeat
+            2.35f, // 1 scale degree
+            2.05f, // 2 degrees
+            1.55f, // 3 degrees
+            1.15f, // 4 degrees
+            0.78f, // 5 degrees
+            0.52f, // 6 degrees
+            0.26f  // octave / large leap
+        };
+
+        static constexpr float durationWeight[4] =
+        {
+            1.00f, 0.82f, 0.48f, 0.22f
+        };
+
+        static float stepProbability(int step, float density, float energy)
+        {
+            const float base = stepWeight[juce::jlimit(0, 15, step)];
+            const float backbeat = ((step % 4) == 2) ? 0.08f * energy : 0.0f;
+            return juce::jlimit(0.08f, 1.0f,
+                                0.38f + 0.28f * density + 0.22f * (base / 1.35f)
+                                + backbeat);
+        }
+
+        static int chooseScaleDistance(juce::Random& r, float leapChance, float complexity)
+        {
+            float weights[8];
+            float total = 0.0f;
+            for (int i = 0; i < 8; ++i)
+            {
+                weights[i] = intervalWeight[i];
+                total += weights[i];
+            }
+
+            // Large leaps are deliberately rare in current chart-oriented
+            // pop/rap/electronic phrasing; complexity can open them up.
+            weights[6] *= (0.55f + 1.10f * leapChance + 0.35f * complexity);
+            weights[7] *= (0.35f + 1.35f * leapChance + 0.45f * complexity);
+
+            total = 0.0f;
+            for (float w : weights) total += w;
+            float pick = r.nextFloat() * total;
+            for (int i = 0; i < 8; ++i)
+            {
+                pick -= weights[i];
+                if (pick <= 0.0f)
+                    return i;
+            }
+            return 1;
+        }
+
+        static int chooseDuration(juce::Random& r, float melodyLength, bool phraseEnd, bool sparse)
+        {
+            float weights[4] =
+            {
+                durationWeight[0],
+                durationWeight[1] + 0.45f * melodyLength,
+                durationWeight[2] + 0.55f * melodyLength,
+                durationWeight[3] + 0.70f * melodyLength
+            };
+
+            if (phraseEnd)
+            {
+                weights[2] *= 1.55f;
+                weights[3] *= 2.10f;
+            }
+
+            if (sparse)
+            {
+                weights[1] *= 1.20f;
+                weights[2] *= 1.65f;
+                weights[3] *= 1.90f;
+            }
+
+            float total = 0.0f;
+            for (float w : weights) total += w;
+            float pick = r.nextFloat() * total;
+            for (int i = 0; i < 4; ++i)
+            {
+                pick -= weights[i];
+                if (pick <= 0.0f)
+                    return 1 << i;
+            }
+            return 1;
+        }
+    };
+}
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
@@ -242,256 +355,340 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
-// Hook-oriented generator + flagship SoundCloud techniques:
-// repetition + rhythmic identity + chord-tone gravity + controlled variation,
-// call-response, chromatic approaches, passing tones, 9/11 colors, octave shimmer,
-// per-bar velocity curves.
-std::vector<int> preferred;
-switch (genre)
-{
-case Trap:      preferred = {0,1,2,3,4,6,8,10,11,12,14,15}; break;
-case House:     preferred = {0,2,4,6,8,10,12,14}; break;
-case Techno:    preferred = {0,2,4,6,8,10,12,14,15}; break;
-case BoomBap:   preferred = {0,3,4,7,10,12,14,15}; break;
-case Ambient:   preferred = {0,4,8,12}; break;
-case Cinematic: preferred = {0,2,4,7,8,11,12,14}; break;
-default:        preferred = {0,2,4,6,8,10,12,14}; break;
+    // Current melody engine is intentionally "chart-informed" rather than
+    // song-specific: it models broad properties of recent popular music
+    // (strong beat hierarchy, repetition, chord-tone gravity, mostly small
+    // scale-degree motion, rests and longer phrase-ending notes).
+    const bool sparse = leadStyleSoundCloud;
+    const bool hook = hookMode;
+
+    // Recent chart-oriented phrasing generally benefits from fewer, more
+    // intentional events than a uniform 16th-note fill.
+    float density = melodyDensity * (0.76f + 0.34f * e);
+    if (hook) density += 0.08f;
+    if (sparse) density *= 0.58f;
+
+    int targetCount = static_cast<int> (std::round(
+        5.0f + 8.0f * density + 1.8f * e));
+    if (genre == Ambient) targetCount -= 2;
+    if (genre == Trap || genre == Techno) targetCount += 1;
+    targetCount = juce::jlimit(sparse ? 3 : 4, 13, targetCount);
+
+    // Previous-bar melody is the main source for motif continuity. We do not
+    // copy its notes literally; we transform the contour and rhythm.
+    std::vector<NoteEvent> prevBar;
+    if (barOffset > 0)
+    {
+        const int startStep = (barOffset - 1) * 16;
+        for (const auto& ev : s.notes)
+            if (ev.channel == 3 && ev.step >= startStep && ev.step < startStep + 16)
+                prevBar.push_back(ev);
+    }
+
+    std::vector<NoteEvent> inheritedMelody;
+    if (inherited != nullptr)
+        for (const auto& ev : *inherited)
+            if (ev.channel == 3)
+                inheritedMelody.push_back(ev);
+
+    const auto prog = progressionDegrees();
+    const int degree = prog[(size_t) (barOffset % (int) prog.size())];
+
+    const std::array<int, 4> chordTones =
+    {
+        degreeToPitch(degree,     octave),
+        degreeToPitch(degree + 2, octave),
+        degreeToPitch(degree + 4, octave),
+        degreeToPitch(degree + 6, octave)
+    };
+
+    auto nearestChordTone = [&](int target)
+    {
+        int best = chordTones[0];
+        int bestDist = std::numeric_limits<int>::max();
+
+        for (int chordTone : chordTones)
+        {
+            for (int o = -1; o <= 1; ++o)
+            {
+                const int candidate = chordTone + 12 * o;
+                const int dist = std::abs(target - candidate);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = candidate;
+                }
+            }
+        }
+        return best;
+    };
+
+    // Empirical rhythmic prior: weighted positions rather than random slots.
+    std::array<float, 16> slotScore {};
+    for (int x = 0; x < 16; ++x)
+    {
+        slotScore[(size_t) x] =
+            ChartMelodyProfile::stepProbability(x, density, e);
+
+        if (!hook && x % 4 != 0)
+            slotScore[(size_t) x] *= (1.0f - 0.42f * pauseChance);
+
+        if (sparse && x % 4 != 0)
+            slotScore[(size_t) x] *= 0.72f;
+    }
+
+    std::array<bool, 16> used {};
+    used.fill(false);
+
+    std::vector<int> chosen;
+    chosen.reserve((size_t) targetCount);
+
+    // Deterministic skeleton gives the phrase a recognisable pulse.
+    for (int x : { 0, 4, 8, 12 })
+    {
+        if ((int) chosen.size() >= targetCount)
+            break;
+
+        const float keep = hook ? 0.88f : (sparse ? 0.54f : 0.70f);
+        if (r.nextFloat() < keep)
+        {
+            used[(size_t) x] = true;
+            chosen.push_back(x);
+        }
+    }
+
+    // Weighted sampling without replacement.
+    while ((int) chosen.size() < targetCount)
+    {
+        float total = 0.0f;
+        for (int x = 0; x < 16; ++x)
+            if (!used[(size_t) x])
+                total += slotScore[(size_t) x];
+
+        if (total <= 0.0f)
+            break;
+
+        float pick = r.nextFloat() * total;
+        int selected = -1;
+        for (int x = 0; x < 16; ++x)
+        {
+            if (used[(size_t) x])
+                continue;
+            pick -= slotScore[(size_t) x];
+            if (pick <= 0.0f)
+            {
+                selected = x;
+                break;
+            }
+        }
+
+        if (selected < 0)
+            break;
+
+        used[(size_t) selected] = true;
+        chosen.push_back(selected);
+    }
+
+    std::sort(chosen.begin(), chosen.end());
+
+    // Motif anchor: retain the first few rhythm/contour decisions often
+    // enough to create A/A' behaviour, but never force exact repetition.
+    const bool usePrevMotif =
+        !prevBar.empty() &&
+        r.nextFloat() < juce::jlimit(0.0f, 0.92f,
+                                      0.48f + 0.38f * motifStrength);
+
+    const int responseShift =
+        (hook && !prevBar.empty() && (barOffset % 2) == 1 &&
+         r.nextFloat() < 0.48f * motifStrength)
+            ? (r.nextBool() ? -3 : -5)
+            : 0;
+
+    int previous = juce::jlimit(48, 96, degreeToPitch(3, octave));
+    if (usePrevMotif)
+        previous = prevBar.front().note + responseShift;
+    else if (!inheritedMelody.empty() &&
+             r.nextFloat() < 0.35f * motifStrength)
+        previous = inheritedMelody.front().note;
+
+    for (int index = 0; index < (int) chosen.size(); ++index)
+    {
+        const int x = chosen[(size_t) index];
+        const bool accent = (x % 4) == 0;
+        const bool phraseEnd =
+            x >= 12 || index == (int) chosen.size() - 1;
+
+        int target = previous;
+
+        // 1) Motif contour reuse.
+        if (usePrevMotif && !prevBar.empty() &&
+            r.nextFloat() < 0.66f * motifStrength)
+        {
+            const auto it = std::min_element(
+                prevBar.begin(), prevBar.end(),
+                [x](const NoteEvent& a, const NoteEvent& b)
+                {
+                    return std::abs((a.step % 16) - x) <
+                           std::abs((b.step % 16) - x);
+                });
+
+            if (it != prevBar.end())
+            {
+                target = it->note + responseShift;
+
+                // A' rather than a photocopy.
+                if (r.nextFloat() < variationAmount)
+                    target += (r.nextBool() ? 1 : -1) *
+                              (r.nextBool() ? 2 : 1);
+            }
+        }
+        else if (!inheritedMelody.empty() &&
+                 r.nextFloat() < 0.24f * motifStrength)
+        {
+            const auto& source =
+                inheritedMelody[(size_t) (x % (int) inheritedMelody.size())];
+            target = source.note;
+
+            if (r.nextFloat() < variationAmount)
+                target += r.nextBool() ? 2 : -2;
+        }
+        else
+        {
+            // 2) Scale-degree distance prior. This is intentionally not
+            // uniform random semitone motion.
+            const int distance =
+                ChartMelodyProfile::chooseScaleDistance(
+                    r, leapChance, complexity);
+
+            if (distance == 0)
+            {
+                target = previous;
+            }
+            else
+            {
+                int direction = r.nextBool() ? 1 : -1;
+
+                // Phrase endings tend to resolve rather than leap away.
+                if (phraseEnd)
+                    direction = (previous >= chordTones[0]) ? -1 : 1;
+
+                const int signedDegreeDelta = direction * distance;
+                target = degreeToPitch(
+                    std::max(0, 3 + signedDegreeDelta), octave);
+            }
+
+            // Register continuity: preserve a compact vocal-like contour.
+            while (target - previous > 9) target -= 12;
+            while (previous - target > 9) target += 12;
+
+            // Occasional octave displacement is a colour, not the default.
+            if (!sparse && complexity > 0.62f &&
+                r.nextFloat() < 0.035f * complexity)
+                target += r.nextBool() ? 12 : -12;
+        }
+
+        // 3) Chord-tone attraction. Strong beats and phrase endings are
+        // considerably more stable than interior passing notes.
+        float chordBias =
+            accent ? 0.74f : 0.46f;
+        chordBias += 0.12f * motifStrength;
+        chordBias += phraseEnd ? 0.13f : 0.0f;
+
+        if (sparse)
+            chordBias = juce::jmax(chordBias, 0.78f);
+
+        if (r.nextFloat() < juce::jlimit(0.0f, 0.96f, chordBias))
+            target = nearestChordTone(target);
+
+        // Extensions are now restrained to avoid making every melody sound
+        // "jazzy". They are most useful as interior colour notes.
+        if (chordExtensions && !phraseEnd &&
+            r.nextFloat() < 0.045f * complexity)
+        {
+            const int ext = r.nextBool()
+                ? degreeToPitch(degree + 8, octave)
+                : degreeToPitch(degree + 10, octave);
+            if (std::abs(ext - target) <= 5)
+                target = ext;
+        }
+
+        // Phrase endings resolve to root/third/fifth area.
+        if (phraseEnd && r.nextFloat() < 0.84f)
+            target = chordTones[r.nextBool() ? 0 : 2];
+
+        target = juce::jlimit(48, 98, target);
+
+        int note = snapToScale(target);
+
+        // Keep the melodic line mostly inside a practical singing/register
+        // range and avoid repeated huge jumps.
+        while (note - previous > (sparse ? 7 : 10)) note -= 12;
+        while (previous - note > (sparse ? 7 : 10)) note += 12;
+        note = juce::jlimit(48, 98, note);
+
+        // 4) Evidence-informed note lengths: short/medium notes dominate,
+        // longer notes are disproportionately useful at phrase endings.
+        int len = ChartMelodyProfile::chooseDuration(
+            r, melodyLength, phraseEnd, sparse);
+
+        if (accent && !phraseEnd && r.nextFloat() < 0.28f * melodyLength)
+            len = std::max(len, 2);
+
+        if (sparse)
+            len = std::max(len, r.nextFloat() < 0.62f ? 2 : 1);
+
+        len = juce::jmin(len, 16 - x);
+
+        // 5) Human dynamics: phrase contour + beat hierarchy, not white noise.
+        const float phrasePos = (float) x / 15.0f;
+        const float arch =
+            0.72f + 0.28f * std::sin(juce::MathConstants<float>::pi
+                                     * phrasePos);
+
+        int velocity = 70 + (accent ? 10 : 0);
+        velocity += (int) std::round(18.0f * e * arch);
+        velocity += r.nextInt(juce::Range<int>(-4, 5));
+
+        if (phraseEnd)
+            velocity += 4;
+
+        const bool ghost =
+            !accent && !hook &&
+            r.nextFloat() < ghostChance * (sparse ? 0.45f : 1.0f);
+
+        if (ghost)
+            velocity -= 16;
+
+        velocity = juce::jlimit(45, 118, velocity);
+
+        // Keep ornamentation sparse. Chromatic approaches/passing notes were
+        // making the previous generator sound synthetic and over-written.
+        if (!sparse && (accent || phraseEnd) && x > 0 &&
+            r.nextFloat() < 0.09f * complexity)
+        {
+            const int approach = snapToScale(note - (note > previous ? 1 : -1));
+            if (approach != note)
+                s.notes.push_back(
+                    { barOffset * 16 + x - 1, 1, approach, 54, 3, true });
+        }
+
+        s.notes.push_back(
+            { barOffset * 16 + x, len, note, velocity, 3, ghost });
+
+        // Very occasional octave reinforcement on high-energy hooks.
+        if (hook && !sparse && e > 0.72f &&
+            r.nextFloat() < 0.025f * complexity &&
+            note + 12 <= 98)
+        {
+            s.notes.push_back(
+                { barOffset * 16 + x, 1, note + 12,
+                  juce::jlimit(1, 127, (int) (velocity * 0.52f)), 3, true });
+        }
+
+        previous = note;
+    }
 }
-std::vector<int> candidates;
-for (int x : preferred)
-if (rhythmHit(x))
-candidates.push_back(x);
-for (int x : {0,4,8,12})
-if (std::find(candidates.begin(), candidates.end(), x) == candidates.end())
-candidates.push_back(x);
-std::sort(candidates.begin(), candidates.end());
-const bool hook = hookMode;
-int targetCount = hook
-? 9 + (int)std::round(4.0f * melodyDensity) + (int)std::round(2.0f * e)
-: 6 + (int)std::round(5.0f * melodyDensity) + (int)std::round(2.0f * e);
-if (genre == Trap || genre == Techno) targetCount += 1;
-if (genre == Ambient && !hook) targetCount -= 2;
-targetCount = juce::jlimit(5, (int)candidates.size(), targetCount);
-// "SoundCloud" lead: заметно реже нот, больше пространства между ними —
-// характерная разреженная, "плачущая" фразировка вместо плотного хука.
-if (leadStyleSoundCloud)
-targetCount = juce::jlimit(3, (int)candidates.size(), targetCount / 2);
-// Previous bar melody supplies the motif (moved up: needed for call-response).
-std::vector<NoteEvent> prevBar;
-const int prevStart = (barOffset - 1) * 16;
-if (barOffset > 0)
-{
-for (const auto& ev : s.notes)
-if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
-prevBar.push_back(ev);
-}
-// FLAGSHIP: call-response — нечётный такт отвечает на терцию/квинту ниже.
-int responseShift = 0;
-if (hook && (barOffset % 2) == 1 && !prevBar.empty() && r.nextFloat() < motifStrength * 0.5f)
-responseShift = r.nextBool() ? -3 : -5;
-std::vector<int> chosen;
-std::array<bool,16> used{};
-used.fill(false);
-auto addStep = [&](int x, bool forced)
-{
-if (x < 0 || x >= 16 || used[(size_t)x])
-return;
-if (!forced && !hook && (x % 4) != 0 &&
-r.nextFloat() < pauseChance)
-return;
-used[(size_t)x] = true;
-chosen.push_back(x);
-};
-for (int x : {0,4,8,12})
-{
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, true);
-}
-if (hook)
-{
-static const int skeletons[4][6] = {
-{0,2,4,7,8,11},
-{0,3,4,6,8,12},
-{0,2,4,6,10,12},
-{0,3,4,7,8,11}
-};
-const auto& row = skeletons[(barOffset + variationSalt) % 4];
-for (int x : row)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (rhythmHit(x)) addStep(x, true);
-}
-}
-std::vector<int> shuffled = candidates;
-for (int i = static_cast<int>(shuffled.size()) - 1; i > 0; --i)
-{
-const int j = r.nextInt(i + 1);
-std::swap(shuffled[static_cast<size_t>(i)],
-shuffled[static_cast<size_t>(j)]);
-}
-for (int x : shuffled)
-{
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, false);
-}
-for (int x : candidates)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (!used[(size_t)x])
-{
-used[(size_t)x] = true;
-chosen.push_back(x);
-}
-}
-std::sort(chosen.begin(), chosen.end());
-std::vector<NoteEvent> inheritedMelody;
-if (inherited != nullptr)
-for (const auto& ev : *inherited)
-if (ev.channel == 3)
-inheritedMelody.push_back(ev);
-const auto prog = progressionDegrees();
-const int degree = prog[(size_t)(barOffset % (int)prog.size())];
-const std::array<int,4> chordTones = {
-degreeToPitch(degree,     octave),
-degreeToPitch(degree + 2, octave),
-degreeToPitch(degree + 4, octave),
-degreeToPitch(degree + 6, octave)
-};
-// FLAGSHIP: per-bar velocity curve (crescendo / diminuendo) for human phrasing.
-const float curveDir = (((variationSalt + barOffset) % 2) == 0) ? 1.f : -1.f;
-const float curveAmt = 0.25f * e;
-int previous = juce::jlimit(52,92,degreeToPitch(3,octave));
-if (!prevBar.empty() && r.nextFloat() < (hook ? 0.72f : motifStrength))
-previous = prevBar.front().note + responseShift;
-else if (!inheritedMelody.empty() && r.nextFloat() < (hook ? 0.68f : motifStrength))
-previous = inheritedMelody.front().note;
-for (int index = 0; index < (int)chosen.size(); ++index)
-{
-const int x = chosen[(size_t)index];
-const bool accent = (x % 4) == 0;
-const bool phraseEnd = x >= 14 || index == (int)chosen.size() - 1;
-int target = previous;
-if (!prevBar.empty() &&
-r.nextFloat() < (hook ? 0.52f : 0.45f) * motifStrength)
-{
-const auto it = std::min_element(
-prevBar.begin(), prevBar.end(),
-[x](const NoteEvent& a, const NoteEvent& b)
-{
-return std::abs((a.step % 16) - x) <
-std::abs((b.step % 16) - x);
-});
-target = (it != prevBar.end()) ? it->note + responseShift : previous;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-3,4));
-}
-else if (hook && !inheritedMelody.empty() &&
-r.nextFloat() < 0.40f * motifStrength)
-{
-target = inheritedMelody[(size_t)(x % (int)inheritedMelody.size())].note;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-2,3));
-}
-else
-{
-const bool leap =
-r.nextFloat() < (0.05f + 0.22f * leapChance + 0.10f * complexity);
-const int contourBias = ((variationSalt % 2) == 0) ? 1 : -1;
-// "SoundCloud" lead keeps leaps small and steps narrow — a chant-like,
-// stay-close-to-home melody rather than an energetic hook run.
-const int leapMax = leadStyleSoundCloud ? 5 : 9;
-const int stepMax = leadStyleSoundCloud ? 2 : 4;
-target += leap
-? contourBias * r.nextInt(juce::Range<int>(3,leapMax))
-: r.nextInt(juce::Range<int>(-stepMax,stepMax+1));
-}
-float chordBias = hook
-? (accent ? 0.82f : 0.48f)
-: (accent ? 0.72f : 0.32f);
-if (phraseEnd)
-chordBias = 0.95f;
-// "SoundCloud" lead sticks close to chord tones almost always — repetition
-// and a narrow, chant-like range are the whole point of the style.
-if (leadStyleSoundCloud)
-chordBias = juce::jmax(chordBias, 0.88f);
-if (r.nextFloat() < chordBias)
-{
-int nearest = chordTones[0];
-int bestDist = std::abs(target - nearest);
-for (int chordTone : chordTones)
-{
-for (int o = -1; o <= 1; ++o)
-{
-const int candidate = chordTone + 12 * o;
-const int d = std::abs(target - candidate);
-if (d < bestDist)
-{
-bestDist = d;
-nearest = candidate;
-}
-}
-}
-// FLAGSHIP: 9th/11th color targets when extensions on.
-if (chordExtensions && r.nextFloat() < 0.15f * complexity)
-{
-const int ext9  = degreeToPitch(degree + 8,  octave);
-const int ext11 = degreeToPitch(degree + 10, octave);
-const int d9  = std::abs(target - ext9);
-const int d11 = std::abs(target - ext11);
-if (d9  < bestDist) { bestDist = d9;  nearest = ext9;  }
-if (d11 < bestDist) { bestDist = d11; nearest = ext11; }
-}
-target = nearest;
-}
-if (phraseEnd)
-target = r.nextBool() ? chordTones[0] : chordTones[2];
-target = juce::jlimit(48,98,target);
-int note = snapToScale(target);
-while (note - previous > 9)  note -= 12;
-while (previous - note > 9)  note += 12;
-note = juce::jlimit(48,98,note);
-int len = 1;
-if (phraseEnd)
-len = r.nextFloat() < (0.55f + 0.25f * melodyLength) ? 2 : 1;
-else if (accent && r.nextFloat() < (0.34f + 0.30f * melodyLength))
-len = 2;
-else if (r.nextFloat() < (hook ? 0.08f : 0.12f) * melodyLength)
-len = 4;
-// "SoundCloud" lead sustains notes longer — sparse but sung-out, not clipped.
-if (leadStyleSoundCloud && r.nextFloat() < 0.5f)
-len = juce::jmax(len, 2 + (r.nextBool() ? 2 : 0));
-len = juce::jmin(len, 16 - x);
-const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
-int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
-if (phraseEnd) velocity += 5;
-// FLAGSHIP: velocity curve inside the bar.
-velocity = (int)(velocity * (1.f + curveAmt * curveDir * ((float)x / 15.f - 0.5f) * 2.f));
-velocity = juce::jlimit(45,118,velocity);
-// FLAGSHIP: chromatic approach note into strong targets.
-// (skipped for "SoundCloud" lead — that style stays plain and spacious,
-// chromatic decoration reads as too busy/"hooky" for it)
-if (!leadStyleSoundCloud && (accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
-s.notes.push_back({barOffset*16+x-1,1,juce::jlimit(0,127,note-1),55,3,true});
-// FLAGSHIP: passing tone split on big leaps.
-bool passed = false;
-if (!leadStyleSoundCloud && std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
-{
-const int mid = snapToScale((note+previous)/2);
-s.notes.push_back({barOffset*16+x,1,mid,62,3,false});
-used[(size_t)(x+1)] = true;
-s.notes.push_back({barOffset*16+x+1,juce::jmax(1,len-1),note,velocity,3,ghost});
-passed = true;
-}
-if (!passed)
-s.notes.push_back({barOffset*16+x,len,note,velocity,3,ghost});
-// FLAGSHIP: octave shimmer double (bell/pluck colour).
-// (skipped for "SoundCloud" — that style wants one clean, sad note, not a
-// shimmering double)
-if (!leadStyleSoundCloud && r.nextFloat() < 0.10f * complexity && note+12 <= 98)
-s.notes.push_back({barOffset*16+x,1,note+12,juce::jlimit(1,127,(int)(velocity*0.55f)),3,true});
-previous = note;
-}
-}
+
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
 if(arpDensity<=0.001f)return;
