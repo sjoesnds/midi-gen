@@ -223,6 +223,11 @@ void applyMotifToMelody(Section& s, int barOffset, const Motif& motif, float str
                         juce::Random& random, int baseNote);
 void developMotif(Motif& motif, float variationAmount, juce::Random& random);
 PhraseState::Phase getPhrasePhase(int barInPhrase, int phraseLength);
+// --- Motif Helper Methods -------------------------------------------------
+Motif generateMotifVariation(const Motif& baseMotif, PhraseState::Phase phase, 
+                             float variationAmt, juce::Random& random);
+void applyCallAndResponse(Section& s, int barOffset, const Motif& motif,
+                          float strength, juce::Random& random, int baseNote);
 void addChords(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addBass(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,

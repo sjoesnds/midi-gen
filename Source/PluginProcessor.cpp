@@ -195,7 +195,7 @@ if(auto* da=o->getProperty("dislikes").getArray())
 for(int i=0;i<8&&i<da->size();++i) dislikeCounts[(size_t)i]=(int)(*da)[i];
 }
 }
-// --- Motif / Phrase Engine ------------------------------------------------
+// --- Motif / Phrase Engine methods ----------------------------------------
 MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Random& random, int baseNote, int scaleDegree)
 {
     Motif motif;
@@ -250,28 +250,6 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     return motif;
 }
 
-void MidiForgeAudioProcessor::applyMotifToMelody(Section& s, int barOffset, const Motif& motif, 
-                                                  float strength, juce::Random& random, int baseNote)
-{
-    const int barStart = barOffset * 16;
-    
-    // Применяем мотив с заданной силой (strength)
-    for (size_t i = 0; i < motif.steps.size() && i < motif.intervals.size(); ++i)
-    {
-        // Сила определяет вероятность применения ноты мотива
-        if (random.nextFloat() > strength)
-            continue;
-        
-        const int step = motif.steps[i];
-        const int interval = motif.intervals[i];
-        const int note = juce::jlimit(24, 108, baseNote + interval);
-        const int velocity = 80 + random.nextInt(30);
-        const int length = 2 + random.nextInt(4);
-        
-        s.notes.push_back({barStart + step, length, note, velocity, 3, false});
-    }
-}
-
 void MidiForgeAudioProcessor::developMotif(Motif& motif, float variationAmt, juce::Random& random)
 {
     // Развиваем мотив: варьируем ритм и интервалы
@@ -319,6 +297,66 @@ MidiForgeAudioProcessor::PhraseState::Phase MidiForgeAudioProcessor::getPhrasePh
         return PhraseState::Tension;
     else
         return PhraseState::Resolution;
+}
+
+// --- Motif Helper Methods -------------------------------------------------
+MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotifVariation(
+    const Motif& baseMotif, PhraseState::Phase phase, float variationAmt, juce::Random& random)
+{
+    Motif developedMotif = baseMotif;
+    
+    switch (phase)
+    {
+        case PhraseState::Development:
+            // Лёгкая вариация
+            developMotif(developedMotif, variationAmt * 0.3f, random);
+            break;
+        case PhraseState::Tension:
+            // Более сильная вариация, добавляем напряжение
+            developMotif(developedMotif, variationAmt * 0.6f, random);
+            break;
+        case PhraseState::Resolution:
+            // Возврат к оригиналу с лёгкой вариацией
+            developMotif(developedMotif, variationAmt * 0.2f, random);
+            break;
+        default:
+            break;
+    }
+    
+    return developedMotif;
+}
+
+void MidiForgeAudioProcessor::applyMotifToMelody(Section& s, int barOffset, const Motif& motif, 
+                                                  float strength, juce::Random& random, int baseNote)
+{
+    const int barStart = barOffset * 16;
+    
+    // Применяем мотив с заданной силой (strength)
+    for (size_t i = 0; i < motif.steps.size() && i < motif.intervals.size(); ++i)
+    {
+        // Сила определяет вероятность применения ноты мотива
+        if (random.nextFloat() > strength)
+            continue;
+        
+        const int step = motif.steps[i];
+        const int interval = motif.intervals[i];
+        const int note = juce::jlimit(24, 108, baseNote + interval);
+        const int velocity = 80 + random.nextInt(30);
+        const int length = 2 + random.nextInt(4);
+        
+        s.notes.push_back({barStart + step, length, note, velocity, 3, false});
+    }
+}
+
+void MidiForgeAudioProcessor::applyCallAndResponse(Section& s, int barOffset, const Motif& motif,
+                                                    float strength, juce::Random& random, int baseNote)
+{
+    // Call & Response: нечётные такты отвечают на терцию ниже
+    Motif responseMotif = motif;
+    for (size_t i = 0; i < responseMotif.intervals.size(); ++i)
+        responseMotif.intervals[i] -= 3; // Терция ниже
+    
+    applyMotifToMelody(s, barOffset, responseMotif, strength * 0.7f, random, baseNote);
 }
 
 // --- Generation ---------------------------------------------------------
@@ -393,26 +431,8 @@ if (barInPhrase == 0 && barOffset != lastPhraseStart)
 }
 else if (motifInitialized && barInPhrase > 0)
 {
-    // Развитие мотива внутри фразы
-    Motif developedMotif = currentMotif;
-    
-    switch (phase)
-    {
-        case PhraseState::Development:
-            // Лёгкая вариация
-            developMotif(developedMotif, variationAmount * 0.3f, r);
-            break;
-        case PhraseState::Tension:
-            // Более сильная вариация, добавляем напряжение
-            developMotif(developedMotif, variationAmount * 0.6f, r);
-            break;
-        case PhraseState::Resolution:
-            // Возврат к оригиналу с лёгкой вариацией
-            developMotif(developedMotif, variationAmount * 0.2f, r);
-            break;
-        default:
-            break;
-    }
+    // Развитие мотива внутри фразы через helper-метод
+    Motif developedMotif = generateMotifVariation(currentMotif, phase, variationAmount, r);
     
     // Применяем развитый мотив
     applyMotifToMelody(s, barOffset, developedMotif, motifStrength, r, baseNote);
@@ -420,10 +440,7 @@ else if (motifInitialized && barInPhrase > 0)
     // Call & Response: нечётные такты отвечают на терцию ниже
     if (barInPhrase % 2 == 1 && hookMode && r.nextFloat() < motifStrength * 0.5f)
     {
-        Motif responseMotif = developedMotif;
-        for (size_t i = 0; i < responseMotif.intervals.size(); ++i)
-            responseMotif.intervals[i] -= 3; // Терция ниже
-        applyMotifToMelody(s, barOffset, responseMotif, motifStrength * 0.7f, r, baseNote);
+        applyCallAndResponse(s, barOffset, developedMotif, motifStrength, r, baseNote);
     }
     
     return; // Если мотив применён, продолжаем стандартную генерацию
