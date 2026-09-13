@@ -1,10 +1,73 @@
-﻿build/
-JUCE/
-.vs/
+```
+# Build directories
+build/
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# JUCE related build artifacts
+*_artefacts/
+_deps/
+juceaide_artefacts/
+
+# Compiled object files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# IDE specific files
 .vscode/
-*.user
-*.sln
-*.vcxproj*
-cmake-build-*/
-x64/
-out/
+.idea/
+*.swp
+*.swo
+
+# Package manager files
+node_modules/
+__pycache__/
+*.egg-info/
+
+# Distribution / packaging
+dist/
+*.tar.gz
+*.whl
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# CMake specific
+Makefile
+CMakeLists.txt.user
+
+# Compiler-specific
+*.bin
+*.d
+
+# VST3 specific artifacts
+vst3_helper
+shared_defs_*.txt
+shared_incs_*.txt
+```

@@ -195,6 +195,475 @@ if(auto* da=o->getProperty("dislikes").getArray())
 for(int i=0;i<8&&i<da->size();++i) dislikeCounts[(size_t)i]=(int)(*da)[i];
 }
 }
+// --- Motif / Phrase Engine methods ----------------------------------------
+MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Random& random, int baseNote, int scaleDegree)
+{
+    Motif motif;
+    motif.baseNote = baseNote;
+    
+    // Создаём короткий мотив из 3-8 нот для БОЛЬШОГО разнообразия
+    const int motifLength = 3 + random.nextInt(6); // 3-8 нот
+    motif.length = motifLength;
+    
+    // Значительно больше ритмических паттернов (32 вместо 8)
+    std::vector<std::vector<int>> rhythmPatterns = {
+        {0, 4, 8, 12},           // Четверти
+        {0, 6, 12},              // Дактиль
+        {0, 3, 7, 12},           // Синкопа
+        {0, 2, 5, 8, 11, 14},    // Шестнадцатые с пропусками
+        {0, 8},                  // Половинные
+        {0, 5, 10, 15},          // Триоли
+        {0, 2, 8, 10},           // Двойная синкопа
+        {0, 4, 6, 10, 14},       // Сложный паттерн
+        {0, 3, 6, 9, 12},        // Пунктирные
+        {0, 1, 4, 7, 10, 13},    // Быстрые пробежки
+        {0, 4, 7, 11},           // Swing
+        {0, 2, 4, 6, 8, 10, 12, 14}, // Все восьмые
+        {0, 8, 12},              // Long-short
+        {0, 2, 3, 8, 9, 10},     // Burst
+        {0, 6, 8, 14},           // Off-beat
+        {0, 1, 2, 8, 9, 10},     // Double burst
+        {0, 4, 5, 6, 12},        // Triplet feel
+        {0, 3, 4, 5, 11, 12},    // Syncopated burst
+        {0, 2, 6, 8, 12, 14},    // Walking
+        {0, 1, 8, 9},            // Call response pairs
+        {0, 4, 10, 12},          // Trapezoid
+        {0, 3, 8, 11},           // Diamond
+        {0, 2, 4, 9, 11, 13},    // Alternating
+        {0, 5, 6, 7, 14, 15},    // End-heavy
+        {0, 1, 2, 3, 8},         // Start-heavy
+        {0, 4, 8, 9, 10, 11},    // Back-loaded
+        {0, 2, 5, 7, 10, 13},    // Euclidean-ish
+        {0, 3, 5, 8, 10, 13},    // Minor swing
+        {0, 1, 5, 6, 10, 11},    // Chromatic approach
+        {0, 4, 6, 8, 14},        // Open feel
+        {0, 2, 7, 9, 14},        // Pentatonic rhythm
+        {0, 3, 6, 10, 13}        // Jazz-like
+    };
+    
+    // Выбираем случайный ритмический паттерн
+    int patternIdx = random.nextInt((int)rhythmPatterns.size());
+    std::vector<int> availableSteps = rhythmPatterns[(size_t)patternIdx];
+    
+    // Для Trap/House добавляем характерные паттерны
+    if (genre == Trap || genre == BoomBap)
+    {
+        std::vector<std::vector<int>> trapPatterns = {
+            {0, 3, 8, 12}, {0, 4, 9, 14}, {0, 2, 6, 10, 14},
+            {0, 3, 6, 10, 13}, {0, 2, 8, 11}, {0, 4, 7, 11, 14}
+        };
+        if (random.nextBool())
+            availableSteps = trapPatterns[(size_t)random.nextInt((int)trapPatterns.size())];
+    }
+    else if (genre == House || genre == Techno)
+    {
+        std::vector<std::vector<int>> housePatterns = {
+            {0, 4, 8, 12}, {0, 2, 6, 10, 14}, {0, 8},
+            {0, 3, 6, 9, 12}, {0, 1, 4, 7, 10, 13}, {0, 2, 5, 8, 11}
+        };
+        if (random.nextBool())
+            availableSteps = housePatterns[(size_t)random.nextInt((int)housePatterns.size())];
+    }
+    else if (genre == Ambient)
+    {
+        std::vector<std::vector<int>> ambientPatterns = {
+            {0, 8}, {0, 6, 12}, {0, 4, 10}, {0, 8, 12}, {0, 5, 10, 15}
+        };
+        if (random.nextBool())
+            availableSteps = ambientPatterns[(size_t)random.nextInt((int)ambientPatterns.size())];
+    }
+    
+    // Выбираем шаги для нот мотива (не все, а с вероятностью)
+    for (int step : availableSteps)
+    {
+        if (motif.steps.size() < (size_t)motifLength && 
+            (motif.steps.empty() || random.nextFloat() > 0.25f)) // Увеличили шанс добавления
+        {
+            motif.steps.push_back(step);
+        }
+    }
+    
+    // Если нот слишком мало, добавляем ещё
+    while (motif.steps.size() < (size_t)juce::jmax(3, motifLength - 1))
+    {
+        int newStep = random.nextInt(16);
+        if (std::find(motif.steps.begin(), motif.steps.end(), newStep) == motif.steps.end())
+            motif.steps.push_back(newStep);
+    }
+    
+    std::sort(motif.steps.begin(), motif.steps.end());
+    
+    // Генерируем интервалы мотива (в полутонах) с ОГРОМНЫМ разнообразием
+    const auto scaleIntervals = scaleSemitones();
+    const int scaleSize = (int)scaleIntervals.size();
+    
+    // Первый интервал - базовая нота (0)
+    motif.intervals.push_back(0);
+    
+    // Разнообразные стратегии выбора интервалов (7 вместо 4)
+    int intervalStrategy = random.nextInt(7);
+    
+    // Иногда смешиваем две стратегии для уникальности
+    int secondaryStrategy = -1;
+    if (random.nextFloat() < 0.3f && complexity > 0.3f)
+        secondaryStrategy = random.nextInt(7);
+    
+    for (size_t i = 1; i < motif.steps.size(); ++i)
+    {
+        int degree = 0;
+        int currentStrategy = (secondaryStrategy >= 0 && random.nextFloat() < 0.4f) 
+                              ? secondaryStrategy 
+                              : intervalStrategy;
+        
+        switch (currentStrategy)
+        {
+            case 0: // Консонансная мелодия (терции, квинты, октавы)
+                degree = random.nextInt(4) * 2; // 0, 2, 4, 6
+                break;
+                
+            case 1: // Шаговая мелодия (преимущественно секунды)
+                degree = (int)i % scaleSize;
+                if (random.nextFloat() < 0.3f)
+                    degree = (degree + random.nextInt(2)) % scaleSize;
+                break;
+                
+            case 2: // Скачкообразная мелодия (квинты, сексты, октавы)
+                degree = 4 + random.nextInt(4); // 4-7 степени
+                break;
+                
+            case 3: // Хроматическая/джазовая (с проходами)
+                degree = random.nextInt(scaleSize);
+                if (random.nextFloat() < complexity * 0.5f)
+                    degree = (degree + random.nextInt(5) - 2 + scaleSize) % scaleSize;
+                break;
+                
+            case 4: // Пентатоника/блюз (акценты на характерные интервалы)
+                degree = random.nextInt(5) * 2; // 0, 2, 4, 6, 8
+                if (random.nextFloat() < 0.2f)
+                    degree += 1; // Добавляем блюзовую ноту
+                break;
+                
+            case 5: // Восходящая/нисходящая дуга
+            {
+                float arcPos = (float)i / (float)motif.steps.size();
+                if (arcPos < 0.5f)
+                    degree = (int)(arcPos * 2.0f * 8); // Восхождение
+                else
+                    degree = (int)((1.0f - arcPos) * 2.0f * 8); // Нисхождение
+                degree = juce::jlimit(0, 10, degree);
+                break;
+            }
+                
+            case 6: // Рандомная с акцентом на крайние значения
+                if (random.nextFloat() < 0.3f)
+                    degree = random.nextBool() ? 0 : 10; // Крайние значения
+                else
+                    degree = random.nextInt(8);
+                break;
+        }
+        
+        // Добавляем октавные смещения для разнообразия
+        int octaveShift = 0;
+        if (random.nextFloat() < 0.3f) // Увеличили шанс
+            octaveShift = random.nextBool() ? 1 : -1;
+        
+        const int semitone = scaleIntervals[(size_t)(degree % scaleSize)];
+        const int finalInterval = semitone + (degree / scaleSize + octaveShift) * 12;
+        motif.intervals.push_back(juce::jlimit(-36, 36, finalInterval)); // Расширили диапазон
+    }
+    
+    // Сохраняем характерный ритмический паттерн
+    motif.rhythmPattern = (float)random.nextInt(100) / 100.0f;
+    
+    return motif;
+}
+
+void MidiForgeAudioProcessor::developMotif(Motif& motif, float variationAmt, juce::Random& random)
+{
+    // Развиваем мотив: варьируем ритм и интервалы
+    const float variation = juce::jlimit(0.0f, 1.0f, variationAmt);
+    
+    // Вариация ритма
+    for (size_t i = 0; i < motif.steps.size(); ++i)
+    {
+        if (random.nextFloat() < variation * 0.5f)
+        {
+            // Сдвигаем шаг на ±1 или ±2
+            const int shift = (random.nextInt(5) - 2); // -2..+2
+            motif.steps[i] = juce::jlimit(0, 15, motif.steps[i] + shift);
+        }
+    }
+    
+    // Вариация интервалов
+    for (size_t i = 1; i < motif.intervals.size(); ++i)
+    {
+        if (random.nextFloat() < variation * 0.4f)
+        {
+            // Изменяем интервал на ±1-2 полутона
+            const int shift = (random.nextInt(5) - 2);
+            motif.intervals[i] += shift;
+        }
+    }
+    
+    // Иногда добавляем или убираем ноту
+    if (motif.steps.size() > 2 && random.nextFloat() < variation * 0.3f)
+    {
+        const size_t removeIdx = (size_t)random.nextInt((int)motif.steps.size());
+        motif.steps.erase(motif.steps.begin() + (int)removeIdx);
+        if (removeIdx < motif.intervals.size())
+            motif.intervals.erase(motif.intervals.begin() + (int)removeIdx);
+    }
+}
+
+MidiForgeAudioProcessor::PhraseState::Phase MidiForgeAudioProcessor::getPhrasePhase(int barInPhrase, int phraseLength)
+{
+    if (barInPhrase == 0)
+        return PhraseState::PhraseStart;
+    else if (barInPhrase < phraseLength / 2)
+        return PhraseState::Development;
+    else if (barInPhrase < phraseLength - 1)
+        return PhraseState::Tension;
+    else
+        return PhraseState::Resolution;
+}
+
+// --- Motif Helper Methods -------------------------------------------------
+MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotifVariation(
+    const Motif& baseMotif, PhraseState::Phase phase, float variationAmt, juce::Random& random)
+{
+    Motif developedMotif = baseMotif;
+    
+    switch (phase)
+    {
+        case PhraseState::Development:
+            // Лёгкая вариация
+            developMotif(developedMotif, variationAmt * 0.3f, random);
+            break;
+        case PhraseState::Tension:
+            // Более сильная вариация, добавляем напряжение
+            developMotif(developedMotif, variationAmt * 0.6f, random);
+            break;
+        case PhraseState::Resolution:
+            // Возврат к оригиналу с лёгкой вариацией
+            developMotif(developedMotif, variationAmt * 0.2f, random);
+            break;
+        default:
+            break;
+    }
+    
+    return developedMotif;
+}
+
+void MidiForgeAudioProcessor::applyMotifToMelody(Section& s, int barOffset, const Motif& motif, 
+                                                  float strength, juce::Random& random, int baseNote)
+{
+    const int barStart = barOffset * 16;
+    
+    // Сначала удаляем старые ноты мелодии в этом такте (channel 3), чтобы не было наложения
+    s.notes.erase(
+        std::remove_if(s.notes.begin(), s.notes.end(),
+            [barStart](const NoteEvent& n) {
+                return n.channel == 3 && n.step >= barStart && n.step < barStart + 16;
+            }),
+        s.notes.end()
+    );
+    
+    // Для большей мелодичности иногда сдвигаем весь мотив на октаву вверх или вниз
+    int octaveShift = 0;
+    if (random.nextFloat() < 0.4f)
+        octaveShift = random.nextBool() ? 12 : -12;
+    
+    // Применяем мотив с заданной силой (strength)
+    for (size_t i = 0; i < motif.steps.size() && i < motif.intervals.size(); ++i)
+    {
+        // Сила определяет вероятность применения ноты мотива
+        if (random.nextFloat() > strength)
+            continue;
+        
+        const int step = motif.steps[i];
+        
+        // Добавляем вариативность: иногда меняем интервал на +/- 1-2 полутона для хроматизма
+        int interval = motif.intervals[i];
+        if (random.nextFloat() < 0.25f && complexity > 0.4f)
+        {
+            interval += (random.nextInt(5) - 2); // -2..+2 полутона
+        }
+        
+        // Базовая нота + интервал + октавный сдвиг
+        // Делаем мелодию более независимой от аккорда, добавляя случайный сдвиг
+        int noteBase = baseNote;
+        if (random.nextFloat() < 0.3f)
+        {
+            // 30% шанс взять ноту не от аккорда, а из гаммы независимо
+            const auto scaleIntervals = scaleSemitones();
+            int scaleIdx = random.nextInt((int)scaleIntervals.size());
+            noteBase = degreeToPitch(1, octave) + scaleIntervals[(size_t)scaleIdx]; // Берём от тоники + степень гаммы
+        }
+        
+        const int note = juce::jlimit(24, 108, noteBase + interval + octaveShift);
+        
+        // Humanization velocity: первая нота мотива громче, остальные тише
+        int velocity = 75 + random.nextInt(25);
+        if (i == 0) velocity += 20; // Акцент на первую ноту
+        
+        // Длина ноты: варьируется для ритмичности
+        int length = 2 + random.nextInt(4);
+        if (i == motif.steps.size() - 1 && random.nextFloat() < 0.5f)
+            length = 6 + random.nextInt(4); // Последняя нота может быть длиннее
+        
+        s.notes.push_back({barStart + step, length, note, velocity, 3, false});
+    }
+}
+
+void MidiForgeAudioProcessor::applyCallAndResponse(Section& s, int barOffset, const Motif& motif,
+                                                    float strength, juce::Random& random, int baseNote)
+{
+    // Call & Response: нечётные такты отвечают на терцию ниже
+    Motif responseMotif = motif;
+    for (size_t i = 0; i < responseMotif.intervals.size(); ++i)
+        responseMotif.intervals[i] -= 3; // Терция ниже
+    
+    applyMotifToMelody(s, barOffset, responseMotif, strength * 0.7f, random, baseNote);
+}
+
+// --- Humanization Engine methods ------------------------------------------
+
+MidiForgeAudioProcessor::VelocityProfile::Shape 
+MidiForgeAudioProcessor::chooseVelocityShapeForPhrase(PhraseState::Phase phase, juce::Random& random)
+{
+    switch (phase)
+    {
+        case PhraseState::PhraseStart:
+            // Начало фразы: сильный акцент, затем спад
+            return VelocityProfile::Decrescendo;
+        case PhraseState::Development:
+            // Развитие: нарастание
+            return VelocityProfile::Crescendo;
+        case PhraseState::Tension:
+            // Напряжение: арка (сильные края, слабая середина)
+            return VelocityProfile::Arch;
+        case PhraseState::Resolution:
+            // Разрешение: мягкое завершение
+            return VelocityProfile::Decrescendo;
+        default:
+            return VelocityProfile::Flat;
+    }
+}
+
+MidiForgeAudioProcessor::RhythmVariation 
+MidiForgeAudioProcessor::generateRhythmVariation(float humanizeAmount, bool isAccent, juce::Random& random)
+{
+    RhythmVariation variation;
+    
+    // Микросдвиги времени (человеческая неточность)
+    const float timingRange = isAccent ? 0.15f : 0.35f;  // акценты более точные
+    variation.microTiming = (random.nextFloat() * 2.0f - 1.0f) * timingRange * humanizeAmount;
+    
+    // Небольшие паузы вместо некоторых нот
+    if (!isAccent && random.nextFloat() < 0.08f * humanizeAmount)
+        variation.isPause = true;
+    
+    // Удлинение/укорочение нот
+    const float lengthVar = (random.nextFloat() * 2.0f - 1.0f) * 0.25f * humanizeAmount;
+    variation.lengthMultiplier = 1.0f + lengthVar;
+    
+    return variation;
+}
+
+int MidiForgeAudioProcessor::constrainInterval(int prevNote, int nextNote, 
+                                                const IntervalConstraint& constraint, 
+                                                juce::Random& random)
+{
+    const int interval = std::abs(nextNote - prevNote);
+    
+    // Проверяем, является ли интервал большим скачком
+    const bool isLeap = interval > constraint.maxStepSize;
+    
+    // Если это скачок, с некоторой вероятностью возвращаемся к более близкой ноте
+    if (isLeap && random.nextFloat() < constraint.returnAfterLeap)
+    {
+        // Возвращаемся в диапазоне шага от предыдущей ноты
+        const int direction = (nextNote > prevNote) ? -1 : 1;
+        const int maxStep = (int)constraint.maxStepSize;
+        const int stepSize = 1 + random.nextInt(maxStep);
+        return prevNote + direction * stepSize;
+    }
+    
+    // Для обычных нот ограничиваем размер шага
+    if (!isLeap && interval > constraint.maxStepSize)
+    {
+        const int direction = (nextNote > prevNote) ? 1 : -1;
+        const int maxStep = (int)constraint.maxStepSize;
+        return prevNote + direction * (1 + random.nextInt(maxStep));
+    }
+    
+    return nextNote;
+}
+
+void MidiForgeAudioProcessor::applyHumanization(Section& s, int startStep, int endStep, 
+                                                 float humanizeAmount, juce::Random& random,
+                                                 const VelocityProfile::Shape& velocityShape)
+{
+    const int totalNotes = endStep - startStep;
+    if (totalNotes <= 0 || humanizeAmount <= 0.0f)
+        return;
+    
+    int noteIndex = 0;
+    for (auto& note : s.notes)
+    {
+        if (note.step < startStep || note.step >= endStep)
+            continue;
+        
+        // Определяем позицию во фразе (0..1)
+        const float phrasePosition = (float)(note.step - startStep) / (float)totalNotes;
+        
+        // Применяем профиль velocity
+        float velocityModifier = 1.0f;
+        switch (velocityShape)
+        {
+            case VelocityProfile::Crescendo:
+                velocityModifier = 0.7f + 0.6f * phrasePosition;
+                break;
+            case VelocityProfile::Decrescendo:
+                velocityModifier = 1.3f - 0.6f * phrasePosition;
+                break;
+            case VelocityProfile::Arch:
+                velocityModifier = 0.7f + 1.2f * (1.0f - std::abs(2.0f * phrasePosition - 1.0f));
+                break;
+            case VelocityProfile::InvertedArch:
+                velocityModifier = 1.3f - 1.2f * (1.0f - std::abs(2.0f * phrasePosition - 1.0f));
+                break;
+            default:
+                velocityModifier = 1.0f;
+                break;
+        }
+        
+        // Акценты на сильных долях
+        const bool isAccent = (note.step % 4 == 0);
+        if (isAccent)
+            velocityModifier *= (1.0f + 0.3f * humanizeAmount);
+        
+        // Применяем modifier к velocity
+        note.velocity = juce::jlimit(20, 127, 
+            (int)((float)note.velocity * velocityModifier * (0.8f + 0.4f * humanizeAmount)));
+        
+        // Генерируем ритмическую вариацию
+        const auto rhythmVar = generateRhythmVariation(humanizeAmount, isAccent, random);
+        
+        // Применяем микросдвиги к позиции ноты (эмуляция через изменение длины)
+        if (rhythmVar.isPause)
+        {
+            note.length = 0;  // Пауза
+        }
+        else
+        {
+            note.length = juce::jmax(1, (int)((float)note.length * rhythmVar.lengthMultiplier));
+        }
+        
+        ++noteIndex;
+    }
+}
+
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -242,256 +711,126 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
-// Hook-oriented generator + flagship SoundCloud techniques:
-// repetition + rhythmic identity + chord-tone gravity + controlled variation,
-// call-response, chromatic approaches, passing tones, 9/11 colors, octave shimmer,
-// per-bar velocity curves.
-std::vector<int> preferred;
-switch (genre)
+// --- PHASE 3: Humanization Engine Helpers ---
+auto calculateHumanVelocity = [&](int noteIndex, int totalNotes, bool isAccent, bool isPhraseEnd, float baseVel = 78.0f) -> int
 {
-case Trap:      preferred = {0,1,2,3,4,6,8,10,11,12,14,15}; break;
-case House:     preferred = {0,2,4,6,8,10,12,14}; break;
-case Techno:    preferred = {0,2,4,6,8,10,12,14,15}; break;
-case BoomBap:   preferred = {0,3,4,7,10,12,14,15}; break;
-case Ambient:   preferred = {0,4,8,12}; break;
-case Cinematic: preferred = {0,2,4,7,8,11,12,14}; break;
-default:        preferred = {0,2,4,6,8,10,12,14}; break;
-}
-std::vector<int> candidates;
-for (int x : preferred)
-if (rhythmHit(x))
-candidates.push_back(x);
-for (int x : {0,4,8,12})
-if (std::find(candidates.begin(), candidates.end(), x) == candidates.end())
-candidates.push_back(x);
-std::sort(candidates.begin(), candidates.end());
-const bool hook = hookMode;
-int targetCount = hook
-? 9 + (int)std::round(4.0f * melodyDensity) + (int)std::round(2.0f * e)
-: 6 + (int)std::round(5.0f * melodyDensity) + (int)std::round(2.0f * e);
-if (genre == Trap || genre == Techno) targetCount += 1;
-if (genre == Ambient && !hook) targetCount -= 2;
-targetCount = juce::jlimit(5, (int)candidates.size(), targetCount);
-// "SoundCloud" lead: заметно реже нот, больше пространства между ними —
-// характерная разреженная, "плачущая" фразировка вместо плотного хука.
-if (leadStyleSoundCloud)
-targetCount = juce::jlimit(3, (int)candidates.size(), targetCount / 2);
-// Previous bar melody supplies the motif (moved up: needed for call-response).
-std::vector<NoteEvent> prevBar;
-const int prevStart = (barOffset - 1) * 16;
-if (barOffset > 0)
-{
-for (const auto& ev : s.notes)
-if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
-prevBar.push_back(ev);
-}
-// FLAGSHIP: call-response — нечётный такт отвечает на терцию/квинту ниже.
-int responseShift = 0;
-if (hook && (barOffset % 2) == 1 && !prevBar.empty() && r.nextFloat() < motifStrength * 0.5f)
-responseShift = r.nextBool() ? -3 : -5;
-std::vector<int> chosen;
-std::array<bool,16> used{};
-used.fill(false);
-auto addStep = [&](int x, bool forced)
-{
-if (x < 0 || x >= 16 || used[(size_t)x])
-return;
-if (!forced && !hook && (x % 4) != 0 &&
-r.nextFloat() < pauseChance)
-return;
-used[(size_t)x] = true;
-chosen.push_back(x);
+    float positionFactor = 1.0f;
+    float normalizedPos = static_cast<float>(noteIndex) / std::max(1, totalNotes - 1);
+    
+    if (normalizedPos < 0.15f) positionFactor = 1.18f;
+    else if (normalizedPos > 0.85f || isPhraseEnd) positionFactor = 0.82f;
+
+    float velocity = baseVel * positionFactor;
+    if (isAccent) velocity *= 1.25f;
+    velocity += static_cast<float>((r.nextInt() % 12) - 6);
+
+    return juce::jlimit(40, 120, static_cast<int>(velocity));
 };
-for (int x : {0,4,8,12})
+
+auto calculateMicroTiming = [&](int stepInBar, bool isDownbeat) -> float
 {
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, true);
-}
-if (hook)
-{
-static const int skeletons[4][6] = {
-{0,2,4,7,8,11},
-{0,3,4,6,8,12},
-{0,2,4,6,10,12},
-{0,3,4,7,8,11}
+    if (isDownbeat && r.nextFloat() < 0.35f) return -0.025f;
+    if (!isDownbeat && r.nextFloat() < 0.45f) return 0.035f;
+    return 0.0f;
 };
-const auto& row = skeletons[(barOffset + variationSalt) % 4];
-for (int x : row)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (rhythmHit(x)) addStep(x, true);
-}
-}
-std::vector<int> shuffled = candidates;
-for (int i = static_cast<int>(shuffled.size()) - 1; i > 0; --i)
-{
-const int j = r.nextInt(i + 1);
-std::swap(shuffled[static_cast<size_t>(i)],
-shuffled[static_cast<size_t>(j)]);
-}
-for (int x : shuffled)
-{
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, false);
-}
-for (int x : candidates)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (!used[(size_t)x])
-{
-used[(size_t)x] = true;
-chosen.push_back(x);
-}
-}
-std::sort(chosen.begin(), chosen.end());
-std::vector<NoteEvent> inheritedMelody;
-if (inherited != nullptr)
-for (const auto& ev : *inherited)
-if (ev.channel == 3)
-inheritedMelody.push_back(ev);
+
+// === НОВАЯ ЛОГИКА ГЕНЕРАЦИИ МЕЛОДИИ ===
+// Один мотив на фразу (4 такта), развивается внутри фразы
+
+const int phraseLength = 4;
+const int barInPhrase = barOffset % phraseLength;
+const PhraseState::Phase phase = getPhrasePhase(barInPhrase, phraseLength);
+
+// Базовая нота от текущей степени прогрессии
 const auto prog = progressionDegrees();
 const int degree = prog[(size_t)(barOffset % (int)prog.size())];
-const std::array<int,4> chordTones = {
-degreeToPitch(degree,     octave),
-degreeToPitch(degree + 2, octave),
-degreeToPitch(degree + 4, octave),
-degreeToPitch(degree + 6, octave)
-};
-// FLAGSHIP: per-bar velocity curve (crescendo / diminuendo) for human phrasing.
-const float curveDir = (((variationSalt + barOffset) % 2) == 0) ? 1.f : -1.f;
-const float curveAmt = 0.25f * e;
-int previous = juce::jlimit(52,92,degreeToPitch(3,octave));
-if (!prevBar.empty() && r.nextFloat() < (hook ? 0.72f : motifStrength))
-previous = prevBar.front().note + responseShift;
-else if (!inheritedMelody.empty() && r.nextFloat() < (hook ? 0.68f : motifStrength))
-previous = inheritedMelody.front().note;
-for (int index = 0; index < (int)chosen.size(); ++index)
+const int baseNote = degreeToPitch(degree, octave);
+
+// Seed для всей фразы (не для каждого такта!)
+const int phraseSeed = seed + variationSalt + (barOffset / phraseLength) * 137;
+juce::Random phraseRandom(phraseSeed);
+
+// Генерируем ОДИН мотив в начале фразы
+static Motif phraseMotif;
+static int lastPhraseStart = -1;
+int currentPhraseStart = (barOffset / phraseLength) * phraseLength;
+
+if (currentPhraseStart != lastPhraseStart)
 {
-const int x = chosen[(size_t)index];
-const bool accent = (x % 4) == 0;
-const bool phraseEnd = x >= 14 || index == (int)chosen.size() - 1;
-int target = previous;
-if (!prevBar.empty() &&
-r.nextFloat() < (hook ? 0.52f : 0.45f) * motifStrength)
-{
-const auto it = std::min_element(
-prevBar.begin(), prevBar.end(),
-[x](const NoteEvent& a, const NoteEvent& b)
-{
-return std::abs((a.step % 16) - x) <
-std::abs((b.step % 16) - x);
-});
-target = (it != prevBar.end()) ? it->note + responseShift : previous;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-3,4));
+    // Новая фраза: создаём уникальный мотив
+    phraseMotif = generateMotif(phraseRandom, baseNote, degree);
+    lastPhraseStart = currentPhraseStart;
 }
-else if (hook && !inheritedMelody.empty() &&
-r.nextFloat() < 0.40f * motifStrength)
+
+// Развиваем мотив для текущего такта
+Motif currentMotif;
+if (barInPhrase == 0)
 {
-target = inheritedMelody[(size_t)(x % (int)inheritedMelody.size())].note;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-2,3));
+    // Такт 1: оригинальный мотив
+    currentMotif = phraseMotif;
 }
 else
 {
-const bool leap =
-r.nextFloat() < (0.05f + 0.22f * leapChance + 0.10f * complexity);
-const int contourBias = ((variationSalt % 2) == 0) ? 1 : -1;
-// "SoundCloud" lead keeps leaps small and steps narrow — a chant-like,
-// stay-close-to-home melody rather than an energetic hook run.
-const int leapMax = leadStyleSoundCloud ? 5 : 9;
-const int stepMax = leadStyleSoundCloud ? 2 : 4;
-target += leap
-? contourBias * r.nextInt(juce::Range<int>(3,leapMax))
-: r.nextInt(juce::Range<int>(-stepMax,stepMax+1));
+    // Такты 2-4: вариации мотива
+    currentMotif = generateMotifVariation(phraseMotif, phase, variationAmount, phraseRandom);
 }
-float chordBias = hook
-? (accent ? 0.82f : 0.48f)
-: (accent ? 0.72f : 0.32f);
-if (phraseEnd)
-chordBias = 0.95f;
-// "SoundCloud" lead sticks close to chord tones almost always — repetition
-// and a narrow, chant-like range are the whole point of the style.
-if (leadStyleSoundCloud)
-chordBias = juce::jmax(chordBias, 0.88f);
-if (r.nextFloat() < chordBias)
+
+// Применяем мотив
+applyMotifToMelody(s, barOffset, currentMotif, motifStrength, phraseRandom, baseNote);
+
+// Call & Response для тактов 2 и 4
+if (hookMode && (barInPhrase == 1 || barInPhrase == 3))
 {
-int nearest = chordTones[0];
-int bestDist = std::abs(target - nearest);
-for (int chordTone : chordTones)
+    if (phraseRandom.nextFloat() < 0.7f)
+        applyCallAndResponse(s, barOffset, currentMotif, motifStrength, phraseRandom, baseNote);
+}
+
+// Дополнительные проходящие ноты (только если density > 0.4)
+if (melodyDensity > 0.4f)
 {
-for (int o = -1; o <= 1; ++o)
-{
-const int candidate = chordTone + 12 * o;
-const int d = std::abs(target - candidate);
-if (d < bestDist)
-{
-bestDist = d;
-nearest = candidate;
+    const auto scaleSteps = scaleSemitones();
+    const int extraCount = (int)((melodyDensity - 0.4f) * 8.0f);
+    
+    for (int i = 0; i < extraCount; ++i)
+    {
+        int step = phraseRandom.nextInt(16);
+        
+        // Проверяем, не занята ли позиция
+        bool occupied = false;
+        for (const auto& n : s.notes)
+        {
+            if (n.channel == 3 && n.step / 16 == barOffset && std::abs((n.step % 16) - step) < 2)
+            {
+                occupied = true;
+                break;
+            }
+        }
+        if (occupied) continue;
+        
+        // Выбираем ноту из гаммы (step-wise motion приоритетно)
+        int scaleIdx = phraseRandom.nextInt((int)scaleSteps.size());
+        int octaveVar = (phraseRandom.nextInt(100) < 70) ? 0 : (phraseRandom.nextBool() ? 1 : -1);
+        int pitch = baseNote + scaleSteps[(size_t)scaleIdx] + octaveVar * 12;
+        
+        // Длина: преимущественно короткие (1/16, 1/8)
+        int len = (phraseRandom.nextInt(100) < 60) ? 1 : (phraseRandom.nextInt(100) < 80 ? 2 : 4);
+        
+        // Velocity с humanization
+        bool accent = (step % 4 == 0);
+        int vel = calculateHumanVelocity(i, extraCount, accent, false, 62.0f);
+        
+        NoteEvent passingNote;
+        passingNote.step = barOffset * 16 + step;
+        passingNote.length = len;
+        passingNote.note = juce::jlimit(36, 108, pitch);
+        passingNote.velocity = vel;
+        passingNote.channel = 3;
+        
+        s.notes.push_back(passingNote);
+    }
 }
-}
-}
-// FLAGSHIP: 9th/11th color targets when extensions on.
-if (chordExtensions && r.nextFloat() < 0.15f * complexity)
-{
-const int ext9  = degreeToPitch(degree + 8,  octave);
-const int ext11 = degreeToPitch(degree + 10, octave);
-const int d9  = std::abs(target - ext9);
-const int d11 = std::abs(target - ext11);
-if (d9  < bestDist) { bestDist = d9;  nearest = ext9;  }
-if (d11 < bestDist) { bestDist = d11; nearest = ext11; }
-}
-target = nearest;
-}
-if (phraseEnd)
-target = r.nextBool() ? chordTones[0] : chordTones[2];
-target = juce::jlimit(48,98,target);
-int note = snapToScale(target);
-while (note - previous > 9)  note -= 12;
-while (previous - note > 9)  note += 12;
-note = juce::jlimit(48,98,note);
-int len = 1;
-if (phraseEnd)
-len = r.nextFloat() < (0.55f + 0.25f * melodyLength) ? 2 : 1;
-else if (accent && r.nextFloat() < (0.34f + 0.30f * melodyLength))
-len = 2;
-else if (r.nextFloat() < (hook ? 0.08f : 0.12f) * melodyLength)
-len = 4;
-// "SoundCloud" lead sustains notes longer — sparse but sung-out, not clipped.
-if (leadStyleSoundCloud && r.nextFloat() < 0.5f)
-len = juce::jmax(len, 2 + (r.nextBool() ? 2 : 0));
-len = juce::jmin(len, 16 - x);
-const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
-int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
-if (phraseEnd) velocity += 5;
-// FLAGSHIP: velocity curve inside the bar.
-velocity = (int)(velocity * (1.f + curveAmt * curveDir * ((float)x / 15.f - 0.5f) * 2.f));
-velocity = juce::jlimit(45,118,velocity);
-// FLAGSHIP: chromatic approach note into strong targets.
-// (skipped for "SoundCloud" lead — that style stays plain and spacious,
-// chromatic decoration reads as too busy/"hooky" for it)
-if (!leadStyleSoundCloud && (accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
-s.notes.push_back({barOffset*16+x-1,1,juce::jlimit(0,127,note-1),55,3,true});
-// FLAGSHIP: passing tone split on big leaps.
-bool passed = false;
-if (!leadStyleSoundCloud && std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
-{
-const int mid = snapToScale((note+previous)/2);
-s.notes.push_back({barOffset*16+x,1,mid,62,3,false});
-used[(size_t)(x+1)] = true;
-s.notes.push_back({barOffset*16+x+1,juce::jmax(1,len-1),note,velocity,3,ghost});
-passed = true;
-}
-if (!passed)
-s.notes.push_back({barOffset*16+x,len,note,velocity,3,ghost});
-// FLAGSHIP: octave shimmer double (bell/pluck colour).
-// (skipped for "SoundCloud" — that style wants one clean, sad note, not a
-// shimmering double)
-if (!leadStyleSoundCloud && r.nextFloat() < 0.10f * complexity && note+12 <= 98)
-s.notes.push_back({barOffset*16+x,1,note+12,juce::jlimit(1,127,(int)(velocity*0.55f)),3,true});
-previous = note;
-}
-}
+} // конец addMelody
+
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
 if(arpDensity<=0.001f)return;
@@ -550,7 +889,7 @@ void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int 
 {
 song.sections.clear();
 const auto prog=progressionDegrees();
-int sectionCount=sectionMode==Loop?1:(sectionMode == SongMode?5:7);
+int sectionCount=1; // Только Loop режим
 for(int i=0;i<sectionCount;++i){
 Section sec;
 const std::vector<NoteEvent>* inherited=nullptr;
@@ -659,7 +998,8 @@ int sampleOffset,int velocityBias)
 if(e.step<0)return;
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 midi.addEvent(juce::MidiMessage::noteOn(e.channel,e.note,(juce::uint8)velocity),sampleOffset);
-const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
+const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpmValue) / 4.0;
 const juce::int64 offGlobal = samplePosition + sampleOffset
 + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
 pendingOffs.push_back ({ offGlobal, e.channel, e.note });
@@ -675,7 +1015,8 @@ constexpr int ticksPerStep = ppq / 4;
 juce::MidiFile file;
 file.setTicksPerQuarterNote(ppq);
 juce::MidiMessageSequence conductor;
-const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm.load()));
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
+const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpmValue));
 conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
 conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
 const int totalSteps = juce::jmax(1, song.bars * 16);
@@ -725,8 +1066,9 @@ int local=globalStep%period;
 if(local<0)local+=period;
 uiCurrentStep.store (local);
 int offset=0;
+const double currentBpmValue = (tempoMode == DAW_Sync) ? currentBpm.load() : manualBpm;
 if((local%2)==1)
-offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm.load())/8.0);
+offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpmValue)/8.0);
 int velBias=(int)((realtimeRng.nextFloat()*2.f-1.f)*14.f*humanize);
 for(const auto& e:activeNotes){
 if(e.step==local) emitNote(e,out,offset,velBias);
@@ -767,6 +1109,7 @@ o.writeInt(arpRate);o.writeFloat(voicingWidth);o.writeBool(chordExtensions);o.wr
 o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
 o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
 o.writeInt(selectedVariation);
+o.writeInt((int)tempoMode);o.writeFloat(manualBpm);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -781,6 +1124,8 @@ arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inve
 motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
+if (i.getNumBytesRemaining() >= (int)sizeof(int)) tempoMode = (TempoMode)i.readInt();
+if (i.getNumBytesRemaining() >= (int)sizeof(float)) manualBpm = i.readFloat();
 regenerate();
 chooseVariation (savedSelection);
 }

@@ -59,8 +59,9 @@ progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like"
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
 rhythm.addItemList({"Straight","Syncopated","Broken","Euclidean"},1);
 rhythm.setSelectedId(p.getRhythm()+1); rhythm.onChange=[this]{processor.setRhythm(rhythm.getSelectedId()-1);}; addAndMakeVisible(rhythm);
-mode.addItemList({"Loop","Song","Song Extended"},1);
-mode.setSelectedId(p.getSectionMode()+1); mode.onChange=[this]{processor.setSectionMode(mode.getSelectedId()-1);}; addAndMakeVisible(mode);
+mode.addItemList({"Loop"},1);
+mode.setSelectedId(1); // Только Loop режим
+addAndMakeVisible(mode);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
 bars.setSelectedId(bid);
@@ -102,6 +103,9 @@ complexity.onValueChange=[this]{processor.setComplexity((float)complexity.getVal
 chords.setButtonText("CHORDS");bass.setButtonText("BASS");melody.setButtonText("MELODY");arp.setButtonText("ARP");
 extensions.setButtonText("7/9 EXT");inversions.setButtonText("INV");hookModeButton.setButtonText("HOOK");
 soundCloudButton.setButtonText("SOUNDCLOUD");
+tempoModeBox.addItemList({"DAW SYNC", "MANUAL"}, 1);
+tempoModeBox.setSelectedId(p.getTempoMode() + 1);
+tempoModeBox.onChange = [this] { processor.setTempoMode(tempoModeBox.getSelectedId() - 1); };
 chords.setToggleState(p.isChordsEnabled(),juce::dontSendNotification);
 bass.setToggleState(p.isBassEnabled(),juce::dontSendNotification);
 melody.setToggleState(p.isMelodyEnabled(),juce::dontSendNotification);
@@ -121,6 +125,10 @@ soundCloudButton.onClick=[this]{processor.setLeadStyleSoundCloud(soundCloudButto
 addAndMakeVisible(chords);addAndMakeVisible(bass);addAndMakeVisible(melody);addAndMakeVisible(arp);
 addAndMakeVisible(extensions);addAndMakeVisible(inversions);addAndMakeVisible(hookModeButton);
 addAndMakeVisible(soundCloudButton);
+addAndMakeVisible(tempoModeBox);
+setupSlider(manualBpmSlider, 40.0, 300.0, 1.0, p.getManualBpm(), this);
+manualBpmSlider.onValueChange = [this] { processor.setManualBpm((float)manualBpmSlider.getValue()); };
+addAndMakeVisible(manualBpmSlider);
 variationBox.addItemList({"VAR 1","VAR 2","VAR 3","VAR 4","VAR 5","VAR 6","VAR 7","VAR 8"},1);
 variationBox.setSelectedId(1); addAndMakeVisible(variationBox);
 variationBox.onChange=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
@@ -163,6 +171,7 @@ ok ? "MIDI exported successfully."
 addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
 
 // --- P2: Undo / Redo / Clear ------------------------------------------
+pianoRoll.resetEditHistory();
 undoBtn.onClick = [this] { pianoRoll.undo(); };
 redoBtn.onClick = [this] { pianoRoll.redo(); };
 clearBtn.onClick = [this] { pianoRoll.clearAllNotes(); };
@@ -284,6 +293,8 @@ inversions.setBounds(440,112,68,22);
 arpRate.setBounds(512,112,58,22);
 hookModeButton.setBounds(574,112,72,22);
 soundCloudButton.setBounds(650,112,110,22);
+tempoModeBox.setBounds(20, 140, 120, 22);
+manualBpmSlider.setBounds(150, 140, 200, 22);
 
 // Two-column compact control layout.
 const int sliderH = 21;

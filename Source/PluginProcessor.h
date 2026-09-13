@@ -4,14 +4,63 @@
 #include <vector>
 #include <atomic>
 #include <memory>
+
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
+// --- Motif / Phrase Engine ------------------------------------------------
+// --- Humanization Engine --------------------------------------------------
+struct VelocityProfile
+{
+    enum Shape { Flat, Crescendo, Decrescendo, Arch, InvertedArch };
+    Shape shape = Flat;
+    float accentStrength = 0.5f;  // сила акцентов на важных долях
+};
+
+struct RhythmVariation
+{
+    float microTiming = 0.0f;     // микросдвиги времени (-1..1, в долях шага)
+    bool isPause = false;         // небольшая пауза вместо ноты
+    float lengthMultiplier = 1.0f; // удлинение/укорочение ноты
+};
+
+struct IntervalConstraint
+{
+    float maxStepSize = 3.0f;     // макс. размер шага в полутонах для обычных нот
+    float leapChance = 0.15f;     // вероятность большого скачка
+    float returnAfterLeap = 0.7f; // вероятность возврата после скачка
+};
+
+struct Motif
+{
+    std::vector<int> steps;      // шаги внутри такта (0..15)
+    std::vector<int> intervals;  // интервалы относительно базовой ноты (в полутонах)
+    int baseNote = 60;           // базовая нота мотива
+    int length = 4;              // длина мотива в шагах
+    float rhythmPattern = 0.0f;  // характерный ритмический паттерн
+    
+    // Humanization данные
+    std::vector<VelocityProfile> velocityProfiles;  // профиль velocity для каждой ноты
+    std::vector<RhythmVariation> rhythmVariations;  // ритмические вариации для каждой ноты
+    IntervalConstraint intervalConstraint;          // ограничения на интервалы
+};
+
+struct PhraseState
+{
+    enum Phase { PhraseStart, Development, Tension, Resolution };
+    Phase phase = PhraseStart;
+    int barInPhrase = 0;
+    int phraseLength = 4;        // стандартная длина фразы: 4 такта
+    Motif currentMotif;
+    bool hasMotif = false;
+};
+
 enum Genre { Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic };
 enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
-enum SectionMode { Loop, SongMode, SongExtended };
+enum SectionMode { Loop };
+enum TempoMode { DAW_Sync, Manual_Tempo };
 MidiForgeAudioProcessor();
 ~MidiForgeAudioProcessor() override = default;
 void prepareToPlay(double, int) override;
@@ -53,6 +102,12 @@ void setFillAmount(float); void setEnergy(float);
 void setChordsEnabled(bool); void setBassEnabled(bool);
 void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
 void setLeadStyleSoundCloud(bool v) { leadStyleSoundCloud = v; }
+// --- DAW Tempo Sync -------------------------------------------------------
+void setTempoMode(int mode) { tempoMode = (TempoMode)juce::jlimit(0, 1, mode); }
+void setManualBpm(float bpm) { manualBpm = juce::jlimit(40.0f, 300.0f, bpm); }
+int getTempoMode() const { return (int)tempoMode; }
+float getManualBpm() const { return manualBpm; }
+float getCurrentBpm() const { return (tempoMode == DAW_Sync) ? (float)currentBpm.load() : manualBpm; }
 // --- Smart Lock: заморозка отдельной партии при регенерации ---
 void setLockChords(bool v) { lockChordsLayer = v; }
 void setLockBass(bool v)   { lockBassLayer = v; }
@@ -154,7 +209,7 @@ int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
-int sectionMode = SongMode;
+int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;
 float melodyLength = 0.35f, pauseChance = 0.10f, leapChance = 0.18f, ghostChance = 0.08f;
@@ -168,6 +223,9 @@ bool hookMode = true;
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
 bool leadStyleSoundCloud = false;
 bool lockChordsLayer = false, lockBassLayer = false, lockMelodyLayer = false, lockArpLayer = false;
+// --- DAW Tempo Sync -------------------------------------------------------
+TempoMode tempoMode = DAW_Sync;  // по умолчанию DAW Sync
+float manualBpm = 120.0f;        // ручной BPM для режима Manual
 std::atomic<int> lastGlobalStep { -1 };
 juce::Random realtimeRng { 0x51eed };
 // Текущий шаг воспроизведения (для метра/пиано-ролла в UI), обновляется в processBlock.
@@ -196,6 +254,23 @@ bool rhythmHit(int stepInBar) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
+// --- Motif / Phrase Engine methods ----------------------------------------
+Motif generateMotif(juce::Random& random, int baseNote, int scaleDegree);
+void applyMotifToMelody(Section& s, int barOffset, const Motif& motif, float strength,
+                        juce::Random& random, int baseNote);
+void developMotif(Motif& motif, float variationAmount, juce::Random& random);
+PhraseState::Phase getPhrasePhase(int barInPhrase, int phraseLength);
+// --- Motif Helper Methods -------------------------------------------------
+Motif generateMotifVariation(const Motif& baseMotif, PhraseState::Phase phase, 
+                             float variationAmt, juce::Random& random);
+void applyCallAndResponse(Section& s, int barOffset, const Motif& motif,
+                          float strength, juce::Random& random, int baseNote);
+// --- Humanization Engine methods ------------------------------------------
+void applyHumanization(Section& s, int startStep, int endStep, float humanizeAmount,
+                       juce::Random& random, const VelocityProfile::Shape& velocityShape);
+VelocityProfile::Shape chooseVelocityShapeForPhrase(PhraseState::Phase phase, juce::Random& random);
+RhythmVariation generateRhythmVariation(float humanizeAmount, bool isAccent, juce::Random& random);
+int constrainInterval(int prevNote, int nextNote, const IntervalConstraint& constraint, juce::Random& random);
 void addChords(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addBass(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,

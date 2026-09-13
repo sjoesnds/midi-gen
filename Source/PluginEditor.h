@@ -20,6 +20,8 @@ juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox;
+ juce::ComboBox tempoModeBox;
+ juce::Slider manualBpmSlider;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
@@ -472,24 +474,48 @@ juce::Label title, sectionLabel;
          return true;
      }
 
+ public:
      void resetEditHistory()
      {
          history.clear();
          historyCursor = -1;
-         updateHistoryButtons();
      }
 
-     void updateHistoryButtons()
+     void undo()
      {
-         const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
-         const bool canRedo = historyCursor >= 0 && historyCursor + 1 < (int) history.size();
-         undoBtn.setEnabled (canUndo);
-         redoBtn.setEnabled (canRedo);
-         historyLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
-                               + juce::String (canRedo ? (int) history.size() - historyCursor - 1 : 0) + " redo",
-                               juce::dontSendNotification);
+         if (history.empty())
+             history.push_back (processor.getVisibleNotes());
+         if (historyCursor <= 0)
+             return;
+         --historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         repaint();
      }
 
+     void redo()
+     {
+         if (historyCursor + 1 >= (int) history.size())
+             return;
+         ++historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         repaint();
+     }
+
+     void clearAllNotes()
+     {
+         const auto current = processor.getVisibleNotes();
+         if (current.empty())
+             return;
+         beginEditHistory();
+         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
+         commitEditHistory();
+         selectedNote = -1;
+         repaint();
+     }
+
+ private:
      void beginEditHistory()
      {
          if (history.empty())
@@ -501,7 +527,6 @@ juce::Label title, sectionLabel;
          {
              history.erase (history.begin() + historyCursor + 1, history.end());
          }
-         updateHistoryButtons();
      }
 
      void commitEditHistory()
@@ -522,43 +547,6 @@ juce::Label title, sectionLabel;
              }
              historyCursor = (int) history.size() - 1;
          }
-         updateHistoryButtons();
-     }
-
-     void undo()
-     {
-         if (history.empty())
-             history.push_back (processor.getVisibleNotes());
-         if (historyCursor <= 0)
-             return;
-         --historyCursor;
-         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
-         selectedNote = -1;
-         updateHistoryButtons();
-         repaint();
-     }
-
-     void redo()
-     {
-         if (historyCursor + 1 >= (int) history.size())
-             return;
-         ++historyCursor;
-         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
-         selectedNote = -1;
-         updateHistoryButtons();
-         repaint();
-     }
-
-     void clearAllNotes()
-     {
-         const auto current = processor.getVisibleNotes();
-         if (current.empty())
-             return;
-         beginEditHistory();
-         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
-         commitEditHistory();
-         selectedNote = -1;
-         repaint();
      }
 
      void copySelection()
