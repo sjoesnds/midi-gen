@@ -1,4 +1,4 @@
-# MIDI Forge fixed project
+# MIDI Forge 0.7.0 — chart-informed melody generation
 
 Fixes:
 - JUCE VST3-only compatibility (`JUCE_VST3_CAN_REPLACE_VST2=0`)

@@ -2,119 +2,6 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath>
-#include <limits>
-namespace
-{
-    // Chart-informed melodic prior.
-    //
-    // The July-2025 top-10k Spotify snapshot provides useful macro priors
-    // (popularity, tempo, key/mode, danceability, energy and time signature),
-    // while Pop-K (2025) supplies a large symbolic-pop reference set with
-    // lead/chord/bass MIDI.  Neither source publishes a single authoritative
-    // "2025 top-10k melody-note histogram", so these are deliberately broad
-    // priors rather than copied song patterns.
-    struct ChartMelodyProfile
-    {
-        static constexpr float stepWeight[16] =
-        {
-            1.35f, 0.46f, 0.92f, 0.52f,
-            1.18f, 0.55f, 0.88f, 0.48f,
-            1.28f, 0.44f, 0.90f, 0.54f,
-            1.16f, 0.58f, 0.84f, 0.68f
-        };
-
-        // Probability mass for scale-degree distance from the previous note.
-        // The centre-heavy distribution favours singable motion while leaving
-        // enough room for memorable skips.
-        static constexpr float intervalWeight[8] =
-        {
-            1.00f, // same/near repeat
-            2.35f, // 1 scale degree
-            2.05f, // 2 degrees
-            1.55f, // 3 degrees
-            1.15f, // 4 degrees
-            0.78f, // 5 degrees
-            0.52f, // 6 degrees
-            0.26f  // octave / large leap
-        };
-
-        static constexpr float durationWeight[4] =
-        {
-            1.00f, 0.82f, 0.48f, 0.22f
-        };
-
-        static float stepProbability(int step, float density, float energy)
-        {
-            const float base = stepWeight[juce::jlimit(0, 15, step)];
-            const float backbeat = ((step % 4) == 2) ? 0.08f * energy : 0.0f;
-            return juce::jlimit(0.08f, 1.0f,
-                                0.38f + 0.28f * density + 0.22f * (base / 1.35f)
-                                + backbeat);
-        }
-
-        static int chooseScaleDistance(juce::Random& r, float leapChance, float complexity)
-        {
-            float weights[8];
-            float total = 0.0f;
-            for (int i = 0; i < 8; ++i)
-            {
-                weights[i] = intervalWeight[i];
-                total += weights[i];
-            }
-
-            // Large leaps are deliberately rare in current chart-oriented
-            // pop/rap/electronic phrasing; complexity can open them up.
-            weights[6] *= (0.55f + 1.10f * leapChance + 0.35f * complexity);
-            weights[7] *= (0.35f + 1.35f * leapChance + 0.45f * complexity);
-
-            total = 0.0f;
-            for (float w : weights) total += w;
-            float pick = r.nextFloat() * total;
-            for (int i = 0; i < 8; ++i)
-            {
-                pick -= weights[i];
-                if (pick <= 0.0f)
-                    return i;
-            }
-            return 1;
-        }
-
-        static int chooseDuration(juce::Random& r, float melodyLength, bool phraseEnd, bool sparse)
-        {
-            float weights[4] =
-            {
-                durationWeight[0],
-                durationWeight[1] + 0.45f * melodyLength,
-                durationWeight[2] + 0.55f * melodyLength,
-                durationWeight[3] + 0.70f * melodyLength
-            };
-
-            if (phraseEnd)
-            {
-                weights[2] *= 1.55f;
-                weights[3] *= 2.10f;
-            }
-
-            if (sparse)
-            {
-                weights[1] *= 1.20f;
-                weights[2] *= 1.65f;
-                weights[3] *= 1.90f;
-            }
-
-            float total = 0.0f;
-            for (float w : weights) total += w;
-            float pick = r.nextFloat() * total;
-            for (int i = 0; i < 4; ++i)
-            {
-                pick -= weights[i];
-                if (pick <= 0.0f)
-                    return 1 << i;
-            }
-            return 1;
-        }
-    };
-}
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
@@ -688,7 +575,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         previous = note;
     }
 }
-
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
 if(arpDensity<=0.001f)return;

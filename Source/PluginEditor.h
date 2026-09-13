@@ -85,7 +85,11 @@ juce::Label title, sectionLabel;
  // воспроизведения. Цвет ноты = канал (аккорды/бас/мелодия/арпеджио).
  struct PianoRoll : public juce::Component, private juce::Timer
  {
-     explicit PianoRoll (MidiForgeAudioProcessor& proc) : processor (proc)
+     explicit PianoRoll (MidiForgeAudioProcessor& proc,
+                       juce::TextButton& undoButton,
+                       juce::TextButton& redoButton,
+                       juce::Label& historyStatus)
+          : processor (proc), undoBtn (undoButton), redoBtn (redoButton), historyLabel (historyStatus)
      {
          setWantsKeyboardFocus (true);
          startTimerHz (30);
@@ -225,7 +229,7 @@ juce::Label title, sectionLabel;
          }
          else
          {
-             const int step = snapStep (xToStep (e.position.x));
+             const int step = snapStep (static_cast<float> (xToStep (e.position.x)));
              const int note = yToPitch (e.position.y);
                  processor.addVisibleNote (step, note, defaultLengthSteps, 100, selectedChannel);
              selectedNote = (int) processor.getVisibleNotes().size() - 1;
@@ -606,6 +610,6 @@ juce::Label title, sectionLabel;
 
      void timerCallback() override { repaint(); }
  };
- PianoRoll pianoRoll { processor };
+ PianoRoll pianoRoll { processor, undoBtn, redoBtn, historyLabel };
  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessorEditor)
 };
