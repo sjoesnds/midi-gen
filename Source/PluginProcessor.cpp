@@ -195,6 +195,132 @@ if(auto* da=o->getProperty("dislikes").getArray())
 for(int i=0;i<8&&i<da->size();++i) dislikeCounts[(size_t)i]=(int)(*da)[i];
 }
 }
+// --- Motif / Phrase Engine ------------------------------------------------
+MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Random& random, int baseNote, int scaleDegree)
+{
+    Motif motif;
+    motif.baseNote = baseNote;
+    
+    // Создаём короткий мотив из 3-5 нот (характерная музыкальная мысль)
+    const int motifLength = 3 + random.nextInt(3); // 3, 4 или 5 нот
+    motif.length = motifLength;
+    
+    // Генерируем ритмический паттерн мотива
+    std::vector<int> availableSteps = {0, 2, 4, 6, 8, 10, 12, 14};
+    if (genre == Trap || genre == BoomBap)
+        availableSteps = {0, 3, 6, 9, 12, 14};
+    else if (genre == House || genre == Techno)
+        availableSteps = {0, 4, 8, 12};
+    
+    // Выбираем шаги для нот мотива
+    for (int i = 0; i < motifLength && !availableSteps.empty(); ++i)
+    {
+        const int idx = random.nextInt((int)availableSteps.size());
+        motif.steps.push_back(availableSteps[(size_t)idx]);
+        availableSteps.erase(availableSteps.begin() + idx);
+    }
+    std::sort(motif.steps.begin(), motif.steps.end());
+    
+    // Генерируем интервалы мотива (в полутонах)
+    const auto scale = scaleSemitones();
+    const int scaleSize = (int)scale.size();
+    
+    // Первый интервал - базовая нота (0)
+    motif.intervals.push_back(0);
+    
+    // Остальные интервалы выбираем из гаммы
+    for (int i = 1; i < motifLength; ++i)
+    {
+        // Предпочитаем консонансные интервалы: унисон, терция, кварта, квинта, секста, октава
+        const int consonantDegrees = random.nextBool() ? 4 : 6;
+        int degree = random.nextInt(consonantDegrees);
+        
+        // Добавляем немного хроматизма для интереса
+        if (random.nextFloat() < complexity * 0.3f)
+            degree = (degree + random.nextInt(3)) % scaleSize;
+        
+        const int semitone = scale[(size_t)(degree % scaleSize)];
+        const int octave = degree / scaleSize;
+        motif.intervals.push_back(semitone + octave * 12);
+    }
+    
+    // Сохраняем характерный ритмический паттерн
+    motif.rhythmPattern = (float)random.nextInt(100) / 100.0f;
+    
+    return motif;
+}
+
+void MidiForgeAudioProcessor::applyMotifToMelody(Section& s, int barOffset, const Motif& motif, 
+                                                  float strength, juce::Random& random, int baseNote)
+{
+    const int barStart = barOffset * 16;
+    
+    // Применяем мотив с заданной силой (strength)
+    for (size_t i = 0; i < motif.steps.size() && i < motif.intervals.size(); ++i)
+    {
+        // Сила определяет вероятность применения ноты мотива
+        if (random.nextFloat() > strength)
+            continue;
+        
+        const int step = motif.steps[i];
+        const int interval = motif.intervals[i];
+        const int note = juce::jlimit(24, 108, baseNote + interval);
+        const int velocity = 80 + random.nextInt(30);
+        const int length = 2 + random.nextInt(4);
+        
+        s.notes.push_back({barStart + step, length, note, velocity, 3, false});
+    }
+}
+
+void MidiForgeAudioProcessor::developMotif(Motif& motif, float variationAmt, juce::Random& random)
+{
+    // Развиваем мотив: варьируем ритм и интервалы
+    const float variation = juce::jlimit(0.0f, 1.0f, variationAmt);
+    
+    // Вариация ритма
+    for (size_t i = 0; i < motif.steps.size(); ++i)
+    {
+        if (random.nextFloat() < variation * 0.5f)
+        {
+            // Сдвигаем шаг на ±1 или ±2
+            const int shift = (random.nextInt(5) - 2); // -2..+2
+            motif.steps[i] = juce::jlimit(0, 15, motif.steps[i] + shift);
+        }
+    }
+    
+    // Вариация интервалов
+    for (size_t i = 1; i < motif.intervals.size(); ++i)
+    {
+        if (random.nextFloat() < variation * 0.4f)
+        {
+            // Изменяем интервал на ±1-2 полутона
+            const int shift = (random.nextInt(5) - 2);
+            motif.intervals[i] += shift;
+        }
+    }
+    
+    // Иногда добавляем или убираем ноту
+    if (motif.steps.size() > 2 && random.nextFloat() < variation * 0.3f)
+    {
+        const size_t removeIdx = (size_t)random.nextInt((int)motif.steps.size());
+        motif.steps.erase(motif.steps.begin() + (int)removeIdx);
+        if (removeIdx < motif.intervals.size())
+            motif.intervals.erase(motif.intervals.begin() + (int)removeIdx);
+    }
+}
+
+MidiForgeAudioProcessor::PhraseState::Phase MidiForgeAudioProcessor::getPhrasePhase(int barInPhrase, int phraseLength)
+{
+    if (barInPhrase == 0)
+        return PhraseState::PhraseStart;
+    else if (barInPhrase < phraseLength / 2)
+        return PhraseState::Development;
+    else if (barInPhrase < phraseLength - 1)
+        return PhraseState::Tension;
+    else
+        return PhraseState::Resolution;
+}
+
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -242,6 +368,67 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
+// --- Motif / Phrase Engine Integration ---
+// Генерируем мотив для первой фразы (4 такта) и развиваем его
+const int phraseLength = 4;
+const int barInPhrase = barOffset % phraseLength;
+const PhraseState::Phase phase = getPhrasePhase(barInPhrase, phraseLength);
+
+// Базовая нота для мотива (зависит от аккорда и октавы)
+const auto prog = progressionDegrees();
+const int degree = prog[(size_t)(barOffset % (int)prog.size())];
+const int baseNote = degreeToPitch(degree, octave);
+
+// Генерируем новый мотив в начале каждой фразы или если это первый такт
+static Motif currentMotif;
+static bool motifInitialized = false;
+static int lastPhraseStart = -1;
+
+if (barInPhrase == 0 && barOffset != lastPhraseStart)
+{
+    // Начало новой фразы: создаём новый мотив
+    currentMotif = generateMotif(r, baseNote, degree);
+    motifInitialized = true;
+    lastPhraseStart = barOffset;
+}
+else if (motifInitialized && barInPhrase > 0)
+{
+    // Развитие мотива внутри фразы
+    Motif developedMotif = currentMotif;
+    
+    switch (phase)
+    {
+        case PhraseState::Development:
+            // Лёгкая вариация
+            developMotif(developedMotif, variationAmount * 0.3f, r);
+            break;
+        case PhraseState::Tension:
+            // Более сильная вариация, добавляем напряжение
+            developMotif(developedMotif, variationAmount * 0.6f, r);
+            break;
+        case PhraseState::Resolution:
+            // Возврат к оригиналу с лёгкой вариацией
+            developMotif(developedMotif, variationAmount * 0.2f, r);
+            break;
+        default:
+            break;
+    }
+    
+    // Применяем развитый мотив
+    applyMotifToMelody(s, barOffset, developedMotif, motifStrength, r, baseNote);
+    
+    // Call & Response: нечётные такты отвечают на терцию ниже
+    if (barInPhrase % 2 == 1 && hookMode && r.nextFloat() < motifStrength * 0.5f)
+    {
+        Motif responseMotif = developedMotif;
+        for (size_t i = 0; i < responseMotif.intervals.size(); ++i)
+            responseMotif.intervals[i] -= 3; // Терция ниже
+        applyMotifToMelody(s, barOffset, responseMotif, motifStrength * 0.7f, r, baseNote);
+    }
+    
+    return; // Если мотив применён, продолжаем стандартную генерацию
+}
+
 // Hook-oriented generator + flagship SoundCloud techniques:
 // repetition + rhythmic identity + chord-tone gravity + controlled variation,
 // call-response, chromatic approaches, passing tones, 9/11 colors, octave shimmer,
@@ -349,8 +536,7 @@ if (inherited != nullptr)
 for (const auto& ev : *inherited)
 if (ev.channel == 3)
 inheritedMelody.push_back(ev);
-const auto prog = progressionDegrees();
-const int degree = prog[(size_t)(barOffset % (int)prog.size())];
+// prog и degree уже объявлены выше в Motif / Phrase Engine Integration
 const std::array<int,4> chordTones = {
 degreeToPitch(degree,     octave),
 degreeToPitch(degree + 2, octave),

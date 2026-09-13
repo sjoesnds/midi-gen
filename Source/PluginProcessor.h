@@ -4,9 +4,30 @@
 #include <vector>
 #include <atomic>
 #include <memory>
+
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
+// --- Motif / Phrase Engine ------------------------------------------------
+struct Motif
+{
+    std::vector<int> steps;      // шаги внутри такта (0..15)
+    std::vector<int> intervals;  // интервалы относительно базовой ноты (в полутонах)
+    int baseNote = 60;           // базовая нота мотива
+    int length = 4;              // длина мотива в шагах
+    float rhythmPattern = 0.0f;  // характерный ритмический паттерн
+};
+
+struct PhraseState
+{
+    enum Phase { PhraseStart, Development, Tension, Resolution };
+    Phase phase = PhraseStart;
+    int barInPhrase = 0;
+    int phraseLength = 4;        // стандартная длина фразы: 4 такта
+    Motif currentMotif;
+    bool hasMotif = false;
+};
+
 enum Genre { Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic };
 enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
@@ -196,6 +217,12 @@ bool rhythmHit(int stepInBar) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
+// --- Motif / Phrase Engine methods ----------------------------------------
+Motif generateMotif(juce::Random& random, int baseNote, int scaleDegree);
+void applyMotifToMelody(Section& s, int barOffset, const Motif& motif, float strength,
+                        juce::Random& random, int baseNote);
+void developMotif(Motif& motif, float variationAmount, juce::Random& random);
+PhraseState::Phase getPhrasePhase(int barInPhrase, int phraseLength);
 void addChords(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addBass(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
