@@ -59,8 +59,9 @@ progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like"
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
 rhythm.addItemList({"Straight","Syncopated","Broken","Euclidean"},1);
 rhythm.setSelectedId(p.getRhythm()+1); rhythm.onChange=[this]{processor.setRhythm(rhythm.getSelectedId()-1);}; addAndMakeVisible(rhythm);
-mode.addItemList({"Loop","Song","Song Extended"},1);
-mode.setSelectedId(p.getSectionMode()+1); mode.onChange=[this]{processor.setSectionMode(mode.getSelectedId()-1);}; addAndMakeVisible(mode);
+mode.addItemList({"Loop"},1);
+mode.setSelectedId(1); // Только Loop режим
+addAndMakeVisible(mode);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
 bars.setSelectedId(bid);

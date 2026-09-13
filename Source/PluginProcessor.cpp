@@ -201,11 +201,11 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     Motif motif;
     motif.baseNote = baseNote;
     
-    // Создаём короткий мотив из 2-6 нот для большего разнообразия
-    const int motifLength = 2 + random.nextInt(5); // 2-6 нот
+    // Создаём короткий мотив из 3-8 нот для БОЛЬШОГО разнообразия
+    const int motifLength = 3 + random.nextInt(6); // 3-8 нот
     motif.length = motifLength;
     
-    // Разнообразные ритмические паттерны в зависимости от жанра
+    // Значительно больше ритмических паттернов (32 вместо 8)
     std::vector<std::vector<int>> rhythmPatterns = {
         {0, 4, 8, 12},           // Четверти
         {0, 6, 12},              // Дактиль
@@ -214,7 +214,31 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
         {0, 8},                  // Половинные
         {0, 5, 10, 15},          // Триоли
         {0, 2, 8, 10},           // Двойная синкопа
-        {0, 4, 6, 10, 14}        // Сложный паттерн
+        {0, 4, 6, 10, 14},       // Сложный паттерн
+        {0, 3, 6, 9, 12},        // Пунктирные
+        {0, 1, 4, 7, 10, 13},    // Быстрые пробежки
+        {0, 4, 7, 11},           // Swing
+        {0, 2, 4, 6, 8, 10, 12, 14}, // Все восьмые
+        {0, 8, 12},              // Long-short
+        {0, 2, 3, 8, 9, 10},     // Burst
+        {0, 6, 8, 14},           // Off-beat
+        {0, 1, 2, 8, 9, 10},     // Double burst
+        {0, 4, 5, 6, 12},        // Triplet feel
+        {0, 3, 4, 5, 11, 12},    // Syncopated burst
+        {0, 2, 6, 8, 12, 14},    // Walking
+        {0, 1, 8, 9},            // Call response pairs
+        {0, 4, 10, 12},          // Trapezoid
+        {0, 3, 8, 11},           // Diamond
+        {0, 2, 4, 9, 11, 13},    // Alternating
+        {0, 5, 6, 7, 14, 15},    // End-heavy
+        {0, 1, 2, 3, 8},         // Start-heavy
+        {0, 4, 8, 9, 10, 11},    // Back-loaded
+        {0, 2, 5, 7, 10, 13},    // Euclidean-ish
+        {0, 3, 5, 8, 10, 13},    // Minor swing
+        {0, 1, 5, 6, 10, 11},    // Chromatic approach
+        {0, 4, 6, 8, 14},        // Open feel
+        {0, 2, 7, 9, 14},        // Pentatonic rhythm
+        {0, 3, 6, 10, 13}        // Jazz-like
     };
     
     // Выбираем случайный ритмический паттерн
@@ -225,7 +249,8 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     if (genre == Trap || genre == BoomBap)
     {
         std::vector<std::vector<int>> trapPatterns = {
-            {0, 3, 8, 12}, {0, 4, 9, 14}, {0, 2, 6, 10, 14}
+            {0, 3, 8, 12}, {0, 4, 9, 14}, {0, 2, 6, 10, 14},
+            {0, 3, 6, 10, 13}, {0, 2, 8, 11}, {0, 4, 7, 11, 14}
         };
         if (random.nextBool())
             availableSteps = trapPatterns[(size_t)random.nextInt((int)trapPatterns.size())];
@@ -233,24 +258,33 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     else if (genre == House || genre == Techno)
     {
         std::vector<std::vector<int>> housePatterns = {
-            {0, 4, 8, 12}, {0, 2, 6, 10, 14}, {0, 8}
+            {0, 4, 8, 12}, {0, 2, 6, 10, 14}, {0, 8},
+            {0, 3, 6, 9, 12}, {0, 1, 4, 7, 10, 13}, {0, 2, 5, 8, 11}
         };
         if (random.nextBool())
             availableSteps = housePatterns[(size_t)random.nextInt((int)housePatterns.size())];
+    }
+    else if (genre == Ambient)
+    {
+        std::vector<std::vector<int>> ambientPatterns = {
+            {0, 8}, {0, 6, 12}, {0, 4, 10}, {0, 8, 12}, {0, 5, 10, 15}
+        };
+        if (random.nextBool())
+            availableSteps = ambientPatterns[(size_t)random.nextInt((int)ambientPatterns.size())];
     }
     
     // Выбираем шаги для нот мотива (не все, а с вероятностью)
     for (int step : availableSteps)
     {
         if (motif.steps.size() < (size_t)motifLength && 
-            (motif.steps.empty() || random.nextFloat() > 0.3f))
+            (motif.steps.empty() || random.nextFloat() > 0.25f)) // Увеличили шанс добавления
         {
             motif.steps.push_back(step);
         }
     }
     
     // Если нот слишком мало, добавляем ещё
-    while (motif.steps.size() < (size_t)juce::jmax(2, motifLength - 1))
+    while (motif.steps.size() < (size_t)juce::jmax(3, motifLength - 1))
     {
         int newStep = random.nextInt(16);
         if (std::find(motif.steps.begin(), motif.steps.end(), newStep) == motif.steps.end())
@@ -259,21 +293,29 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
     
     std::sort(motif.steps.begin(), motif.steps.end());
     
-    // Генерируем интервалы мотива (в полутонах) с большим разнообразием
-    const auto scale = scaleSemitones();
-    const int scaleSize = (int)scale.size();
+    // Генерируем интервалы мотива (в полутонах) с ОГРОМНЫМ разнообразием
+    const auto scaleIntervals = scaleSemitones();
+    const int scaleSize = (int)scaleIntervals.size();
     
     // Первый интервал - базовая нота (0)
     motif.intervals.push_back(0);
     
-    // Разнообразные стратегии выбора интервалов
-    int intervalStrategy = random.nextInt(4);
+    // Разнообразные стратегии выбора интервалов (7 вместо 4)
+    int intervalStrategy = random.nextInt(7);
+    
+    // Иногда смешиваем две стратегии для уникальности
+    int secondaryStrategy = -1;
+    if (random.nextFloat() < 0.3f && complexity > 0.3f)
+        secondaryStrategy = random.nextInt(7);
     
     for (size_t i = 1; i < motif.steps.size(); ++i)
     {
         int degree = 0;
+        int currentStrategy = (secondaryStrategy >= 0 && random.nextFloat() < 0.4f) 
+                              ? secondaryStrategy 
+                              : intervalStrategy;
         
-        switch (intervalStrategy)
+        switch (currentStrategy)
         {
             case 0: // Консонансная мелодия (терции, квинты, октавы)
                 degree = random.nextInt(4) * 2; // 0, 2, 4, 6
@@ -294,16 +336,40 @@ MidiForgeAudioProcessor::Motif MidiForgeAudioProcessor::generateMotif(juce::Rand
                 if (random.nextFloat() < complexity * 0.5f)
                     degree = (degree + random.nextInt(5) - 2 + scaleSize) % scaleSize;
                 break;
+                
+            case 4: // Пентатоника/блюз (акценты на характерные интервалы)
+                degree = random.nextInt(5) * 2; // 0, 2, 4, 6, 8
+                if (random.nextFloat() < 0.2f)
+                    degree += 1; // Добавляем блюзовую ноту
+                break;
+                
+            case 5: // Восходящая/нисходящая дуга
+            {
+                float arcPos = (float)i / (float)motif.steps.size();
+                if (arcPos < 0.5f)
+                    degree = (int)(arcPos * 2.0f * 8); // Восхождение
+                else
+                    degree = (int)((1.0f - arcPos) * 2.0f * 8); // Нисхождение
+                degree = juce::jlimit(0, 10, degree);
+                break;
+            }
+                
+            case 6: // Рандомная с акцентом на крайние значения
+                if (random.nextFloat() < 0.3f)
+                    degree = random.nextBool() ? 0 : 10; // Крайние значения
+                else
+                    degree = random.nextInt(8);
+                break;
         }
         
         // Добавляем октавные смещения для разнообразия
         int octaveShift = 0;
-        if (random.nextFloat() < 0.25f)
+        if (random.nextFloat() < 0.3f) // Увеличили шанс
             octaveShift = random.nextBool() ? 1 : -1;
         
-        const int semitone = scale[(size_t)(degree % scaleSize)];
+        const int semitone = scaleIntervals[(size_t)(degree % scaleSize)];
         const int finalInterval = semitone + (degree / scaleSize + octaveShift) * 12;
-        motif.intervals.push_back(juce::jlimit(-24, 24, finalInterval));
+        motif.intervals.push_back(juce::jlimit(-36, 36, finalInterval)); // Расширили диапазон
     }
     
     // Сохраняем характерный ритмический паттерн
@@ -1034,7 +1100,7 @@ void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int 
 {
 song.sections.clear();
 const auto prog=progressionDegrees();
-int sectionCount=sectionMode==Loop?1:(sectionMode == SongMode?5:7);
+int sectionCount=1; // Только Loop режим
 for(int i=0;i<sectionCount;++i){
 Section sec;
 const std::vector<NoteEvent>* inherited=nullptr;
