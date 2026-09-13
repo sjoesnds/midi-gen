@@ -272,6 +272,10 @@ int targetCount = hook
 if (genre == Trap || genre == Techno) targetCount += 1;
 if (genre == Ambient && !hook) targetCount -= 2;
 targetCount = juce::jlimit(5, (int)candidates.size(), targetCount);
+// "SoundCloud" lead: заметно реже нот, больше пространства между ними —
+// характерная разреженная, "плачущая" фразировка вместо плотного хука.
+if (leadStyleSoundCloud)
+targetCount = juce::jlimit(3, (int)candidates.size(), targetCount / 2);
 // Previous bar melody supplies the motif (moved up: needed for call-response).
 std::vector<NoteEvent> prevBar;
 const int prevStart = (barOffset - 1) * 16;
@@ -393,15 +397,23 @@ else
 const bool leap =
 r.nextFloat() < (0.05f + 0.22f * leapChance + 0.10f * complexity);
 const int contourBias = ((variationSalt % 2) == 0) ? 1 : -1;
+// "SoundCloud" lead keeps leaps small and steps narrow — a chant-like,
+// stay-close-to-home melody rather than an energetic hook run.
+const int leapMax = leadStyleSoundCloud ? 5 : 9;
+const int stepMax = leadStyleSoundCloud ? 2 : 4;
 target += leap
-? contourBias * r.nextInt(juce::Range<int>(4,9))
-: r.nextInt(juce::Range<int>(-3,4));
+? contourBias * r.nextInt(juce::Range<int>(3,leapMax))
+: r.nextInt(juce::Range<int>(-stepMax,stepMax+1));
 }
 float chordBias = hook
 ? (accent ? 0.82f : 0.48f)
 : (accent ? 0.72f : 0.32f);
 if (phraseEnd)
 chordBias = 0.95f;
+// "SoundCloud" lead sticks close to chord tones almost always — repetition
+// and a narrow, chant-like range are the whole point of the style.
+if (leadStyleSoundCloud)
+chordBias = juce::jmax(chordBias, 0.88f);
 if (r.nextFloat() < chordBias)
 {
 int nearest = chordTones[0];
@@ -445,6 +457,9 @@ else if (accent && r.nextFloat() < (0.34f + 0.30f * melodyLength))
 len = 2;
 else if (r.nextFloat() < (hook ? 0.08f : 0.12f) * melodyLength)
 len = 4;
+// "SoundCloud" lead sustains notes longer — sparse but sung-out, not clipped.
+if (leadStyleSoundCloud && r.nextFloat() < 0.5f)
+len = juce::jmax(len, 2 + (r.nextBool() ? 2 : 0));
 len = juce::jmin(len, 16 - x);
 const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
 int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
@@ -453,11 +468,13 @@ if (phraseEnd) velocity += 5;
 velocity = (int)(velocity * (1.f + curveAmt * curveDir * ((float)x / 15.f - 0.5f) * 2.f));
 velocity = juce::jlimit(45,118,velocity);
 // FLAGSHIP: chromatic approach note into strong targets.
-if ((accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
+// (skipped for "SoundCloud" lead — that style stays plain and spacious,
+// chromatic decoration reads as too busy/"hooky" for it)
+if (!leadStyleSoundCloud && (accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
 s.notes.push_back({barOffset*16+x-1,1,juce::jlimit(0,127,note-1),55,3,true});
 // FLAGSHIP: passing tone split on big leaps.
 bool passed = false;
-if (std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
+if (!leadStyleSoundCloud && std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
 {
 const int mid = snapToScale((note+previous)/2);
 s.notes.push_back({barOffset*16+x,1,mid,62,3,false});
@@ -468,7 +485,9 @@ passed = true;
 if (!passed)
 s.notes.push_back({barOffset*16+x,len,note,velocity,3,ghost});
 // FLAGSHIP: octave shimmer double (bell/pluck colour).
-if (r.nextFloat() < 0.10f * complexity && note+12 <= 98)
+// (skipped for "SoundCloud" — that style wants one clean, sad note, not a
+// shimmering double)
+if (!leadStyleSoundCloud && r.nextFloat() < 0.10f * complexity && note+12 <= 98)
 s.notes.push_back({barOffset*16+x,1,note+12,juce::jlimit(1,127,(int)(velocity*0.55f)),3,true});
 previous = note;
 }

@@ -52,6 +52,7 @@ void setMotifStrength(float); void setVariationAmount(float);
 void setFillAmount(float); void setEnergy(float);
 void setChordsEnabled(bool); void setBassEnabled(bool);
 void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
+void setLeadStyleSoundCloud(bool v) { leadStyleSoundCloud = v; }
 // --- Smart Lock: заморозка отдельной партии при регенерации ---
 void setLockChords(bool v) { lockChordsLayer = v; }
 void setLockBass(bool v)   { lockBassLayer = v; }
@@ -94,6 +95,7 @@ bool isBassEnabled() const { return bassEnabled; }
 bool isMelodyEnabled() const { return melodyEnabled; }
 bool isArpEnabled() const { return arpEnabled; }
 bool getHookMode() const { return hookMode; }
+bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { return static_cast<int>(variations.size()); }
 int getSelectedVariation() const { return selectedVariation; }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
@@ -162,6 +164,9 @@ int arpRate = 4;
 bool chordExtensions = true, inversions = true;
 bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
 bool hookMode = true;
+// "SoundCloud"-лид: реже, разреженнее, меньше украшений, больше "чант"-повторов
+// одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
+bool leadStyleSoundCloud = false;
 bool lockChordsLayer = false, lockBassLayer = false, lockMelodyLayer = false, lockArpLayer = false;
 std::atomic<int> lastGlobalStep { -1 };
 juce::Random realtimeRng { 0x51eed };

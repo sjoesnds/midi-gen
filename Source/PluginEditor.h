@@ -23,7 +23,7 @@ juce::Label title, sectionLabel;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
- juce::ToggleButton chords,bass,melody,arp,extensions,inversions,hookModeButton;
+ juce::ToggleButton chords,bass,melody,arp,extensions,inversions,hookModeButton,soundCloudButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
