@@ -1,15 +1,16 @@
 ```
 # Build directories
 build/
-cmake-build-*/
-
-# CMake files
+cmake_install.cmake
 CMakeCache.txt
 CMakeFiles/
-CMakeScripts/
-CMakeLists.txt.user
 
-# Compilation artifacts
+# JUCE related build artifacts
+*_artefacts/
+_deps/
+juceaide_artefacts/
+
+# Compiled object files
 *.o
 *.obj
 *.a
@@ -17,28 +18,56 @@ CMakeLists.txt.user
 *.so
 *.dylib
 *.dll
+
+# Executables
 *.exe
+*.out
 
-# JUCE artifacts
-*_artefacts/
-*_artifacts/
-
-# Temporary and log files
-*.log
+# Temporary files
 *.tmp
-*.swp
-*.swo
+*.temp
+*.log
 
-# IDE files
+# IDE specific files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Dependencies
-_deps/
+# Package manager files
+node_modules/
+__pycache__/
+*.egg-info/
+
+# Distribution / packaging
+dist/
+*.tar.gz
+*.whl
+
+# Environment variables
+.env
+.env.local
+*.env.*
 
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# CMake specific
+Makefile
+CMakeLists.txt.user
+
+# Compiler-specific
+*.bin
+*.d
+
+# VST3 specific artifacts
+vst3_helper
+shared_defs_*.txt
+shared_incs_*.txt
 ```
