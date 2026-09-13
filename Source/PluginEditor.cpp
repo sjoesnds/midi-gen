@@ -119,14 +119,14 @@ addAndMakeVisible(chords);addAndMakeVisible(bass);addAndMakeVisible(melody);addA
 addAndMakeVisible(extensions);addAndMakeVisible(inversions);addAndMakeVisible(hookModeButton);
 variationBox.addItemList({"VAR 1","VAR 2","VAR 3","VAR 4","VAR 5","VAR 6","VAR 7","VAR 8"},1);
 variationBox.setSelectedId(1); addAndMakeVisible(variationBox);
-variationBox.onChange=[this]{processor.chooseVariation(variationBox.getSelectedId()-1);};
+variationBox.onChange=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 generate.setButtonText("GENERATE 8");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
-generate.onClick=[this]{processor.regenerateVariations();};
-newSeed.onClick=[this]{processor.setSeed(juce::Random::getSystemRandom().nextInt());};
-applyVariation.onClick=[this]{processor.chooseVariation(variationBox.getSelectedId()-1);};
+generate.onClick=[this]{ processor.regenerateVariations(); pianoRoll.resetEditHistory(); };
+newSeed.onClick=[this]{ processor.setSeed(juce::Random::getSystemRandom().nextInt()); pianoRoll.resetEditHistory(); };
+applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 exportMidi.onClick=[this]{
 fileChooser = std::make_unique<juce::FileChooser>(
 "Export MIDI",
@@ -157,6 +157,19 @@ ok ? "MIDI exported successfully."
 });
 };
 addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
+
+// --- P2: Undo / Redo / Clear ------------------------------------------
+undoBtn.onClick = [this] { pianoRoll.undo(); };
+redoBtn.onClick = [this] { pianoRoll.redo(); };
+clearBtn.onClick = [this] { pianoRoll.clearAllNotes(); };
+historyLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.7f));
+historyLabel.setFont (juce::Font (11.0f));
+historyLabel.setJustificationType (juce::Justification::centredLeft);
+addAndMakeVisible (undoBtn);
+addAndMakeVisible (redoBtn);
+addAndMakeVisible (clearBtn);
+addAndMakeVisible (historyLabel);
+
 // --- Learning: лайк/дизлайк текущей вариации ---
 likeBtn.setButtonText("LIKE");
 dislikeBtn.setButtonText("DISLIKE");
@@ -306,19 +319,23 @@ likeBtn.setBounds(568,687,70,32);
 dislikeBtn.setBounds(644,687,82,32);
 tasteLabel.setBounds(732,690,W - 752,28);
 
-exportButton.setBounds(20,733,142,28);
-lockChordsBtn.setBounds(174,733,104,24);
-lockBassBtn.setBounds(284,733,104,24);
-lockMelodyBtn.setBounds(394,733,112,24);
-lockArpBtn.setBounds(512,733,96,24);
+exportButton.setBounds(20,733,122,28);
+undoBtn.setBounds(150,733,66,28);
+redoBtn.setBounds(224,733,66,28);
+clearBtn.setBounds(298,733,66,28);
+historyLabel.setBounds(372,733,136,28);
+lockChordsBtn.setBounds(516,733,82,24);
+lockBassBtn.setBounds(604,733,82,24);
+lockMelodyBtn.setBounds(692,733,90,24);
+lockArpBtn.setBounds(788,733,92,24);
 
-dragHandle.setBounds(620,731,132,28);
+dragHandle.setBounds(620,763,132,28);
 
 dragChords.setBounds(20,764,118,28);
 dragBass.setBounds(146,764,118,28);
 dragMelody.setBounds(272,764,118,28);
 dragArp.setBounds(398,764,118,28);
-tasteLabel.setBounds(530,764,W - 550,28);
+tasteLabel.setBounds(530,764,84,28);
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {

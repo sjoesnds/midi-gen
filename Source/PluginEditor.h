@@ -31,6 +31,9 @@ juce::Label title, sectionLabel;
  juce::Label tasteLabel;
  // --- Экспорт MIDI ---
  juce::TextButton exportButton { "Export MIDI..." };
+ // --- P2: edit history -------------------------------------------------
+ juce::TextButton undoBtn { "UNDO" }, redoBtn { "REDO" }, clearBtn { "CLEAR" };
+ juce::Label historyLabel;
  std::unique_ptr<juce::FileChooser> fileChooser;
  // Небольшой компонент-"ручка": тащишь мышкой прямо в плейлист/пиано-ролл FL Studio,
  // плагин пишет временный .mid файл и запускает системный drag-and-drop.
@@ -304,7 +307,8 @@ juce::Label title, sectionLabel;
              undo();
              return true;
          }
-         if (key == juce::KeyPress ('y', juce::ModifierKeys::ctrlModifier, 0))
+         if (key == juce::KeyPress ('y', juce::ModifierKeys::ctrlModifier, 0)
+             || key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
          {
              redo();
              return true;
@@ -468,6 +472,24 @@ juce::Label title, sectionLabel;
          return true;
      }
 
+     void resetEditHistory()
+     {
+         history.clear();
+         historyCursor = -1;
+         updateHistoryButtons();
+     }
+
+     void updateHistoryButtons()
+     {
+         const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
+         const bool canRedo = historyCursor >= 0 && historyCursor + 1 < (int) history.size();
+         undoBtn.setEnabled (canUndo);
+         redoBtn.setEnabled (canRedo);
+         historyLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
+                               + juce::String (canRedo ? (int) history.size() - historyCursor - 1 : 0) + " redo",
+                               juce::dontSendNotification);
+     }
+
      void beginEditHistory()
      {
          if (history.empty())
@@ -479,6 +501,7 @@ juce::Label title, sectionLabel;
          {
              history.erase (history.begin() + historyCursor + 1, history.end());
          }
+         updateHistoryButtons();
      }
 
      void commitEditHistory()
@@ -499,6 +522,7 @@ juce::Label title, sectionLabel;
              }
              historyCursor = (int) history.size() - 1;
          }
+         updateHistoryButtons();
      }
 
      void undo()
@@ -510,6 +534,7 @@ juce::Label title, sectionLabel;
          --historyCursor;
          processor.replaceVisibleNotes (history[(size_t) historyCursor]);
          selectedNote = -1;
+         updateHistoryButtons();
          repaint();
      }
 
@@ -519,6 +544,19 @@ juce::Label title, sectionLabel;
              return;
          ++historyCursor;
          processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void clearAllNotes()
+     {
+         const auto current = processor.getVisibleNotes();
+         if (current.empty())
+             return;
+         beginEditHistory();
+         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
+         commitEditHistory();
          selectedNote = -1;
          repaint();
      }
