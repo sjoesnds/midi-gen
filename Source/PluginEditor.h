@@ -304,13 +304,13 @@ juce::Label title, sectionLabel;
          }
          if (key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier, 0))
          {
-             undo();
+             undo(undoBtn, redoBtn, historyLabel);
              return true;
          }
          if (key == juce::KeyPress ('y', juce::ModifierKeys::ctrlModifier, 0)
              || key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
          {
-             redo();
+             redo(undoBtn, redoBtn, historyLabel);
              return true;
          }
          if (key == juce::KeyPress::backspaceKey || key == juce::KeyPress::deleteKey)
@@ -365,13 +365,6 @@ juce::Label title, sectionLabel;
              viewLowNote = juce::jlimit (0, 127 - noteSpan, viewLowNote + (wheelY > 0 ? 4 : -4));
          }
          repaint();
-     }
-
- public:
-     void resetEditHistory()
-     {
-         history.clear();
-         historyCursor = -1;
      }
 
  private:
@@ -479,25 +472,25 @@ juce::Label title, sectionLabel;
          return true;
      }
 
+ public:
      void resetEditHistory()
      {
          history.clear();
          historyCursor = -1;
      }
 
- public:
-     void undo();
-     void redo();
-     void clearAllNotes();
+     void undo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
+     void redo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
+     void clearAllNotes(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel);
 
  private:
-     void updateHistoryButtons()
+     void updateHistoryButtons(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
      {
          const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
          const bool canRedo = historyCursor >= 0 && historyCursor + 1 < (int) history.size();
-         undoBtn.setEnabled (canUndo);
-         redoBtn.setEnabled (canRedo);
-         historyLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
+         uBtn.setEnabled (canUndo);
+         rBtn.setEnabled (canRedo);
+         hLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
                                + juce::String (canRedo ? (int) history.size() - historyCursor - 1 : 0) + " redo",
                                juce::dontSendNotification);
      }
@@ -514,7 +507,6 @@ juce::Label title, sectionLabel;
          {
              history.erase (history.begin() + historyCursor + 1, history.end());
          }
-         updateHistoryButtons();
      }
 
      void commitEditHistory()
@@ -535,9 +527,8 @@ juce::Label title, sectionLabel;
              }
              historyCursor = (int) history.size() - 1;
          }
-         updateHistoryButtons();
      }
-     void undo()
+     void undo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
      {
          if (history.empty())
              history.push_back (processor.getVisibleNotes());
@@ -546,22 +537,22 @@ juce::Label title, sectionLabel;
          --historyCursor;
          processor.replaceVisibleNotes (history[(size_t) historyCursor]);
          selectedNote = -1;
-         updateHistoryButtons();
+         updateHistoryButtons(uBtn, rBtn, hLabel);
          repaint();
      }
 
-     void redo()
+     void redo(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
      {
          if (historyCursor + 1 >= (int) history.size())
              return;
          ++historyCursor;
          processor.replaceVisibleNotes (history[(size_t) historyCursor]);
          selectedNote = -1;
-         updateHistoryButtons();
+         updateHistoryButtons(uBtn, rBtn, hLabel);
          repaint();
     
      }
-     void clearAllNotes()
+     void clearAllNotes(juce::TextButton& uBtn, juce::TextButton& rBtn, juce::Label& hLabel)
      {
          const auto current = processor.getVisibleNotes();
          if (current.empty())
