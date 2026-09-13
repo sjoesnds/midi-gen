@@ -367,6 +367,13 @@ juce::Label title, sectionLabel;
          repaint();
      }
 
+ public:
+     void resetEditHistory()
+     {
+         history.clear();
+         historyCursor = -1;
+     }
+
  private:
      enum class DragMode { none, move, resize, newNote };
 
@@ -476,9 +483,14 @@ juce::Label title, sectionLabel;
      {
          history.clear();
          historyCursor = -1;
-         updateHistoryButtons();
      }
 
+ public:
+     void undo();
+     void redo();
+     void clearAllNotes();
+
+ private:
      void updateHistoryButtons()
      {
          const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
@@ -490,6 +502,7 @@ juce::Label title, sectionLabel;
                                juce::dontSendNotification);
      }
 
+ public:
      void beginEditHistory()
      {
          if (history.empty())
@@ -524,7 +537,6 @@ juce::Label title, sectionLabel;
          }
          updateHistoryButtons();
      }
-
      void undo()
      {
          if (history.empty())
@@ -547,8 +559,8 @@ juce::Label title, sectionLabel;
          selectedNote = -1;
          updateHistoryButtons();
          repaint();
+    
      }
-
      void clearAllNotes()
      {
          const auto current = processor.getVisibleNotes();
