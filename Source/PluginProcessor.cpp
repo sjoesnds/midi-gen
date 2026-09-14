@@ -242,255 +242,299 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
-// Hook-oriented generator + flagship SoundCloud techniques:
-// repetition + rhythmic identity + chord-tone gravity + controlled variation,
-// call-response, chromatic approaches, passing tones, 9/11 colors, octave shimmer,
-// per-bar velocity curves.
-std::vector<int> preferred;
-switch (genre)
-{
-case Trap:      preferred = {0,1,2,3,4,6,8,10,11,12,14,15}; break;
-case House:     preferred = {0,2,4,6,8,10,12,14}; break;
-case Techno:    preferred = {0,2,4,6,8,10,12,14,15}; break;
-case BoomBap:   preferred = {0,3,4,7,10,12,14,15}; break;
-case Ambient:   preferred = {0,4,8,12}; break;
-case Cinematic: preferred = {0,2,4,7,8,11,12,14}; break;
-default:        preferred = {0,2,4,6,8,10,12,14}; break;
-}
-std::vector<int> candidates;
-for (int x : preferred)
-if (rhythmHit(x))
-candidates.push_back(x);
-for (int x : {0,4,8,12})
-if (std::find(candidates.begin(), candidates.end(), x) == candidates.end())
-candidates.push_back(x);
-std::sort(candidates.begin(), candidates.end());
-const bool hook = hookMode;
-int targetCount = hook
-? 9 + (int)std::round(4.0f * melodyDensity) + (int)std::round(2.0f * e)
-: 6 + (int)std::round(5.0f * melodyDensity) + (int)std::round(2.0f * e);
-if (genre == Trap || genre == Techno) targetCount += 1;
-if (genre == Ambient && !hook) targetCount -= 2;
-targetCount = juce::jlimit(5, (int)candidates.size(), targetCount);
-// "SoundCloud" lead: заметно реже нот, больше пространства между ними —
-// характерная разреженная, "плачущая" фразировка вместо плотного хука.
-if (leadStyleSoundCloud)
-targetCount = juce::jlimit(3, (int)candidates.size(), targetCount / 2);
-// Previous bar melody supplies the motif (moved up: needed for call-response).
-std::vector<NoteEvent> prevBar;
-const int prevStart = (barOffset - 1) * 16;
-if (barOffset > 0)
-{
-for (const auto& ev : s.notes)
-if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
-prevBar.push_back(ev);
-}
-// FLAGSHIP: call-response — нечётный такт отвечает на терцию/квинту ниже.
-int responseShift = 0;
-if (hook && (barOffset % 2) == 1 && !prevBar.empty() && r.nextFloat() < motifStrength * 0.5f)
-responseShift = r.nextBool() ? -3 : -5;
-std::vector<int> chosen;
-std::array<bool,16> used{};
-used.fill(false);
-auto addStep = [&](int x, bool forced)
-{
-if (x < 0 || x >= 16 || used[(size_t)x])
-return;
-if (!forced && !hook && (x % 4) != 0 &&
-r.nextFloat() < pauseChance)
-return;
-used[(size_t)x] = true;
-chosen.push_back(x);
-};
-for (int x : {0,4,8,12})
-{
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, true);
-}
-if (hook)
-{
-static const int skeletons[4][6] = {
-{0,2,4,7,8,11},
-{0,3,4,6,8,12},
-{0,2,4,6,10,12},
-{0,3,4,7,8,11}
-};
-const auto& row = skeletons[(barOffset + variationSalt) % 4];
-for (int x : row)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (rhythmHit(x)) addStep(x, true);
-}
-}
-std::vector<int> shuffled = candidates;
-for (int i = static_cast<int>(shuffled.size()) - 1; i > 0; --i)
-{
-const int j = r.nextInt(i + 1);
-std::swap(shuffled[static_cast<size_t>(i)],
-shuffled[static_cast<size_t>(j)]);
-}
-for (int x : shuffled)
-{
-if ((int)chosen.size() >= targetCount) break;
-addStep(x, false);
-}
-for (int x : candidates)
-{
-if ((int)chosen.size() >= targetCount) break;
-if (!used[(size_t)x])
-{
-used[(size_t)x] = true;
-chosen.push_back(x);
-}
-}
-std::sort(chosen.begin(), chosen.end());
-std::vector<NoteEvent> inheritedMelody;
-if (inherited != nullptr)
-for (const auto& ev : *inherited)
-if (ev.channel == 3)
-inheritedMelody.push_back(ev);
-const auto prog = progressionDegrees();
-const int degree = prog[(size_t)(barOffset % (int)prog.size())];
-const std::array<int,4> chordTones = {
-degreeToPitch(degree,     octave),
-degreeToPitch(degree + 2, octave),
-degreeToPitch(degree + 4, octave),
-degreeToPitch(degree + 6, octave)
-};
-// FLAGSHIP: per-bar velocity curve (crescendo / diminuendo) for human phrasing.
-const float curveDir = (((variationSalt + barOffset) % 2) == 0) ? 1.f : -1.f;
-const float curveAmt = 0.25f * e;
-int previous = juce::jlimit(52,92,degreeToPitch(3,octave));
-if (!prevBar.empty() && r.nextFloat() < (hook ? 0.72f : motifStrength))
-previous = prevBar.front().note + responseShift;
-else if (!inheritedMelody.empty() && r.nextFloat() < (hook ? 0.68f : motifStrength))
-previous = inheritedMelody.front().note;
-for (int index = 0; index < (int)chosen.size(); ++index)
-{
-const int x = chosen[(size_t)index];
-const bool accent = (x % 4) == 0;
-const bool phraseEnd = x >= 14 || index == (int)chosen.size() - 1;
-int target = previous;
-if (!prevBar.empty() &&
-r.nextFloat() < (hook ? 0.52f : 0.45f) * motifStrength)
-{
-const auto it = std::min_element(
-prevBar.begin(), prevBar.end(),
-[x](const NoteEvent& a, const NoteEvent& b)
-{
-return std::abs((a.step % 16) - x) <
-std::abs((b.step % 16) - x);
-});
-target = (it != prevBar.end()) ? it->note + responseShift : previous;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-3,4));
-}
-else if (hook && !inheritedMelody.empty() &&
-r.nextFloat() < 0.40f * motifStrength)
-{
-target = inheritedMelody[(size_t)(x % (int)inheritedMelody.size())].note;
-if (r.nextFloat() < variationAmount)
-target += r.nextInt(juce::Range<int>(-2,3));
-}
-else
-{
-const bool leap =
-r.nextFloat() < (0.05f + 0.22f * leapChance + 0.10f * complexity);
-const int contourBias = ((variationSalt % 2) == 0) ? 1 : -1;
-// "SoundCloud" lead keeps leaps small and steps narrow — a chant-like,
-// stay-close-to-home melody rather than an energetic hook run.
-const int leapMax = leadStyleSoundCloud ? 5 : 9;
-const int stepMax = leadStyleSoundCloud ? 2 : 4;
-target += leap
-? contourBias * r.nextInt(juce::Range<int>(3,leapMax))
-: r.nextInt(juce::Range<int>(-stepMax,stepMax+1));
-}
-float chordBias = hook
-? (accent ? 0.82f : 0.48f)
-: (accent ? 0.72f : 0.32f);
-if (phraseEnd)
-chordBias = 0.95f;
-// "SoundCloud" lead sticks close to chord tones almost always — repetition
-// and a narrow, chant-like range are the whole point of the style.
-if (leadStyleSoundCloud)
-chordBias = juce::jmax(chordBias, 0.88f);
-if (r.nextFloat() < chordBias)
-{
-int nearest = chordTones[0];
-int bestDist = std::abs(target - nearest);
-for (int chordTone : chordTones)
-{
-for (int o = -1; o <= 1; ++o)
-{
-const int candidate = chordTone + 12 * o;
-const int d = std::abs(target - candidate);
-if (d < bestDist)
-{
-bestDist = d;
-nearest = candidate;
-}
-}
-}
-// FLAGSHIP: 9th/11th color targets when extensions on.
-if (chordExtensions && r.nextFloat() < 0.15f * complexity)
-{
-const int ext9  = degreeToPitch(degree + 8,  octave);
-const int ext11 = degreeToPitch(degree + 10, octave);
-const int d9  = std::abs(target - ext9);
-const int d11 = std::abs(target - ext11);
-if (d9  < bestDist) { bestDist = d9;  nearest = ext9;  }
-if (d11 < bestDist) { bestDist = d11; nearest = ext11; }
-}
-target = nearest;
-}
-if (phraseEnd)
-target = r.nextBool() ? chordTones[0] : chordTones[2];
-target = juce::jlimit(48,98,target);
-int note = snapToScale(target);
-while (note - previous > 9)  note -= 12;
-while (previous - note > 9)  note += 12;
-note = juce::jlimit(48,98,note);
-int len = 1;
-if (phraseEnd)
-len = r.nextFloat() < (0.55f + 0.25f * melodyLength) ? 2 : 1;
-else if (accent && r.nextFloat() < (0.34f + 0.30f * melodyLength))
-len = 2;
-else if (r.nextFloat() < (hook ? 0.08f : 0.12f) * melodyLength)
-len = 4;
-// "SoundCloud" lead sustains notes longer — sparse but sung-out, not clipped.
-if (leadStyleSoundCloud && r.nextFloat() < 0.5f)
-len = juce::jmax(len, 2 + (r.nextBool() ? 2 : 0));
-len = juce::jmin(len, 16 - x);
-const bool ghost = !accent && !hook && r.nextFloat() < ghostChance;
-int velocity = 78 + (accent ? 8 : 0) - (ghost ? 20 : 0);
-if (phraseEnd) velocity += 5;
-// FLAGSHIP: velocity curve inside the bar.
-velocity = (int)(velocity * (1.f + curveAmt * curveDir * ((float)x / 15.f - 0.5f) * 2.f));
-velocity = juce::jlimit(45,118,velocity);
-// FLAGSHIP: chromatic approach note into strong targets.
-// (skipped for "SoundCloud" lead — that style stays plain and spacious,
-// chromatic decoration reads as too busy/"hooky" for it)
-if (!leadStyleSoundCloud && (accent || phraseEnd) && x > 0 && r.nextFloat() < 0.22f)
-s.notes.push_back({barOffset*16+x-1,1,juce::jlimit(0,127,note-1),55,3,true});
-// FLAGSHIP: passing tone split on big leaps.
-bool passed = false;
-if (!leadStyleSoundCloud && std::abs(note-previous) >= 5 && x+1 < 16 && !used[(size_t)(x+1)] && r.nextFloat() < 0.35f)
-{
-const int mid = snapToScale((note+previous)/2);
-s.notes.push_back({barOffset*16+x,1,mid,62,3,false});
-used[(size_t)(x+1)] = true;
-s.notes.push_back({barOffset*16+x+1,juce::jmax(1,len-1),note,velocity,3,ghost});
-passed = true;
-}
-if (!passed)
-s.notes.push_back({barOffset*16+x,len,note,velocity,3,ghost});
-// FLAGSHIP: octave shimmer double (bell/pluck colour).
-// (skipped for "SoundCloud" — that style wants one clean, sad note, not a
-// shimmering double)
-if (!leadStyleSoundCloud && r.nextFloat() < 0.10f * complexity && note+12 <= 98)
-s.notes.push_back({barOffset*16+x,1,note+12,juce::jlimit(1,127,(int)(velocity*0.55f)),3,true});
-previous = note;
-}
+    // 0.8 melody engine: phrase-first, context-aware generation.
+    // The model is intentionally statistical rather than sample-copying:
+    // modern pop leads tend to favour stepwise motion, short reusable motifs,
+    // strong-beat/chord-tone alignment, selective leaps, rests and clear phrase
+    // endings.  These priors are combined with the user's scale/chords/style.
+    const bool hook = hookMode;
+    const bool sc = leadStyleSoundCloud;
+    const auto scaleNotes = scaleSemitones();
+    const auto prog = progressionDegrees();
+    const int degree = prog[(size_t) (barOffset % (int) prog.size())];
+
+    std::array<int, 4> chordTones = {
+        degreeToPitch(degree, octave), degreeToPitch(degree + 2, octave),
+        degreeToPitch(degree + 4, octave), degreeToPitch(degree + 6, octave)
+    };
+
+    std::vector<NoteEvent> prevBar;
+    const int prevStart = (barOffset - 1) * 16;
+    if (barOffset > 0)
+        for (const auto& ev : s.notes)
+            if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
+                prevBar.push_back(ev);
+
+    std::vector<NoteEvent> inheritedMelody;
+    if (inherited != nullptr)
+        for (const auto& ev : *inherited)
+            if (ev.channel == 3)
+                inheritedMelody.push_back(ev);
+
+    // Modern-pop rhythmic prior.  Values are 16th-note positions.  We select
+    // from a family of motifs instead of independently flipping every step.
+    static const int rhythmPatterns[][12] = {
+        { 0, 2, 4, 6, 8, 10, 12, 14, -1, -1, -1, -1 },
+        { 0, 3, 4, 7, 8, 10, 12, 15, -1, -1, -1, -1 },
+        { 0, 2, 4, 7, 8, 11, 12, 14, -1, -1, -1, -1 },
+        { 0, 4, 6, 8, 10, 12, 13, 15, -1, -1, -1, -1 },
+        { 0, 3, 6, 8, 11, 12, 14, 15, -1, -1, -1, -1 },
+        { 0, 2, 5, 7, 8, 10, 13, 15, -1, -1, -1, -1 }
+    };
+
+    int targetCount = 6 + (int) std::round (5.0f * melodyDensity + 2.0f * e);
+    if (hook) targetCount += 2 + (int) std::round (2.0f * energy);
+    if (genre == Trap || genre == Techno) targetCount += 1;
+    if (genre == Ambient) targetCount -= 2;
+    if (sc) targetCount = 3 + (int) std::round (2.0f * melodyDensity + 2.0f * e);
+    targetCount = juce::jlimit (3, 11, targetCount);
+
+    std::vector<int> candidates;
+    candidates.reserve (16);
+    const int patternIndex = (barOffset + variationSalt * 3 + seed) % 6;
+    const int* pattern = rhythmPatterns[patternIndex < 0 ? patternIndex + 6 : patternIndex];
+    const int patternLen = sc ? 8 : (hook ? 10 : 8);
+
+    auto rhythmAllowed = [&](int x)
+    {
+        if (!rhythmHit (x)) return false;
+        if (x == 0 || x == 4 || x == 8 || x == 12) return true;
+        if (sc) return r.nextFloat() > 0.20f;
+        return r.nextFloat() > pauseChance * (0.45f + 0.55f * (x % 4 != 0));
+    };
+
+    for (int i = 0; i < patternLen; ++i)
+        if (pattern[i] >= 0 && rhythmAllowed (pattern[i]))
+            candidates.push_back (pattern[i]);
+
+    // Add a few context-sensitive slots so the phrase can breathe instead of
+    // sounding locked to a loop template.
+    if ((int) candidates.size() < targetCount)
+        for (int x : { 0, 2, 4, 6, 8, 10, 12, 14, 15 })
+            if (rhythmHit (x) && std::find (candidates.begin(), candidates.end(), x) == candidates.end()
+                && (x % 4 == 0 || r.nextFloat() > pauseChance))
+                candidates.push_back (x);
+
+    std::sort (candidates.begin(), candidates.end());
+    if ((int) candidates.size() > targetCount)
+    {
+        // Keep downbeats, phrase ending and a small amount of syncopation.
+        std::vector<int> kept;
+        for (int x : candidates)
+            if (x % 4 == 0 || x >= 14)
+                kept.push_back (x);
+        std::vector<int> rest;
+        for (int x : candidates)
+            if (std::find (kept.begin(), kept.end(), x) == kept.end()) rest.push_back (x);
+        while ((int) kept.size() < targetCount && !rest.empty())
+        {
+            // Weighted pick: positions near 2/4/8/12/14 are more useful than noise.
+            int best = rest.front();
+            float bestScore = -999.f;
+            for (int x : rest)
+            {
+                float score = (x % 4 == 2 ? 1.4f : 0.0f)
+                            + (x == 7 || x == 11 ? 0.8f : 0.0f)
+                            + (x >= 12 ? 0.35f : 0.0f)
+                            + r.nextFloat() * 0.35f;
+                if (score > bestScore) { bestScore = score; best = x; }
+            }
+            kept.push_back (best);
+            rest.erase (std::remove (rest.begin(), rest.end(), best), rest.end());
+        }
+        candidates = std::move (kept);
+    }
+    std::sort (candidates.begin(), candidates.end());
+
+    // Build a compact source motif from the previous bar.  We reuse contour and
+    // rhythm, not literal pitches, so every new bar remains original.
+    std::vector<NoteEvent> sourceMotif = prevBar;
+    if (sourceMotif.empty()) sourceMotif = inheritedMelody;
+    if ((int) sourceMotif.size() > 8)
+        sourceMotif.resize (8);
+
+    const bool useMotif = !sourceMotif.empty()
+        && r.nextFloat() < juce::jlimit (0.f, 0.94f, motifStrength + (hook ? 0.08f : 0.f));
+    const int responseShift = (barOffset % 2 == 1 && hook && !sourceMotif.empty())
+        ? (r.nextBool() ? -3 : -5) : 0;
+    const int contourSign = ((variationSalt + barOffset) & 1) == 0 ? 1 : -1;
+
+    auto isChordTone = [&](int midi)
+    {
+        const int pc = ((midi % 12) + 12) % 12;
+        for (int c : chordTones)
+            if (((c % 12) + 12) % 12 == pc) return true;
+        return false;
+    };
+
+    auto nearestChordTone = [&](int target)
+    {
+        int best = target;
+        int dist = 999;
+        for (int c : chordTones)
+            for (int o = -2; o <= 2; ++o)
+            {
+                const int n = c + 12 * o;
+                if (std::abs (n - target) < dist) { dist = std::abs (n - target); best = n; }
+            }
+        return best;
+    };
+
+    int previous = juce::jlimit (52, 88, degreeToPitch (0, octave));
+    if (useMotif) previous = juce::jlimit (48, 98, sourceMotif.front().note + responseShift);
+
+    std::vector<int> chosen;
+    std::array<bool, 16> used{};
+    used.fill (false);
+    for (int x : candidates)
+        if ((int) chosen.size() < targetCount)
+        {
+            used[(size_t) x] = true;
+            chosen.push_back (x);
+        }
+    std::sort (chosen.begin(), chosen.end());
+
+    for (int index = 0; index < (int) chosen.size(); ++index)
+    {
+        const int x = chosen[(size_t) index];
+        const bool strong = (x % 4) == 0;
+        const bool backbeat = (x % 4) == 2;
+        const bool phraseEnd = x >= 14 || index == (int) chosen.size() - 1;
+        const bool phraseStart = index == 0 || x <= 1;
+
+        int motifTarget = previous;
+        bool hasMotifTarget = false;
+        if (useMotif && !sourceMotif.empty())
+        {
+            const int rel = x % 16;
+            const auto it = std::min_element (sourceMotif.begin(), sourceMotif.end(),
+                [rel](const NoteEvent& a, const NoteEvent& b)
+                {
+                    return std::abs ((a.step % 16) - rel) < std::abs ((b.step % 16) - rel);
+                });
+            if (it != sourceMotif.end())
+            {
+                motifTarget = it->note + responseShift;
+                // A/A' variation: preserve contour while altering a minority of notes.
+                if (r.nextFloat() < variationAmount * 0.65f)
+                    motifTarget += r.nextBool() ? 2 : -2;
+                hasMotifTarget = true;
+            }
+        }
+
+        int target = motifTarget;
+        if (!hasMotifTarget || r.nextFloat() > (hook ? 0.84f : 0.72f))
+        {
+            // Candidate pitch pool: scale tones in a compact register around the
+            // previous note.  This avoids random octave jumps while still allowing
+            // expressive leaps at phrase landmarks.
+            std::vector<int> pitchPool;
+            for (int p : scaleNotes)
+                for (int o = -1; o <= 1; ++o)
+                    pitchPool.push_back (12 * (octave + o) + rootPc + p);
+
+            float bestScore = -999.f;
+            int bestPitch = previous;
+            for (int p : pitchPool)
+            {
+                if (p < 48 || p > 98) continue;
+                const int interval = std::abs (p - previous);
+                if (interval > (sc ? 7 : 12)) continue;
+
+                float score = 0.f;
+                // Strong statistical prior: steps and small skips dominate.
+                if (interval == 0) score += sc ? 4.2f : 2.4f;
+                else if (interval <= 2) score += 5.0f;
+                else if (interval <= 4) score += 3.4f;
+                else if (interval <= 7) score += 1.1f;
+                else score -= 1.8f;
+
+                if (interval >= 7) score += leapChance * 3.0f;
+                else score += (1.f - leapChance) * 0.8f;
+                if (p > previous && contourSign > 0) score += 0.45f;
+                if (p < previous && contourSign < 0) score += 0.45f;
+
+                // Chord gravity is strongest on structural beats and cadences.
+                const float chordWeight = phraseEnd ? 6.0f : (strong ? 4.2f : (backbeat ? 2.0f : 0.9f));
+                if (isChordTone (p)) score += chordWeight;
+                else score += 0.55f;
+
+                // Scale-degree motion should feel singable rather than like a
+                // semitone roulette wheel.
+                if (interval == 1 || interval == 2) score += 1.8f;
+                if (p == previous) score += sc ? 2.0f : 0.6f;
+
+                // Keep the lead in a stable register; lift the cadence only when useful.
+                const int home = degreeToPitch (2, octave);
+                score -= 0.018f * std::abs (p - home);
+                if (phraseEnd && isChordTone (p)) score += 2.0f;
+                if (phraseStart && isChordTone (p)) score += 1.0f;
+
+                // Avoid excessive immediate repetition unless the style explicitly wants it.
+                if (p == previous && !sc && r.nextFloat() > (0.20f + 0.35f * motifStrength)) score -= 1.4f;
+
+                // Tiny controlled stochastic term prevents every seed becoming the same song.
+                score += r.nextFloat() * (0.55f + 0.35f * variationAmount);
+                if (score > bestScore) { bestScore = score; bestPitch = p; }
+            }
+            target = bestPitch;
+        }
+
+        // Resolve motif target toward the current harmony without destroying its contour.
+        if (hasMotifTarget)
+        {
+            const float harmonyBias = phraseEnd ? 0.86f : (strong ? 0.66f : 0.34f);
+            if (r.nextFloat() < harmonyBias)
+                target = nearestChordTone (target);
+        }
+
+        // Controlled expressive leap on phrase landmarks. The following note is
+        // deliberately biased back toward the previous register, giving the classic
+        // "leap then step back" contour instead of disconnected jumps.
+        if (!sc && (strong || phraseEnd) && r.nextFloat() < leapChance * 0.30f)
+        {
+            const int leap = r.nextBool() ? r.nextInt (juce::Range<int> (5, 9))
+                                          : r.nextInt (juce::Range<int> (3, 6));
+            target = previous + contourSign * leap;
+            if (phraseEnd) target = nearestChordTone (target);
+        }
+
+        target = juce::jlimit (48, 98, target);
+        int note = snapToScale (target);
+        while (note - previous > (sc ? 7 : 9)) note -= 12;
+        while (previous - note > (sc ? 7 : 9)) note += 12;
+        note = juce::jlimit (48, 98, note);
+
+        // Rhythm follows phrase role, not just random length.
+        int len = 1;
+        if (phraseEnd)
+            len = (r.nextFloat() < 0.78f) ? (2 + (r.nextFloat() < melodyLength ? 2 : 0)) : 1;
+        else if (strong && r.nextFloat() < 0.52f + 0.22f * melodyLength)
+            len = 2;
+        else if (backbeat && r.nextFloat() < 0.28f * melodyLength)
+            len = 2;
+        else if (r.nextFloat() < 0.10f * melodyLength)
+            len = 4;
+        if (sc) len = phraseEnd ? (r.nextFloat() < 0.70f ? 4 : 2) : (r.nextFloat() < 0.42f ? 2 : 1);
+        len = juce::jmin (len, 16 - x);
+
+        // Human phrasing: accents are structural, not random loudness.
+        float phraseShape = 1.f;
+        const float pos = (float) x / 15.f;
+        phraseShape += e * (0.16f * pos - 0.08f * std::sin (pos * juce::MathConstants<float>::pi));
+        if (phraseEnd) phraseShape -= 0.05f;
+        int velocity = 74 + (strong ? 11 : 0) + (backbeat ? 3 : 0) + (phraseEnd ? 4 : 0);
+        velocity = juce::roundToInt ((float) velocity * phraseShape);
+        velocity += r.nextInt (juce::Range<int> (-3, 4));
+        velocity = juce::jlimit (48, 116, velocity);
+
+        const bool ghost = !strong && !sc && !hook && r.nextFloat() < ghostChance * 0.65f;
+        if (ghost) velocity = juce::jmax (42, velocity - 18);
+
+        s.notes.push_back ({ barOffset * 16 + x, len, note, velocity, 3, ghost });
+        previous = note;
+
+    }
 }
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
