@@ -28,7 +28,7 @@ void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regene
 void MidiForgeAudioProcessor::setBars(int v){bars=juce::jlimit(1,16,v);regenerate();}
 void MidiForgeAudioProcessor::setSeed(int v){seed=v;regenerate();}
 void MidiForgeAudioProcessor::setOctave(int v){octave=juce::jlimit(2,6,v);regenerate();}
-void MidiForgeAudioProcessor::setSectionMode(int v){sectionMode=juce::jlimit(0,2,v);regenerate();}
+void MidiForgeAudioProcessor::setSectionMode(int v){ sectionMode = Loop; regenerate(); }
 void MidiForgeAudioProcessor::setChordDensity(float v){chordDensity=juce::jlimit(0.f,1.f,v);regenerate();}
 void MidiForgeAudioProcessor::setBassDensity(float v){bassDensity=juce::jlimit(0.f,1.f,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyDensity(float v){melodyDensity=juce::jlimit(0.f,1.f,v);regenerate();}
@@ -751,25 +751,22 @@ const std::vector<int>& prog,juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
 const juce::String names[]={"INTRO","VERSE","PRE-CHORUS","CHORUS","BREAK","DROP","OUTRO"};
-section.name=names[std::min(sectionIndex,6)];
+section.name="LOOP";
 section.bars=bars;
-float targetEnergy=energy;
-if(sectionIndex==0)targetEnergy*=0.55f;
-if(sectionIndex==2)targetEnergy=juce::jmin(1.f,targetEnergy+0.12f);
-if(sectionIndex==3||sectionIndex==5)targetEnergy=juce::jmin(1.f,targetEnergy+0.28f);
-if(sectionIndex==4)targetEnergy*=0.45f;
-if(sectionIndex==6)targetEnergy*=0.40f;
+// Loop-only architecture: every bar belongs to the musical idea.
+// No intro/verse/chorus energy ramps, so generation stays focused on a usable loop.
+const float targetEnergy=energy;
 section.energy=targetEnergy;
 section.densityMultiplier=0.55f+0.65f*targetEnergy;
 for(int bar=0;bar<bars;++bar){
 int deg=prog[(size_t)((bar+sectionIndex)%prog.size())];
-if(chordsEnabled && !(sectionIndex==0&&bar>0&&r.nextFloat()<.35f))
+if(chordsEnabled)
 addChords(section,bar,deg,targetEnergy,r);
-if(bassEnabled && sectionIndex!=4)
+if(bassEnabled)
 addBass(section,bar,deg,targetEnergy,r);
-if(melodyEnabled && sectionIndex!=0)
+if(melodyEnabled)
 addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
-if(arpEnabled && (sectionIndex>=2 || genre==Ambient))
+if(arpEnabled)
 addArp(section,bar,deg,targetEnergy,r);
 if(fillAmount>0.01f && bar==bars-1 && r.nextFloat()<fillAmount){
 for(int x=12;x<16;++x){
@@ -778,20 +775,12 @@ section.notes.push_back({bar*16+x,1,n,70+x-12,3,false});
 }
 }
 }
-if(sectionIndex==3||sectionIndex==5){
-for(auto& e:section.notes){
-if(e.channel==3) e.velocity=juce::jlimit(1,127,e.velocity+10);
-}
-}
-if(sectionIndex==4){
-for(auto& e:section.notes) e.velocity=juce::jlimit(1,127,e.velocity-18);
-}
 }
 void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int variationSalt)
 {
 song.sections.clear();
 const auto prog=progressionDegrees();
-int sectionCount=sectionMode==Loop?1:(sectionMode == SongMode?5:7);
+const int sectionCount=1;
 for(int i=0;i<sectionCount;++i){
 Section sec;
 const std::vector<NoteEvent>* inherited=nullptr;
