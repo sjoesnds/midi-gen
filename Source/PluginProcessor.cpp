@@ -242,495 +242,274 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
-    // 0.10 Phrase Composer:
-    // compose a four-bar musical sentence instead of making each bar independently.
-    // Roles: statement -> answer -> development/peak -> cadence.
-    const bool hook = hookMode;
+    // 0.14 Loop Composer
+    // Melody is composed as a small loop idea, not as a stream of locally
+    // scored notes.  The important units are: archetype -> rhythm -> motif ->
+    // pitch contour -> mutation.  This deliberately leaves space and avoids
+    // the old "walk the scale" behaviour (1-2-1-2-1-2).
+    juce::ignoreUnused(inherited, r);
+
     const bool soundCloud = leadStyleSoundCloud;
-    const int phrasePos = barOffset % 4;
-    const bool phraseStart = phrasePos == 0;
-    const bool phraseEnd = phrasePos == 3;
-    const bool development = phrasePos == 2;
+    const bool hook = hookMode;
 
-    // 0.11 Russian Vocal DNA:
-    // In contemporary Russian vocal/rap toplines a very common device is not
-    // "many notes", but a speech-like anchor followed by a short descending
-    // minor-scale gesture (often 5-4-3).  Treat it as a phrase-level accent,
-    // never as a rule for the whole song.
-    const bool minorLike = (scale == Minor || scale == Dorian
-                            || scale == Phrygian || scale == HarmonicMinor
-                            || scale == MelodicMinor);
-    // Pick the vocal DNA once per 4-bar phrase, not once per bar.
-    // This is important: the characteristic "speech anchor -> short descent"
-    // should feel like one intentional topline sentence.
-    const int phraseIndex = juce::jmax(0, barOffset / 4);
-    const uint32_t phraseHash = (uint32_t)(variationSalt * 2654435761u)
-        ^ (uint32_t)((phraseIndex + 1) * 2246822519u)
-        ^ (uint32_t)((genre + 3) * 3266489917u);
-    const float phraseRoll = (float)(phraseHash % 1000u) / 1000.0f;
-    const bool russianVocalGenre = (genre == Universal || genre == Trap || genre == BoomBap);
-    const bool vocalDNA = minorLike && !soundCloud && russianVocalGenre
-        && phraseRoll < (hook ? 0.82f : 0.72f);
-
-    // Rotate through related gestures so the generator learns the vocabulary
-    // without stamping the exact same 5-4-3 phrase everywhere.
-    const int vocalGesture = (int)((phraseHash / 1000u + (uint32_t)genre) % 5u);
-    // 0 = 5-4-3, 1 = 5-5-4-3, 2 = 4-5-4-3,
-    // 3 = 5-4-2-3, 4 = 3-5-4-3.
-
-    static const int rhythmPatterns[][8] =
+    auto hash32 = [](uint32_t x)
     {
-        {0,2,4,7,8,10,12,14},
-        {0,3,4,6,8,11,12,15},
-        {0,2,5,6,8,10,12,14},
-        {0,3,4,7,8,12,13,15},
-        {0,2,4,6,9,10,12,15},
-        {0,4,6,8,11,12,14,15}
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
     };
 
-    // --- Rhythm: establish a motif, then reuse it with controlled mutation. ---
-    std::vector<int> chosen;
-    chosen.reserve(12);
+    const uint32_t seed = hash32((uint32_t) variationSalt * 0x9e3779b9u
+                                 ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
+                                 ^ (uint32_t) genre * 0xc2b2ae35u);
+    const int loopBar = barOffset % juce::jmax(1, bars);
+    const int cycle = loopBar % 4;
+    const int archetype = (int) (hash32((uint32_t) variationSalt * 0x27d4eb2du
+                                        ^ (uint32_t) genre * 0x165667b1u) % 8u);
 
-    std::vector<int> prevSteps;
-    for (const auto& ev : s.notes)
-        if (ev.channel == 3 && ev.step >= (barOffset - 1) * 16 && ev.step < barOffset * 16)
-            prevSteps.push_back(ev.step % 16);
-
-    // First bar of the phrase establishes the rhythmic DNA. Later bars answer it.
-    int phraseStartBar = barOffset - phrasePos;
-    std::vector<NoteEvent> motifBar;
-    if (phraseStartBar >= 0)
+    // Rhythm is intentionally sparse.  These are positions, not mandatory
+    // notes: later filtering creates breathing room and phrase punctuation.
+    static const int rhythms[][10] =
     {
-        const int start = phraseStartBar * 16;
-        for (const auto& ev : s.notes)
-            if (ev.channel == 3 && ev.step >= start && ev.step < start + 16)
-                motifBar.push_back(ev);
+        { 0, 3, 7, 10, 14, -1, -1, -1, -1, -1 }, // hook / off-grid
+        { 0, 6, 8, 13, -1, -1, -1, -1, -1, -1 },  // sparse anchor
+        { 0, 4, 7, 12, -1, -1, -1, -1, -1, -1 }, // wide pulse
+        { 1, 4, 8, 11, 14, -1, -1, -1, -1, -1 },// syncopated
+        { 0, 2, 6, 9, 12, -1, -1, -1, -1, -1 }, // broken
+        { 0, 5, 9, 15, -1, -1, -1, -1, -1, -1 }, // call / answer
+        { 2, 7, 10, 14, -1, -1, -1, -1, -1, -1 },// late entrance
+        { 0, 8, 11, -1, -1, -1, -1, -1, -1, -1 } // very sparse
+    };
+
+    const int rhythmType = (archetype + (int)(seed % 3u)) % 8;
+    std::vector<int> positions;
+    for (int i = 0; i < 10; ++i)
+    {
+        const int x = rhythms[rhythmType][i];
+        if (x < 0) break;
+        positions.push_back(x);
     }
 
-    if (phraseStart || motifBar.empty())
+    // The second half of a 4-bar cell should not simply duplicate the first.
+    // It is either a rest, a displaced hit, or a small mutation.
+    if (cycle == 1 || cycle == 3)
     {
-        const int patternIndex = juce::jlimit(0, 5, (variationSalt + genre * 3 + barOffset / 4) % 6);
-        for (int x : rhythmPatterns[patternIndex])
-            if (rhythmHit(x)) chosen.push_back(x);
-    }
-    else
-    {
-        for (const auto& ev : motifBar)
+        for (auto& x : positions)
         {
-            const int x = ev.step % 16;
-            bool keep = true;
-            if (phrasePos == 1 && r.nextFloat() < (soundCloud ? 0.10f : 0.14f)) keep = false;
-            if (phrasePos == 2 && r.nextFloat() < (soundCloud ? 0.18f : 0.24f)) keep = false;
-            if (phrasePos == 3 && r.nextFloat() < 0.10f) keep = false;
-            if (keep) chosen.push_back(x);
+            const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
+            if ((h % 100u) < 18u)
+                x = juce::jlimit(0, 15, x + ((h & 1u) ? 1 : -1));
         }
-
-        // Answer/development bars get one or two intentional rhythmic changes.
-        if (phrasePos == 1 && !soundCloud && r.nextFloat() < 0.55f)
-            chosen.push_back(6 + ((variationSalt + barOffset) & 1) * 4);
-        if (phrasePos == 2 && !soundCloud && r.nextFloat() < 0.70f)
-            chosen.push_back(10);
-        if (phraseEnd)
-            chosen.push_back(14);
     }
 
-    auto addUnique = [&](int x)
+    // Always guarantee at least one real rest.  Unlike the previous generator,
+    // density is not allowed to turn a melody into a continuous stream.
+    const float density = juce::jlimit(0.28f, 0.68f,
+        0.38f + 0.22f * melodyDensity + 0.12f * e);
+    std::vector<int> chosen;
+    for (int x : positions)
     {
-        if (x >= 0 && x < 16 && std::find(chosen.begin(), chosen.end(), x) == chosen.end())
+        const uint32_t h = hash32(seed ^ (uint32_t)(x * 97 + 31));
+        if ((float)(h % 1000u) / 1000.0f < density)
             chosen.push_back(x);
-    };
-
-    if (!soundCloud)
-    {
-        addUnique(0);
-        if (e > 0.40f) addUnique(8);
-        if (hook || phraseEnd) addUnique(12);
     }
+
+    // Phrase punctuation: don't fill every bar.  Some loops enter late or leave
+    // the last quarter empty, which makes the loop breathe when repeated.
+    if ((archetype == 1 || archetype == 7) && cycle == 0 && !chosen.empty())
+        chosen.erase(chosen.begin());
+    if (cycle == 3 && (archetype == 2 || archetype == 5 || archetype == 7)
+        && chosen.size() > 2)
+        chosen.pop_back();
+
+    if (chosen.empty())
+        chosen.push_back(positions.front());
 
     std::sort(chosen.begin(), chosen.end());
     chosen.erase(std::unique(chosen.begin(), chosen.end()), chosen.end());
 
-    int targetCount = hook
-        ? 7 + (int)std::round(3.0f * melodyDensity) + (int)std::round(2.0f * e)
-        : 6 + (int)std::round(3.0f * melodyDensity) + (int)std::round(2.0f * e);
-    if (soundCloud) targetCount = 3 + (int)std::round(2.0f * melodyDensity);
-    if (genre == Ambient) targetCount -= 2;
-    targetCount = juce::jlimit(soundCloud ? 3 : 5, 11, targetCount);
-
-    while ((int)chosen.size() > targetCount)
-    {
-        auto it = std::find_if(chosen.rbegin(), chosen.rend(),
-            [](int x) { return x != 0 && x != 8 && x != 12 && (x % 4) != 0; });
-        if (it == chosen.rend()) chosen.pop_back();
-        else chosen.erase(std::next(it).base());
-    }
-
-    // --- Harmony / phrase memory ------------------------------------------------
+    // Harmonic context is used as gravity, not as a command to resolve every bar.
     const auto prog = progressionDegrees();
     const int degree = prog[(size_t)(barOffset % (int)prog.size())];
-    const std::array<int, 4> chordTones =
+    const auto scaleNotes = scaleSemitones();
+    const int scaleCount = (int) scaleNotes.size();
+
+    auto pitchForDegree = [&](int d, int oct) -> int
     {
-        degreeToPitch(degree, octave), degreeToPitch(degree + 2, octave),
-        degreeToPitch(degree + 4, octave), degreeToPitch(degree + 6, octave)
+        return degreeToPitch(d, oct);
     };
-
-    std::vector<NoteEvent> prevBar;
-    const int prevStart = (barOffset - 1) * 16;
-    if (barOffset > 0)
-        for (const auto& ev : s.notes)
-            if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
-                prevBar.push_back(ev);
-
-    std::vector<NoteEvent> inheritedMelody;
-    if (inherited != nullptr)
-        for (const auto& ev : *inherited)
-            if (ev.channel == 3) inheritedMelody.push_back(ev);
-
-    int previous = juce::jlimit(50, 88, degreeToPitch(degree, octave));
-    if (!prevBar.empty()) previous = prevBar.back().note;
-    else if (!inheritedMelody.empty()) previous = inheritedMelody.back().note;
-
-    // The emotional peak is placed in the development half of the sentence.
-    const int peakBar = 1 + ((variationSalt + genre) & 1);
-    const int desiredPeak = juce::jlimit(62, 94,
-        degreeToPitch(degree + (hook ? 6 : 4), octave) + 12);
-
-    // Speech-like anchor: most of the topline lives around one scale degree.
-    // In A minor this is commonly E (5th), with occasional D (4th) or C (3rd).
-    // The exact anchor is phrase-level so it remains stable across the sentence.
-    const int anchorDegree = 4 - (int)(phraseHash % 3u); // 5, 4 or 3
-    int vocalAnchor = degreeToPitch(anchorDegree, octave);
-    vocalAnchor = juce::jlimit(55, 88, snapToScale(vocalAnchor));
-
-    // Phrase-start motif pitches, used as an A/A' reference for bars 1-3.
-    auto motifPitchForX = [&](int x) -> int
-    {
-        if (motifBar.empty()) return previous;
-        const auto it = std::min_element(motifBar.begin(), motifBar.end(),
-            [x](const NoteEvent& a, const NoteEvent& b)
-            {
-                return std::abs((a.step % 16) - x) < std::abs((b.step % 16) - x);
-            });
-        return it != motifBar.end() ? it->note : previous;
-    };
-
-    std::vector<int> generated;
-    generated.reserve(chosen.size());
 
     auto chordTone = [&](int note) -> bool
     {
-        for (int ct : chordTones)
-            for (int o = -2; o <= 2; ++o)
-                if (note == ct + 12 * o) return true;
+        const int tones[] = { degree, degree + 2, degree + 4 };
+        for (int d : tones)
+        {
+            const int pc = pitchForDegree(d, octave) % 12;
+            if (((note % 12) + 12) % 12 == ((pc % 12) + 12) % 12)
+                return true;
+        }
         return false;
     };
 
-    auto vocalTargetPitch = [&](int x, int index) -> int
+    // One compact motif per variation.  Different archetypes use different
+    // shapes, so changing a seed changes the identity rather than only the RNG.
+    static const int motifs[][6] =
     {
-        if (!vocalDNA || phrasePos != 3)
-            return -1;
-
-        // Aim the recognizable gesture late in the fourth bar.  The final
-        // landing itself is still handled by the harmonic cadence below.
-        if (x < 8)
-            return -1;
-
-        const int count = (int)chosen.size();
-        const int tailIndex = count - index;
-        int degree = -1;
-
-        if (tailIndex <= 1)
-        {
-            // Let the cadence choose the final note.
-            degree = -1;
-        }
-        else if (tailIndex == 2)
-        {
-            degree = (vocalGesture == 3) ? 1 : 2; // 4th/3rd-scale area
-        }
-        else if (tailIndex == 3)
-        {
-            degree = (vocalGesture == 2 || vocalGesture == 4) ? 3 : 4; // 4 or 5
-        }
-        else if (tailIndex == 4)
-        {
-            degree = (vocalGesture == 1) ? 4 : 3; // 5 or 4
-        }
-
-        if (degree < 0)
-            return -1;
-
-        int target = degreeToPitch(degree, octave);
-        // Keep the gesture in the same vocal register as the phrase.
-        while (target - previous > 7) target -= 12;
-        while (previous - target > 7) target += 12;
-        return juce::jlimit(48, 98, snapToScale(target));
+        { 0, 0, 2, 4, 2, -1 }, // anchor -> lift -> return
+        { 4, 2, 0, 2, 5, -1 }, // hook with a wider answer
+        { 0, 4, 1, 5, 3, -1 }, // wide contour
+        { 2, 2, 4, 1, 3, -1 }, // repeated tone, then turn
+        { 0, 3, 5, 2, 0, -1 }, // arch
+        { 4, 1, 4, 6, 2, -1 }, // call / response
+        { 5, 3, 0, 2, 6, -1 }, // descending entrance, upward answer
+        { 0, 5, 0, 3, 1, -1 }  // sparse punctuated hook
     };
 
-    auto scoreCandidate = [&](int note, int x, int index) -> float
+    const int motifType = (archetype + (int)(seed >> 8) % 3) % 8;
+    const int motifShift = (int)((seed >> 16) % (uint32_t)scaleCount);
+
+    auto motifDegree = [&](int index) -> int
     {
-        note = snapToScale(note);
-        const bool accent = (x % 4) == 0;
-        const bool strong = (x % 8) == 0;
-        const bool ending = phraseEnd && (x >= 12 || index == (int)chosen.size() - 1);
-        const bool isChord = chordTone(note);
-        const int interval = note - previous;
-        const int absInterval = std::abs(interval);
-        float score = 0.0f;
+        const int raw = motifs[motifType][index % 5];
+        // Keep the motif mostly within an octave.  The shift is different for
+        // each generated variation, preventing every loop from starting on 1.
+        return degree + raw + motifShift - 2;
+    };
 
-        // Harmony: strong beats want stability, weak beats can carry tension.
-        if (isChord) score += strong ? 5.0f : accent ? 3.2f : 1.15f;
-        else score += development ? 0.85f : (phrasePos == 1 ? 0.45f : -0.20f);
-        if (strong && !isChord) score -= 1.65f;
+    // Determine the previous melody note only for continuity at the loop seam.
+    int previous = pitchForDegree(motifDegree(0), octave);
+    for (const auto& ev : s.notes)
+    {
+        if (ev.channel == 3 && ev.step >= barOffset * 16 - 16 && ev.step < barOffset * 16)
+            previous = ev.note;
+    }
 
-        // Russian-vocal contour: the body behaves more like speech than
-        // like a continuously changing synth melody. Keep most notes close
-        // to a phrase anchor, then reserve real movement for the tail.
-        if (vocalDNA)
+    // Build pitches from the motif, with occasional octave displacement and
+    // deliberate leaps.  We explicitly reject alternating neighbour-note motion.
+    std::vector<int> generated;
+    generated.reserve(chosen.size());
+
+    for (size_t i = 0; i < chosen.size(); ++i)
+    {
+        const int x = chosen[i];
+        const int globalIndex = barOffset * 5 + (int)i;
+        int d = motifDegree(globalIndex + cycle);
+
+        // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
+        if (cycle == 2)
         {
-            if (phrasePos <= 2)
-            {
-                const float anchorWeight = (phrasePos == 0 ? 3.8f
-                    : phrasePos == 1 ? 3.0f : 2.0f);
-                score += anchorWeight - 0.85f * std::abs(note - vocalAnchor);
-                if (std::abs(note - vocalAnchor) <= 2) score += 1.4f;
-            }
-            // Do not let chord-tone preference completely erase the vocal
-            // anchor. A small amount of harmonic tension is intentional here.
-
-            const int target = vocalTargetPitch(x, index);
-            if (target >= 0)
-                score += 6.5f - 0.85f * std::abs(note - target);
-
-            // Keep the body of the phrase conversational: repeated anchors
-            // are allowed, but reward a small departure before returning.
-            if (phrasePos <= 1 && index > 0 && std::abs(note - previous) <= 2)
-                score += 0.55f;
+            if (archetype == 2 || archetype == 6) d += 2;
+            else d += ((i & 1u) ? -2 : 2);
+        }
+        else if (cycle == 3)
+        {
+            // Return toward the motif without forcing a textbook cadence.
+            d += (i == 0 ? 1 : -1);
         }
 
-        // Cadence has the strongest harmonic gravity.
-        if (vocalDNA && phrasePos <= 2 && !ending)
-        {
-            // Strongly favor the anchor without hard-quantizing every note.
-            // This preserves human variation while making the "read -> move"
-            // topology clearly audible.
-            const float bodyAnchorRoll = (phrasePos == 0 ? 0.68f
-                : phrasePos == 1 ? 0.54f : 0.38f);
-            if (r.nextFloat() < bodyAnchorRoll)
-            {
-                int anchored = vocalAnchor;
-                while (anchored - previous > 7) anchored -= 12;
-                while (previous - anchored > 7) anchored += 12;
-                if (std::abs(anchored - previous) <= 7)
-                    note = anchored;
-            }
-        }
+        int note = pitchForDegree(d, octave);
+        if (((seed >> ((i * 7) & 23)) & 1u) != 0u && archetype >= 2)
+            note += 12;
 
-        if (ending)
-        {
-            const int root = snapToScale(chordTones[0]);
-            const int third = snapToScale(chordTones[1]);
-            if (std::abs(note - root) <= 1) score += 7.0f;
-            if (std::abs(note - third) <= 1) score += 4.0f;
-        }
-        else if (phraseEnd && x >= 10)
-        {
-            // Pre-cadential note: a nearby scale tone/chord tone sets up the final landing.
-            const int root = snapToScale(chordTones[0]);
-            const int distance = std::abs(note - root);
-            if (distance == 1 || distance == 2) score += 1.6f;
-        }
+        // Keep a comfortable lead register and find the nearest useful octave.
+        while (note < 52) note += 12;
+        while (note > 91) note -= 12;
+        note = juce::jlimit(48, 98, snapToScale(note));
 
-        // Mostly singable motion, with occasional purposeful leaps.
-        if (absInterval == 0) score -= 1.35f;
-        else if (absInterval <= 2) score += 2.35f;
-        else if (absInterval <= 4) score += 1.45f;
-        else if (absInterval == 5 || absInterval == 7) score += development ? 0.75f : 0.15f;
-        else score -= 0.35f + 0.10f * (float)(absInterval - 7);
-        if (soundCloud && absInterval > 5) score -= 2.0f;
-
-        // Leap recovery: after a large jump, reverse direction.
         if (!generated.empty())
         {
-            const int prevInterval = previous - generated.back();
-            if (std::abs(prevInterval) >= 5 && absInterval >= 1)
-                score += ((prevInterval > 0) != (interval > 0)) ? 1.6f : -1.0f;
-        }
+            const int last = generated.back();
+            int interval = note - last;
 
-        // A real contour: lift into the peak, then come down for the cadence.
-        if (barOffset % 4 == peakBar)
-            score += 0.34f * (float)(note - previous) + 1.5f - 0.045f * std::abs(note - desiredPeak);
-        else if (phrasePos == 3)
-            score -= 0.22f * (float)(note - previous);
-        else if (phrasePos == 0)
-            score += 0.08f * (float)(note - previous);
-
-        // Motif identity: bars 1-3 remember the opening phrase without copying it blindly.
-        if (!phraseStart && !motifBar.empty())
-        {
-            const int motifPitch = motifPitchForX(x);
-            const int motifDelta = note - motifPitch;
-            const bool sameRegisterShape = std::abs(motifDelta) <= 2;
-            if (sameRegisterShape) score += 2.1f * motifStrength;
-            else if (std::abs(motifDelta) <= 7) score += 0.65f * motifStrength;
-
-            // Bar 1 = answer: preserve contour but allow transposition.
-            if (phrasePos == 1 && !generated.empty())
+            // Reject the old 1-2-1-2 pathology.  If the last two moves are
+            // opposite and tiny, force a different contour or a real jump.
+            if (generated.size() >= 2)
             {
-                const int motifPrev = motifPitchForX(chosen[(size_t)juce::jmax(0, index - 1)]);
-                const int motifMove = motifPitch - motifPrev;
-                if ((interval > 0) == (motifMove > 0)) score += 1.25f * motifStrength;
+                const int a = generated[generated.size() - 1] - generated[generated.size() - 2];
+                const int b = note - last;
+                if (std::abs(a) <= 3 && std::abs(b) <= 3 && a != 0 && b != 0
+                    && ((a > 0) != (b > 0)))
+                {
+                    const int alternatives[] = { last + (a > 0 ? 5 : -5),
+                                                 last + (a > 0 ? 7 : -7),
+                                                 last + (a > 0 ? -4 : 4) };
+                    for (int candidate : alternatives)
+                    {
+                        candidate = juce::jlimit(48, 98, snapToScale(candidate));
+                        if (std::abs(candidate - last) >= 4
+                            && std::abs(candidate - last) <= 8)
+                        {
+                            note = candidate;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Controlled leap: some archetypes need a recognizable interval,
+            // otherwise the generator falls back to scalar motion too often.
+            interval = note - last;
+            const bool wantsLeap = (archetype == 2 || archetype == 5 || archetype == 6)
+                && ((globalIndex + (int)(seed & 7u)) % 5 == 2);
+            if (wantsLeap && std::abs(interval) < 4)
+            {
+                const int dir = ((hash32(seed ^ (uint32_t)globalIndex) & 1u) ? 1 : -1);
+                note = juce::jlimit(48, 98, snapToScale(last + dir * (5 + (int)(seed % 3u))));
+            }
+
+            // After a large leap, don't immediately walk back by one step.
+            interval = note - last;
+            if (generated.size() >= 2)
+            {
+                const int prior = last - generated[generated.size() - 2];
+                if (std::abs(prior) >= 5 && std::abs(interval) <= 2)
+                    note = juce::jlimit(48, 98, snapToScale(last + (prior > 0 ? -3 : 3)));
             }
         }
 
-        // Development earns a little novelty and a controlled tension budget.
-        if (development && !isChord && !accent) score += 0.55f * variationAmount;
-        if (development && absInterval >= 5) score += 0.35f * complexity;
-
-        // Avoid robotic repetition and one-direction scales.
-        if (!generated.empty() && note == generated.back()) score -= 2.4f;
-        if (generated.size() >= 2)
+        // Harmonic anchor on strong positions, but leave weak positions free.
+        if ((x == 0 || x == 8) && !chordTone(note))
         {
-            const int d1 = generated[generated.size() - 1] - generated[generated.size() - 2];
-            const int d2 = note - generated.back();
-            if (d1 != 0 && d2 != 0 && ((d1 > 0) == (d2 > 0))) score -= 0.38f;
-        }
-
-        // Register coherence.
-        if (note >= 58 && note <= 88) score += 1.0f;
-        score -= 0.022f * std::abs(note - 74);
-
-        // Hook needs memorable accents; SoundCloud needs space and repetition.
-        if (hook && (x == 0 || x == 8 || x == 12)) score += 0.45f;
-        if (soundCloud && phrasePos != 2 && !isChord) score -= 0.35f;
-
-        return score;
-    };
-
-    // --- Pitch composition ------------------------------------------------------
-    for (int index = 0; index < (int)chosen.size(); ++index)
-    {
-        const int x = chosen[(size_t)index];
-        const bool accent = (x % 4) == 0;
-        const bool ending = phraseEnd && (x >= 12 || index == (int)chosen.size() - 1);
-        const bool peakPosition = (barOffset % 4 == peakBar && x >= 6 && x <= 10);
-
-        std::vector<int> candidates;
-        candidates.reserve(48);
-        for (int d = -10; d <= 10; ++d) candidates.push_back(previous + d);
-        for (int ct : chordTones)
-            for (int o = -1; o <= 1; ++o) candidates.push_back(ct + 12 * o);
-        for (int d = 0; d <= 8; ++d) candidates.push_back(degreeToPitch(degree + d, octave));
-        if (vocalDNA)
-        {
-            // Explicitly put the scale-degree vocabulary into the candidate set:
-            // 3, 4, 5 are the core "speech anchor -> descent" area.
-            for (int gd : { 2, 3, 4 })
-            {
-                int vp = degreeToPitch(gd, octave);
-                for (int o = -1; o <= 1; ++o)
-                    candidates.push_back(vp + 12 * o);
-            }
-            for (int o = -1; o <= 1; ++o)
-                candidates.push_back(vocalAnchor + 12 * o);
-        }
-        for (const auto& ev : prevBar) candidates.push_back(ev.note);
-        if (!phraseStart)
-        {
-            const int mp = motifPitchForX(x);
-            for (int o = -1; o <= 1; ++o) candidates.push_back(mp + 12 * o);
-        }
-
-        std::sort(candidates.begin(), candidates.end());
-        candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
-
-        float bestScore = -100000.0f;
-        int bestNote = snapToScale(previous);
-        for (int raw : candidates)
-        {
-            const int note = juce::jlimit(48, 98, snapToScale(raw));
-            if (std::abs(note - previous) > (soundCloud ? 7 : (development ? 11 : 10))) continue;
-            float score = scoreCandidate(note, x, index);
-
-            // Peak note should be a memorable, sustained chord/scale tone.
-            if (peakPosition)
-            {
-                if (note >= desiredPeak - 3 && note <= desiredPeak + 3) score += 2.0f;
-                if (chordTone(note)) score += 1.2f;
-            }
-            score += r.nextFloat() * 0.18f;
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestNote = note;
-            }
-        }
-
-        int note = juce::jlimit(48, 98, snapToScale(bestNote));
-
-        // When the phrase selected the Russian-vocal DNA, preserve the
-        // recognizable 5-4-3 (or close variant) tail unless this is the final
-        // harmonic landing.  This is deliberately soft: harmony still wins.
-        const int vocalTarget = vocalTargetPitch(x, index);
-        if (vocalTarget >= 0 && !ending
-            && std::abs(note - vocalTarget) <= 4)
-            note = vocalTarget;
-
-        if (vocalDNA && phrasePos <= 2 && !ending)
-        {
-            // Strongly favor the anchor without hard-quantizing every note.
-            // This preserves human variation while making the "read -> move"
-            // topology clearly audible.
-            const float bodyAnchorRoll = (phrasePos == 0 ? 0.68f
-                : phrasePos == 1 ? 0.54f : 0.38f);
-            if (r.nextFloat() < bodyAnchorRoll)
-            {
-                int anchored = vocalAnchor;
-                while (anchored - previous > 7) anchored -= 12;
-                while (previous - anchored > 7) anchored += 12;
-                if (std::abs(anchored - previous) <= 7)
-                    note = anchored;
-            }
-        }
-
-        if (ending)
-        {
-            const int root = snapToScale(chordTones[0]);
-            const int third = snapToScale(chordTones[1]);
-            note = (r.nextFloat() < 0.72f) ? root : third;
-            while (note - previous > 9) note -= 12;
-            while (previous - note > 9) note += 12;
+            const int root = pitchForDegree(degree, octave);
+            const int third = pitchForDegree(degree + 2, octave);
+            if ((hash32(seed ^ (uint32_t)(x + 101)) % 100u) < 62u)
+                note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
+            while (note < 52) note += 12;
+            while (note > 91) note -= 12;
             note = juce::jlimit(48, 98, snapToScale(note));
         }
 
-        int len = 1;
-        if (ending) len = (r.nextFloat() < 0.82f) ? 4 : 3;
-        else if (peakPosition) len = (r.nextFloat() < 0.72f) ? 2 : 1;
-        else if (accent && r.nextFloat() < 0.52f * melodyLength) len = 2;
-        else if (r.nextFloat() < 0.08f * melodyLength) len = 3;
-        if (soundCloud)
-        {
-            len = (ending || r.nextFloat() < 0.62f) ? 2 : 1;
-            if (peakPosition && r.nextFloat() < 0.70f) len = 4;
-        }
-        len = juce::jmin(len, 16 - x);
-
-        const bool ghost = !accent && !hook && !soundCloud && r.nextFloat() < ghostChance * 0.55f;
-        int velocity = 72;
-        if (accent) velocity += 7;
-        if (peakPosition) velocity += 11;
-        if (ending) velocity += 4;
-        if (vocalDNA && phrasePos == 3 && x >= 8)
-            velocity += (x >= 12 ? 3 : 0);
-        if (ghost) velocity -= 18;
-        if (phraseEnd && !peakPosition) velocity -= 4;
-        velocity += r.nextInt(7) - 3;
-        velocity = juce::jlimit(45, 116, velocity);
-
-        s.notes.push_back({barOffset * 16 + x, len, note, velocity, 3, ghost});
         generated.push_back(note);
         previous = note;
+
+        // Duration is part of the phrase identity.  Long notes create space;
+        // short notes are reserved for the rhythmic hook.
+        int len = 1;
+        const uint32_t h = hash32(seed ^ (uint32_t)(globalIndex * 41 + 9));
+        if (archetype == 1 || archetype == 7)
+            len = (h % 100u < 42u) ? 2 : 1;
+        else if (archetype == 0 || archetype == 5)
+            len = (h % 100u < 34u) ? 2 : 1;
+        else
+            len = (h % 100u < 55u) ? 2 : 1;
+
+        if ((cycle == 0 && i == 0 && archetype != 3) ||
+            (cycle == 3 && i == chosen.size() - 1 && (h % 100u < 45u)))
+            len = juce::jmin(4, len + 1);
+        if (soundCloud)
+            len = (h % 100u < 60u) ? 2 : 1;
+        len = juce::jmin(len, 16 - x);
+
+        int velocity = 70 + (x % 4 == 0 ? 8 : 0);
+        if (cycle == 2) velocity += 5;
+        if (hook && (x == 0 || x == 8)) velocity += 4;
+        velocity += (int)(h % 7u) - 3;
+        velocity = juce::jlimit(48, 112, velocity);
+
+        s.notes.push_back({ barOffset * 16 + x, len, note, velocity, 3, false });
     }
 }
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
@@ -768,12 +547,6 @@ if(melodyEnabled)
 addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
 if(arpEnabled)
 addArp(section,bar,deg,targetEnergy,r);
-if(fillAmount>0.01f && bar==bars-1 && r.nextFloat()<fillAmount){
-for(int x=12;x<16;++x){
-int n=snapToScale(72+r.nextInt (juce::Range<int> (-6, 7)));
-section.notes.push_back({bar*16+x,1,n,70+x-12,3,false});
-}
-}
 }
 }
 void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int variationSalt)
