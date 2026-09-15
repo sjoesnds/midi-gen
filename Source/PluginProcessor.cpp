@@ -609,7 +609,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, seam=0, stepPenalty=0, register=0, surprise=0;
+            float rhythmIdentity=0, motifIdentity=0, seam=0, stepPenalty=0, registerScore=0, surprise=0;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -716,7 +716,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         {
             float mean=0; for(auto* n:m) mean+=(float)n->note; mean/=(float)m.size();
             float spread=0; for(auto* n:m) spread+=std::abs((float)n->note-mean);
-            f.register=juce::jlimit(0.0f,1.0f,(spread/(float)m.size())/14.0f);
+            f.registerScore=juce::jlimit(0.0f,1.0f,(spread/(float)m.size())/14.0f);
             int unusual=0;
             for(size_t i=1;i<m.size();++i) if(std::abs(m[i]->note-m[i-1]->note)>=8) ++unusual;
             f.surprise=juce::jlimit(0.0f,1.0f,(float)unusual/(float)juce::jmax<size_t>(1,m.size()-1));
@@ -733,7 +733,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         // Deterministic micro-jitter keeps ties from always favouring the same
         // candidate while remaining reproducible for a generation.
-        const float jitter=((float)(hash32(identity)^0x55aa33u)%1000.0f)/100000.0f;
+        const float jitter=(float)((hash32(identity)^0x55aa33u)%1000u)/100000.0f;
         f.hook=juce::jlimit(0.0f,1.0f,f.hook+jitter);
         juce::ignoreUnused(totalSteps);
         return f;
@@ -820,7 +820,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.08f*f.rhythmIdentity;
         quality += 0.08f*f.motifIdentity;
         quality += 0.07f*f.seam;
-        quality += 0.05f*f.register;
+        quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
         quality += 0.12f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
         quality -= 0.28f*f.stepPenalty;
