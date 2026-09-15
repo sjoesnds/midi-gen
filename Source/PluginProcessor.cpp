@@ -252,6 +252,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool phraseEnd = phrasePos == 3;
     const bool development = phrasePos == 2;
 
+    // 0.11 Russian Vocal DNA:
+    // In contemporary Russian vocal/rap toplines a very common device is not
+    // "many notes", but a speech-like anchor followed by a short descending
+    // minor-scale gesture (often 5-4-3).  Treat it as a phrase-level accent,
+    // never as a rule for the whole song.
+    const bool minorLike = (scale == Minor || scale == Dorian
+                            || scale == Phrygian || scale == HarmonicMinor
+                            || scale == MelodicMinor);
+    const bool vocalDNA = minorLike && !soundCloud
+        && r.nextFloat() < (hook ? 0.62f : 0.72f);
+
+    // Rotate through related gestures so the generator learns the vocabulary
+    // without stamping the exact same 5-4-3 phrase everywhere.
+    const int vocalGesture = (variationSalt + (barOffset / 4) + genre) % 5;
+    // 0 = 5-4-3, 1 = 5-5-4-3, 2 = 4-5-4-3,
+    // 3 = 5-4-2-3, 4 = 3-5-4-3.
+
     static const int rhythmPatterns[][8] =
     {
         {0,2,4,7,8,10,12,14},
@@ -393,6 +410,48 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         return false;
     };
 
+    auto vocalTargetPitch = [&](int x, int index) -> int
+    {
+        if (!vocalDNA || phrasePos != 3)
+            return -1;
+
+        // Aim the recognizable gesture late in the fourth bar.  The final
+        // landing itself is still handled by the harmonic cadence below.
+        if (x < 8)
+            return -1;
+
+        const int count = (int)chosen.size();
+        const int tailIndex = count - index;
+        int degree = -1;
+
+        if (tailIndex <= 1)
+        {
+            // Let the cadence choose the final note.
+            degree = -1;
+        }
+        else if (tailIndex == 2)
+        {
+            degree = (vocalGesture == 3) ? 1 : 2; // 4th/3rd-scale area
+        }
+        else if (tailIndex == 3)
+        {
+            degree = (vocalGesture == 2 || vocalGesture == 4) ? 3 : 4; // 4 or 5
+        }
+        else if (tailIndex == 4)
+        {
+            degree = (vocalGesture == 1) ? 4 : 3; // 5 or 4
+        }
+
+        if (degree < 0)
+            return -1;
+
+        int target = degreeToPitch(degree, octave);
+        // Keep the gesture in the same vocal register as the phrase.
+        while (target - previous > 7) target -= 12;
+        while (previous - target > 7) target += 12;
+        return juce::jlimit(48, 98, snapToScale(target));
+    };
+
     auto scoreCandidate = [&](int note, int x, int index) -> float
     {
         note = snapToScale(note);
@@ -408,6 +467,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (isChord) score += strong ? 5.0f : accent ? 3.2f : 1.15f;
         else score += development ? 0.85f : (phrasePos == 1 ? 0.45f : -0.20f);
         if (strong && !isChord) score -= 1.65f;
+
+        // Russian-vocal contour: most of the line can sit on an anchor note,
+        // while the tail makes a compact descending gesture.  This is a
+        // vocabulary prior, not a hard pitch constraint.
+        if (vocalDNA)
+        {
+            const int target = vocalTargetPitch(x, index);
+            if (target >= 0)
+                score += 4.0f - 0.70f * std::abs(note - target);
+
+            // Keep the body of the phrase conversational: repeated anchors
+            // are allowed, but reward a small departure before returning.
+            if (phrasePos <= 1 && index > 0 && std::abs(note - previous) <= 2)
+                score += 0.55f;
+        }
 
         // Cadence has the strongest harmonic gravity.
         if (ending)
@@ -505,6 +579,17 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         for (int ct : chordTones)
             for (int o = -1; o <= 1; ++o) candidates.push_back(ct + 12 * o);
         for (int d = 0; d <= 8; ++d) candidates.push_back(degreeToPitch(degree + d, octave));
+        if (vocalDNA)
+        {
+            // Explicitly put the scale-degree vocabulary into the candidate set:
+            // 3, 4, 5 are the core "speech anchor -> descent" area.
+            for (int gd : { 2, 3, 4 })
+            {
+                int vp = degreeToPitch(gd, octave);
+                for (int o = -1; o <= 1; ++o)
+                    candidates.push_back(vp + 12 * o);
+            }
+        }
         for (const auto& ev : prevBar) candidates.push_back(ev.note);
         if (!phraseStart)
         {
@@ -539,6 +624,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
         int note = juce::jlimit(48, 98, snapToScale(bestNote));
 
+        // When the phrase selected the Russian-vocal DNA, preserve the
+        // recognizable 5-4-3 (or close variant) tail unless this is the final
+        // harmonic landing.  This is deliberately soft: harmony still wins.
+        const int vocalTarget = vocalTargetPitch(x, index);
+        if (vocalTarget >= 0 && !ending
+            && std::abs(note - vocalTarget) <= 4)
+            note = vocalTarget;
+
         if (ending)
         {
             const int root = snapToScale(chordTones[0]);
@@ -566,6 +659,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (accent) velocity += 7;
         if (peakPosition) velocity += 11;
         if (ending) velocity += 4;
+        if (vocalDNA && phrasePos == 3 && x >= 8)
+            velocity += (x >= 12 ? 3 : 0);
         if (ghost) velocity -= 18;
         if (phraseEnd && !peakPosition) velocity -= 4;
         velocity += r.nextInt(7) - 3;
