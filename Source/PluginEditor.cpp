@@ -123,7 +123,7 @@ addAndMakeVisible(soundCloudButton);
 variationBox.addItemList({"VAR 1","VAR 2","VAR 3","VAR 4","VAR 5","VAR 6","VAR 7","VAR 8"},1);
 variationBox.setSelectedId(1); addAndMakeVisible(variationBox);
 variationBox.onChange=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
-generate.setButtonText("GENERATE 8");
+generate.setButtonText("MAGIC 8");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");

@@ -154,6 +154,8 @@ int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
+uint32_t generationNonce = 0;
+uint32_t generationSeed = 0;
 int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;

@@ -262,7 +262,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         return x;
     };
 
-    const uint32_t seed = hash32((uint32_t) variationSalt * 0x9e3779b9u
+    // Generation identity is part of the musical seed.  Previously the melody
+    // seed depended only on variationSalt/genre, so every GENERATE rebuilt the
+    // exact same melody when the UI seed was unchanged.
+    const uint32_t seed = hash32(generationSeed
+                                 ^ (uint32_t) variationSalt * 0x9e3779b9u
                                  ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
                                  ^ (uint32_t) genre * 0xc2b2ae35u);
     const int loopBar = barOffset % juce::jmax(1, bars);
@@ -567,56 +571,340 @@ song.sections.push_back(std::move(sec));
 }
 void MidiForgeAudioProcessor::buildVariationBank()
 {
-Section previousSelected;
-{
-const juce::ScopedLock sl (variationsLock);
-if (!variations.empty())
-previousSelected = variations[(size_t) selectedVariation];
+    // 0.16 MAGIC CANDIDATE ENGINE
+    // We no longer accept the first eight generations as "variations".
+    // Instead we explore a much larger space, score complete loops, and then
+    // greedily select a diverse set of winners.  This makes MAGIC a search
+    // process rather than a random-note button.
+    ++generationNonce;
+    const uint32_t uiSeed = static_cast<uint32_t>(seed);
+    const uint32_t nonce = generationNonce * 0x9e3779b9u;
+    generationSeed = uiSeed ^ nonce ^ 0xA53C9E71u;
+
+    auto hash32 = [](uint32_t x)
+    {
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    };
+
+    Section previousSelected;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (!variations.empty())
+            previousSelected = variations[(size_t) selectedVariation];
+    }
+
+    struct Candidate
+    {
+        Section section;
+        float quality = 0.0f;
+        uint32_t identity = 0;
+    };
+
+    auto melodyFeatures = [&](const Section& sec, uint32_t identity)
+    {
+        struct F {
+            float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
+            float rhythmIdentity=0, motifIdentity=0, seam=0, stepPenalty=0, register=0, surprise=0;
+        };
+        F f;
+        std::vector<const NoteEvent*> m;
+        for (const auto& n : sec.notes)
+            if (n.channel == 3) m.push_back(&n);
+
+        const int totalSteps = juce::jmax(1, sec.bars * 16);
+        f.density = juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 6));
+        f.space = 1.0f - juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 5));
+
+        if (m.size() >= 2)
+        {
+            int leaps=0, turns=0;
+            std::vector<int> intervals;
+            intervals.reserve(m.size()-1);
+            for (size_t i=1;i<m.size();++i)
+            {
+                const int d=m[i]->note-m[i-1]->note;
+                intervals.push_back(d);
+                if (std::abs(d)>=5) ++leaps;
+                if (i>=2)
+                {
+                    const int a=m[i-1]->note-m[i-2]->note;
+                    if (a!=0 && d!=0 && ((a>0)!=(d>0))) ++turns;
+                }
+            }
+            f.leap=juce::jlimit(0.0f,1.0f,(float)leaps/(float)intervals.size());
+            f.contour=juce::jlimit(0.0f,1.0f,(float)turns/(float)intervals.size());
+
+            int repeated=0;
+            for (size_t i=2;i<intervals.size();++i)
+                if (std::abs(intervals[i])==std::abs(intervals[i-1])) ++repeated;
+            f.repetition=1.0f-juce::jlimit(0.0f,1.0f,(float)repeated/(float)juce::jmax<size_t>(1,intervals.size()-2));
+
+            std::vector<int> pcs;
+            for (auto* n:m) pcs.push_back((n->note%12+12)%12);
+            std::sort(pcs.begin(),pcs.end());
+            pcs.erase(std::unique(pcs.begin(),pcs.end()),pcs.end());
+            f.variety=juce::jlimit(0.0f,1.0f,(float)pcs.size()/6.0f);
+        }
+
+        // Rhythm identity: reward a phrase whose onset pattern has a clear
+        // signature instead of evenly filling the grid.
+        {
+            std::vector<int> onsets;
+            for (auto* n : m) onsets.push_back(n->step % 16);
+            if (onsets.size() >= 2)
+            {
+                std::vector<int> gaps;
+                for (size_t i=1;i<onsets.size();++i) gaps.push_back(onsets[i]-onsets[i-1]);
+                std::sort(gaps.begin(),gaps.end());
+                gaps.erase(std::unique(gaps.begin(),gaps.end()),gaps.end());
+                f.rhythmIdentity=juce::jlimit(0.0f,1.0f,(float)gaps.size()/4.0f);
+                int offbeats=0;
+                for (auto x:onsets) if ((x%4)!=0) ++offbeats;
+                f.rhythmIdentity=0.65f*f.rhythmIdentity+0.35f*juce::jlimit(0.0f,1.0f,(float)offbeats/(float)onsets.size());
+            }
+        }
+
+        // Motif identity: a strong loop normally repeats a short interval/rhythm
+        // idea at least once, but not as a literal bar-for-bar copy.
+        if (m.size() >= 4)
+        {
+            int matched=0, comparisons=0;
+            for (size_t i=2;i<m.size();++i)
+            {
+                const int a=m[i-1]->note-m[i-2]->note;
+                const int b=m[i]->note-m[i-1]->note;
+                if (a==b) ++matched;
+                ++comparisons;
+            }
+            f.motifIdentity=juce::jlimit(0.0f,1.0f,(float)matched/(float)juce::jmax(1,comparisons));
+        }
+
+        // Penalise endless scalar walking. Two-step alternation is especially
+        // undesirable because it produces the old 1-2-1-2 sound.
+        if (m.size() >= 3)
+        {
+            int bad=0, total=0;
+            for (size_t i=2;i<m.size();++i)
+            {
+                const int a=m[i-1]->note-m[i-2]->note;
+                const int b=m[i]->note-m[i-1]->note;
+                if (std::abs(a)<=3 && std::abs(b)<=3 && a!=0 && b!=0
+                    && ((a>0)!=(b>0))) ++bad;
+                ++total;
+            }
+            f.stepPenalty=juce::jlimit(0.0f,1.0f,(float)bad/(float)juce::jmax(1,total));
+        }
+
+        // Loop seam: the end should connect to the beginning without requiring
+        // a textbook cadence. Reward a reasonable seam and penalise an awkward
+        // giant jump or identical terminal repetition.
+        if (m.size() >= 2)
+        {
+            const int seamInterval=m.front()->note-m.back()->note;
+            f.seam=1.0f-juce::jlimit(0.0f,1.0f,(float)juce::jmax(0,std::abs(seamInterval)-7)/10.0f);
+            if (m.front()->note==m.back()->note && m.size()<5) f.seam*=0.65f;
+        }
+
+        // Register and surprise: a little controlled contrast is useful, but
+        // huge random jumps should not dominate the loop.
+        if (!m.empty())
+        {
+            float mean=0; for(auto* n:m) mean+=(float)n->note; mean/=(float)m.size();
+            float spread=0; for(auto* n:m) spread+=std::abs((float)n->note-mean);
+            f.register=juce::jlimit(0.0f,1.0f,(spread/(float)m.size())/14.0f);
+            int unusual=0;
+            for(size_t i=1;i<m.size();++i) if(std::abs(m[i]->note-m[i-1]->note)>=8) ++unusual;
+            f.surprise=juce::jlimit(0.0f,1.0f,(float)unusual/(float)juce::jmax<size_t>(1,m.size()-1));
+        }
+
+        // Reward intentional space and a memorable amount of repetition, but
+        // penalise mechanical stepwise walking and excessive note density.
+        f.hook = 0.24f*f.repetition + 0.16f*f.contour + 0.16f*f.leap
+               + 0.16f*f.variety + 0.14f*f.rhythmIdentity + 0.10f*f.motifIdentity
+               + 0.04f*f.surprise;
+        const float densityTarget = hookMode ? 0.48f : 0.40f;
+        const float densityFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-densityTarget)/0.42f);
+        f.hook = 0.65f*f.hook + 0.35f*densityFit;
+
+        // Deterministic micro-jitter keeps ties from always favouring the same
+        // candidate while remaining reproducible for a generation.
+        const float jitter=((float)(hash32(identity)^0x55aa33u)%1000.0f)/100000.0f;
+        f.hook=juce::jlimit(0.0f,1.0f,f.hook+jitter);
+        juce::ignoreUnused(totalSteps);
+        return f;
+    };
+
+    auto similarity = [&](const Section& a, const Section& b)
+    {
+        std::vector<int> ap, bp, ar, br;
+        for (const auto& n:a.notes) if(n.channel==3){ap.push_back((n.note%12+12)%12); ar.push_back(n.step%16);}
+        for (const auto& n:b.notes) if(n.channel==3){bp.push_back((n.note%12+12)%12); br.push_back(n.step%16);}
+        if(ap.empty()||bp.empty()) return 0.0f;
+        const size_t n=juce::jmin(ap.size(),bp.size());
+        float samePitch=0, sameRhythm=0;
+        for(size_t i=0;i<n;++i){ if(ap[i]==bp[i])samePitch+=1.0f; if(ar[i]==br[i])sameRhythm+=1.0f; }
+        const float lengthSim=1.0f-juce::jlimit(0.0f,1.0f,(float)std::abs((int)ap.size()-(int)bp.size())/8.0f);
+        return juce::jlimit(0.0f,1.0f,0.45f*(samePitch/(float)n)+0.35f*(sameRhythm/(float)n)+0.20f*lengthSim);
+    };
+
+    auto flatten = [&](const SongData& song, int candidateIndex, juce::Random& local)
+    {
+        Section flat;
+        flat.name="CANDIDATE "+juce::String(candidateIndex+1);
+        flat.bars=0;
+        for(const auto& sec:song.sections)
+        {
+            const int sectionBarsBefore=flat.bars;
+            flat.bars+=sec.bars;
+            for(auto n:sec.notes)
+            {
+                n.step+=sectionBarsBefore*16;
+                // Candidate-level mutations are intentionally structural, not
+                // just octave changes: entrance, note deletion and phrase
+                // displacement produce genuinely different loop identities.
+                if(n.channel==3)
+                {
+                    const uint32_t h=hash32(generationSeed ^ (uint32_t)(candidateIndex*977 + n.step*31));
+                    const unsigned mode = h % 100u;
+                    if(mode < (unsigned)(7 + (candidateIndex % 6)))
+                        n.velocity=juce::jlimit(40,112,n.velocity+(int)(h%17)-8);
+                    // Candidate search is allowed to alter phrase identity.
+                    // These are deliberately small structural mutations rather
+                    // than random note spam.
+                    if(mode >= 14u && mode < 19u)
+                        n.step = juce::jlimit(0, juce::jmax(0, flat.bars*16-1), n.step + (((h>>8)&1u) ? 1 : -1));
+                    if(mode >= 19u && mode < 23u)
+                        n.note = juce::jlimit(48, 98, snapToScale(n.note + (((h>>9)&1u) ? 12 : -12)));
+                    if(mode >= 23u && mode < 27u && n.length > 2)
+                        n.length = juce::jmax(2, n.length - (int)(h % 4u));
+                    if(mode >= 27u && mode < 31u)
+                        n.velocity = juce::jlimit(35,118,n.velocity - 10);
+                }
+                flat.notes.push_back(n);
+            }
+        }
+        juce::ignoreUnused(local);
+        return flat;
+    };
+
+    std::vector<Candidate> candidates;
+    constexpr int candidateCount=96;
+    candidates.reserve(candidateCount);
+
+    for(int c=0;c<candidateCount;++c)
+    {
+        const uint32_t identity=hash32(generationSeed ^ (uint32_t)(c+1)*0x45d9f3bu);
+        juce::Random local((juce::int64)identity);
+        SongData song;
+        const float oldVariation=variationAmount;
+        // Spread the search deliberately: some candidates are sparse, some
+        // hook-heavy, some rhythm-first.  This is exploration, not noise.
+        variationAmount=juce::jlimit(0.f,1.f,oldVariation + ((int)(identity%17u)-8)*0.035f);
+        buildBaseSong(song,local,c+1);
+        variationAmount=oldVariation;
+
+        Section flat=flatten(song,c,local);
+        const auto f=melodyFeatures(flat,identity);
+        float quality=0.0f;
+        quality += 0.22f*f.hook;
+        quality += 0.10f*f.space;
+        quality += 0.10f*f.repetition;
+        quality += 0.10f*f.variety;
+        quality += 0.08f*f.contour;
+        quality += 0.08f*f.leap;
+        quality += 0.08f*f.rhythmIdentity;
+        quality += 0.08f*f.motifIdentity;
+        quality += 0.07f*f.seam;
+        quality += 0.05f*f.register;
+        quality += 0.05f*f.surprise;
+        quality += 0.12f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
+        quality -= 0.28f*f.stepPenalty;
+
+        // Taste profile nudges the search without collapsing it into one style.
+        if(likedN>0) quality += 0.10f*(1.0f-std::abs(f.density-likedD));
+        if(disN>0) quality -= 0.08f*(1.0f-std::abs(f.density-disD));
+
+        candidates.push_back({std::move(flat),quality,identity});
+    }
+
+    std::vector<Candidate> selected;
+    selected.reserve(8);
+    std::vector<bool> used(candidates.size(),false);
+
+    // Greedy diversity-aware selection. The best candidate wins first; after
+    // that, similarity to already selected loops becomes a real penalty.
+    for(int slot=0;slot<8;++slot)
+    {
+        int best=-1;
+        float bestScore=-1000.0f;
+        for(size_t i=0;i<candidates.size();++i)
+        {
+            if(used[i]) continue;
+            float score=candidates[i].quality;
+            float maxSim=0.0f;
+            for(const auto& s:selected) maxSim=juce::jmax(maxSim,similarity(candidates[i].section,s.section));
+            score-=0.78f*maxSim;
+            // Do not let the top eight collapse into one archetype. Spread
+            // candidate identities across the final bank while preserving quality.
+            if(slot>0)
+            {
+                const int profile=(int)(candidates[i].identity % 8u);
+                int profileCount=0;
+                for(const auto& s:selected) if(((int)(s.identity % 8u))==profile) ++profileCount;
+                score -= 0.07f*(float)profileCount;
+            }
+            if(slot==0) score=candidates[i].quality;
+            if(score>bestScore){bestScore=score;best=(int)i;}
+        }
+        if(best<0) break;
+        used[(size_t)best]=true;
+        selected.push_back(std::move(candidates[(size_t)best]));
+    }
+
+    std::vector<Section> result;
+    result.reserve(8);
+    for(size_t i=0;i<selected.size();++i)
+    {
+        auto flat=std::move(selected[i].section);
+        flat.name="VARIATION "+juce::String((int)i+1);
+
+        auto applyLock = [&](int channel, bool locked)
+        {
+            if(!locked) return;
+            flat.notes.erase(std::remove_if(flat.notes.begin(),flat.notes.end(),
+                [channel](const NoteEvent& n){return n.channel==channel;}),flat.notes.end());
+            for(const auto& n:previousSelected.notes)
+                if(n.channel==channel && n.step<flat.bars*16) flat.notes.push_back(n);
+        };
+        applyLock(1,lockChordsLayer);
+        applyLock(2,lockBassLayer);
+        applyLock(3,lockMelodyLayer);
+        applyLock(4,lockArpLayer);
+        result.push_back(std::move(flat));
+    }
+
+    // Defensive fallback: the bank should never become empty.
+    if(result.empty())
+    {
+        juce::Random fallback((juce::int64)generationSeed);
+        SongData song;
+        buildBaseSong(song,fallback,0);
+        if(!song.sections.empty()) result.push_back(song.sections.front());
+    }
+
+    {
+        const juce::ScopedLock sl(variationsLock);
+        variations=std::move(result);
+    }
+    likeCounts.fill(0);
+    dislikeCounts.fill(0);
 }
-std::vector<Section> result;
-result.reserve (8);
-for(int v=0;v<8;++v){
-juce::Random local((juce::int64)seed + 7919LL*(v+1));
-SongData s;
-float oldVariation=variationAmount;
-variationAmount=juce::jlimit(0.f,1.f,oldVariation + (v-3.5f)*0.08f);
-buildBaseSong(s,local,v);
-variationAmount=oldVariation;
-Section flat;
-flat.name="VARIATION "+juce::String(v+1);
-flat.bars=0;
-for(const auto& sec:s.sections){
-flat.bars+=sec.bars;
-const int sectionBarsBefore=flat.bars-sec.bars;
-for(auto n:sec.notes){
-n.step+=sectionBarsBefore*16;
-if(v%4==1 && n.channel==3 && local.nextFloat()<0.20f)n.note+=12;
-if(v%4==2 && n.channel==3 && local.nextFloat()<0.20f)n.note-=12;
-if(v%4==3 && n.channel==2 && local.nextFloat()<0.20f)n.velocity-=10;
-flat.notes.push_back(n);
-}
-}
-auto applyLock = [&](int channel, bool locked)
-{
-if (!locked) return;
-flat.notes.erase(std::remove_if(flat.notes.begin(), flat.notes.end(),
-[channel](const NoteEvent& n){ return n.channel == channel; }), flat.notes.end());
-for (const auto& n : previousSelected.notes)
-if (n.channel == channel && n.step < flat.bars * 16)
-flat.notes.push_back(n);
-};
-applyLock(1, lockChordsLayer);
-applyLock(2, lockBassLayer);
-applyLock(3, lockMelodyLayer);
-applyLock(4, lockArpLayer);
-result.push_back(std::move(flat));
-}
-const juce::ScopedLock sl (variationsLock);
-variations = std::move (result);
-// Контент новый — счётчики лайков по слотам сбрасываем (профиль вкуса живёт отдельно).
-likeCounts.fill(0);
-dislikeCounts.fill(0);
-}
+
 void MidiForgeAudioProcessor::regenerate()
 {
 buildVariationBank();
