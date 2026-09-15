@@ -9,3 +9,6 @@ Fixes:
 - MIDI `.mid` export button
 
 Push the project to GitHub and run the existing Windows Actions workflow.
+
+## 0.18 Magic Composition Engine
+See `README_MAGIC_0_18.md` for the expanded rhythm, motif, phrase and candidate-diversity engine.

@@ -242,7 +242,7 @@ void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
 const std::vector<NoteEvent>* inherited, int variationSalt)
 {
-    // 0.14 Loop Composer
+    // 0.18 Magic Composition Engine
     // Melody is composed as a small loop idea, not as a stream of locally
     // scored notes.  The important units are: archetype -> rhythm -> motif ->
     // pitch contour -> mutation.  This deliberately leaves space and avoids
@@ -271,24 +271,41 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                                  ^ (uint32_t) genre * 0xc2b2ae35u);
     const int loopBar = barOffset % juce::jmax(1, bars);
     const int cycle = loopBar % 4;
-    const int archetype = (int) (hash32((uint32_t) variationSalt * 0x27d4eb2du
-                                        ^ (uint32_t) genre * 0x165667b1u) % 8u);
+    const int phraseCell = (barOffset / 4) % 4;
+    const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
+    const int archetype = (int) (hash32(generationSeed
+                                        ^ (uint32_t) variationSalt * 0x27d4eb2du
+                                        ^ (uint32_t) genre * 0x165667b1u) % 16u);
 
     // Rhythm is intentionally sparse.  These are positions, not mandatory
     // notes: later filtering creates breathing room and phrase punctuation.
+    // 16 rhythm identities.  Even positions are the default 1/8 grid; a few
+    // profiles deliberately use 16th-note syncopation.  The generator chooses
+    // one identity per bar from the generation seed, so repeated GENERATE calls
+    // do not collapse onto one groove.
     static const int rhythms[][10] =
     {
-        { 0, 3, 7, 10, 14, -1, -1, -1, -1, -1 }, // hook / off-grid
-        { 0, 6, 8, 13, -1, -1, -1, -1, -1, -1 },  // sparse anchor
-        { 0, 4, 7, 12, -1, -1, -1, -1, -1, -1 }, // wide pulse
-        { 1, 4, 8, 11, 14, -1, -1, -1, -1, -1 },// syncopated
-        { 0, 2, 6, 9, 12, -1, -1, -1, -1, -1 }, // broken
-        { 0, 5, 9, 15, -1, -1, -1, -1, -1, -1 }, // call / answer
-        { 2, 7, 10, 14, -1, -1, -1, -1, -1, -1 },// late entrance
-        { 0, 8, 11, -1, -1, -1, -1, -1, -1, -1 } // very sparse
+        { 0, 3, 7, 10, 14, -1, -1, -1, -1, -1 },
+        { 0, 6, 8, 13, -1, -1, -1, -1, -1, -1 },
+        { 0, 4, 7, 12, -1, -1, -1, -1, -1, -1 },
+        { 1, 4, 8, 11, 14, -1, -1, -1, -1, -1 },
+        { 0, 2, 6, 9, 12, -1, -1, -1, -1, -1 },
+        { 0, 5, 9, 15, -1, -1, -1, -1, -1, -1 },
+        { 2, 7, 10, 14, -1, -1, -1, -1, -1, -1 },
+        { 0, 8, 11, -1, -1, -1, -1, -1, -1, -1 },
+        { 0, 4, 8, 10, 14, -1, -1, -1, -1, -1 },
+        { 0, 6, 10, 12, -1, -1, -1, -1, -1, -1 },
+        { 0, 2, 8, 12, 14, -1, -1, -1, -1, -1 },
+        { 0, 4, 6, 12, -1, -1, -1, -1, -1, -1 },
+        { 0, 7, 8, 14, -1, -1, -1, -1, -1, -1 },
+        { 2, 4, 10, 14, -1, -1, -1, -1, -1, -1 },
+        { 0, 8, 12, 14, -1, -1, -1, -1, -1, -1 },
+        { 0, 3, 6, 8, 13, 15, -1, -1, -1, -1 }
     };
 
-    const int rhythmType = (archetype + (int)(seed % 3u)) % 8;
+    const int rhythmType = (int)(hash32(seed ^ (uint32_t)variationSalt * 0x9e3779b9u
+                                         ^ (uint32_t)(barOffset + 1) * 0x85ebca6bu) % 16u);
+
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
     {
@@ -297,15 +314,29 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         positions.push_back(x);
     }
 
-    // The second half of a 4-bar cell should not simply duplicate the first.
-    // It is either a rest, a displaced hit, or a small mutation.
+    // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
+    // positions). Off-grid 16th-note syncopation is allowed only for
+    // deliberately syncopated archetypes, and only as a small accent.
+    const bool allowsOffGrid = (rhythmType == 0 || rhythmType == 3 || rhythmType == 5);
+    for (auto& x : positions)
+    {
+        const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
+        if ((x & 1) != 0 && !allowsOffGrid)
+            x = juce::jlimit(0, 15, x - 1);
+    }
+
+    // The second half of a 4-bar cell can breathe, but never introduce an
+    // arbitrary 1-step shift into an otherwise straight groove.
     if (cycle == 1 || cycle == 3)
     {
         for (auto& x : positions)
         {
             const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
             if ((h % 100u) < 18u)
-                x = juce::jlimit(0, 15, x + ((h & 1u) ? 1 : -1));
+            {
+                const int delta = allowsOffGrid ? ((h & 1u) ? 1 : -1) : ((h & 1u) ? 2 : -2);
+                x = juce::jlimit(0, 15, x + delta);
+            }
         }
     }
 
@@ -360,26 +391,34 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // One compact motif per variation.  Different archetypes use different
     // shapes, so changing a seed changes the identity rather than only the RNG.
+    // Expanded motif vocabulary.  The motif is transformed per generation
+    // (reverse / inversion / rotation / octave lift) instead of merely picking
+    // one fixed six-note pattern.  This is the main source of melodic identity.
     static const int motifs[][6] =
     {
-        { 0, 0, 2, 4, 2, -1 }, // anchor -> lift -> return
-        { 4, 2, 0, 2, 5, -1 }, // hook with a wider answer
-        { 0, 4, 1, 5, 3, -1 }, // wide contour
-        { 2, 2, 4, 1, 3, -1 }, // repeated tone, then turn
-        { 0, 3, 5, 2, 0, -1 }, // arch
-        { 4, 1, 4, 6, 2, -1 }, // call / response
-        { 5, 3, 0, 2, 6, -1 }, // descending entrance, upward answer
-        { 0, 5, 0, 3, 1, -1 }  // sparse punctuated hook
+        { 0, 0, 2, 4, 2, -1 }, { 4, 2, 0, 2, 5, -1 },
+        { 0, 4, 1, 5, 3, -1 }, { 2, 2, 4, 1, 3, -1 },
+        { 0, 3, 5, 2, 0, -1 }, { 4, 1, 4, 6, 2, -1 },
+        { 5, 3, 0, 2, 6, -1 }, { 0, 5, 0, 3, 1, -1 },
+        { 2, 5, 3, 1, 4, -1 }, { 5, 2, 2, 0, 4, -1 },
+        { 1, 4, 0, 3, 5, -1 }, { 3, 0, 2, 6, 4, -1 },
+        { 0, 2, 5, 3, 1, -1 }, { 6, 3, 1, 4, 0, -1 },
+        { 2, 0, 5, 5, 3, -1 }, { 4, 6, 2, 1, 5, -1 }
     };
 
-    const int motifType = (archetype + (int)(seed >> 8) % 3) % 8;
+    const int motifType = (int)(hash32(seed ^ (uint32_t)(archetype * 0x51ed270bu)) % 16u);
     const int motifShift = (int)((seed >> 16) % (uint32_t)scaleCount);
+
+    const int motifTransform = (int)(hash32(seed ^ 0x6d2b79f5u) % 4u);
+    const int motifRotation = (int)(hash32(seed ^ 0x1b873593u) % 5u);
 
     auto motifDegree = [&](int index) -> int
     {
-        const int raw = motifs[motifType][index % 5];
-        // Keep the motif mostly within an octave.  The shift is different for
-        // each generated variation, preventing every loop from starting on 1.
+        int pos = (index + motifRotation) % 5;
+        if (motifTransform == 1) pos = 4 - pos;
+        int raw = motifs[motifType][pos];
+        if (motifTransform == 2) raw = 4 - raw;
+        if (motifTransform == 3 && (pos & 1)) raw += 2;
         return degree + raw + motifShift - 2;
     };
 
@@ -405,13 +444,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
         if (cycle == 2)
         {
-            if (archetype == 2 || archetype == 6) d += 2;
+            if (archetype == 2 || archetype == 6 || phraseIdentity == 1) d += 2;
+            else if (phraseIdentity == 2) d -= 1;
             else d += ((i & 1u) ? -2 : 2);
         }
         else if (cycle == 3)
         {
             // Return toward the motif without forcing a textbook cadence.
-            d += (i == 0 ? 1 : -1);
+            d += (phraseIdentity == 3 ? (i == 0 ? 2 : 0) : (i == 0 ? 1 : -1));
         }
 
         int note = pitchForDegree(d, octave);
@@ -473,6 +513,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                     note = juce::jlimit(48, 98, snapToScale(last + (prior > 0 ? -3 : 3)));
             }
         }
+
+        // Composition profiles: each generation has a different balance of
+        // anchor / contrast / register / repetition.  These are musical rules,
+        // not random pitch noise, and they are intentionally subtle.
+        const int profile = (int)(hash32(seed ^ 0x9e3779b9u) % 8u);
+        if (profile == 1 && (i & 1u) == 0)
+            note = juce::jlimit(48, 98, snapToScale(note + ((i % 3 == 0) ? 2 : -2)));
+        else if (profile == 2 && i == chosen.size() / 2)
+            note = juce::jlimit(48, 98, snapToScale(note + 5));
+        else if (profile == 3 && (i % 3 == 1))
+            note = juce::jlimit(48, 98, snapToScale(note - 5));
+        else if (profile == 4 && (i == 0 || i + 1 == chosen.size()))
+            note = juce::jlimit(48, 98, snapToScale(note + (i == 0 ? -3 : 3)));
+        else if (profile == 5 && i % 4 == 2)
+            note = juce::jlimit(48, 98, snapToScale(note + 7));
+        else if (profile == 6 && i % 4 == 3)
+            note = juce::jlimit(48, 98, snapToScale(note - 7));
 
         // Harmonic anchor on strong positions, but leave weak positions free.
         if ((x == 0 || x == 8) && !chordTone(note))
@@ -749,7 +806,21 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float samePitch=0, sameRhythm=0;
         for(size_t i=0;i<n;++i){ if(ap[i]==bp[i])samePitch+=1.0f; if(ar[i]==br[i])sameRhythm+=1.0f; }
         const float lengthSim=1.0f-juce::jlimit(0.0f,1.0f,(float)std::abs((int)ap.size()-(int)bp.size())/8.0f);
-        return juce::jlimit(0.0f,1.0f,0.45f*(samePitch/(float)n)+0.35f*(sameRhythm/(float)n)+0.20f*lengthSim);
+        float sameIntervals=0.0f;
+        if (n >= 3)
+        {
+            int count=0;
+            for(size_t i=1;i<n;++i)
+            {
+                int da=(int)ap[i]-(int)ap[i-1];
+                int db=(int)bp[i]-(int)bp[i-1];
+                if(da==db) sameIntervals+=1.0f;
+                ++count;
+            }
+            sameIntervals/=juce::jmax(1,count);
+        }
+        return juce::jlimit(0.0f,1.0f,0.32f*(samePitch/(float)n)+0.30f*(sameRhythm/(float)n)
+                                      +0.18f*sameIntervals+0.20f*lengthSim);
     };
 
     auto flatten = [&](const SongData& song, int candidateIndex, juce::Random& local)
@@ -777,7 +848,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
                     // These are deliberately small structural mutations rather
                     // than random note spam.
                     if(mode >= 14u && mode < 19u)
-                        n.step = juce::jlimit(0, juce::jmax(0, flat.bars*16-1), n.step + (((h>>8)&1u) ? 1 : -1));
+                    {
+                        const int localStep = n.step % 16;
+                        const bool deliberateSyncopation = (candidateIndex % 8 == 0 || candidateIndex % 8 == 3 || candidateIndex % 8 == 5);
+                        int delta = deliberateSyncopation ? (((h >> 8) & 1u) ? 1 : -1)
+                                                          : (((h >> 8) & 1u) ? 2 : -2);
+                        // Never push a non-syncopated note onto an odd 16th.
+                        if (!deliberateSyncopation && ((localStep + delta) & 1))
+                            delta += (delta > 0 ? 1 : -1);
+                        n.step = juce::jlimit(0, juce::jmax(0, flat.bars*16-1), n.step + delta);
+                    }
                     if(mode >= 19u && mode < 23u)
                         n.note = juce::jlimit(48, 98, snapToScale(n.note + (((h>>9)&1u) ? 12 : -12)));
                     if(mode >= 23u && mode < 27u && n.length > 2)
