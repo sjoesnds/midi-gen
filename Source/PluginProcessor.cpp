@@ -260,12 +260,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool minorLike = (scale == Minor || scale == Dorian
                             || scale == Phrygian || scale == HarmonicMinor
                             || scale == MelodicMinor);
-    const bool vocalDNA = minorLike && !soundCloud
-        && r.nextFloat() < (hook ? 0.62f : 0.72f);
+    // Pick the vocal DNA once per 4-bar phrase, not once per bar.
+    // This is important: the characteristic "speech anchor -> short descent"
+    // should feel like one intentional topline sentence.
+    const int phraseIndex = juce::jmax(0, barOffset / 4);
+    const uint32_t phraseHash = (uint32_t)(variationSalt * 2654435761u)
+        ^ (uint32_t)((phraseIndex + 1) * 2246822519u)
+        ^ (uint32_t)((genre + 3) * 3266489917u);
+    const float phraseRoll = (float)(phraseHash % 1000u) / 1000.0f;
+    const bool russianVocalGenre = (genre == Universal || genre == Trap || genre == BoomBap);
+    const bool vocalDNA = minorLike && !soundCloud && russianVocalGenre
+        && phraseRoll < (hook ? 0.82f : 0.72f);
 
     // Rotate through related gestures so the generator learns the vocabulary
     // without stamping the exact same 5-4-3 phrase everywhere.
-    const int vocalGesture = (variationSalt + (barOffset / 4) + genre) % 5;
+    const int vocalGesture = (int)((phraseHash / 1000u + (uint32_t)genre) % 5u);
     // 0 = 5-4-3, 1 = 5-5-4-3, 2 = 4-5-4-3,
     // 3 = 5-4-2-3, 4 = 3-5-4-3.
 
@@ -387,6 +396,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int desiredPeak = juce::jlimit(62, 94,
         degreeToPitch(degree + (hook ? 6 : 4), octave) + 12);
 
+    // Speech-like anchor: most of the topline lives around one scale degree.
+    // In A minor this is commonly E (5th), with occasional D (4th) or C (3rd).
+    // The exact anchor is phrase-level so it remains stable across the sentence.
+    const int anchorDegree = 4 - (int)(phraseHash % 3u); // 5, 4 or 3
+    int vocalAnchor = degreeToPitch(anchorDegree, octave);
+    vocalAnchor = juce::jlimit(55, 88, snapToScale(vocalAnchor));
+
     // Phrase-start motif pitches, used as an A/A' reference for bars 1-3.
     auto motifPitchForX = [&](int x) -> int
     {
@@ -468,14 +484,24 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         else score += development ? 0.85f : (phrasePos == 1 ? 0.45f : -0.20f);
         if (strong && !isChord) score -= 1.65f;
 
-        // Russian-vocal contour: most of the line can sit on an anchor note,
-        // while the tail makes a compact descending gesture.  This is a
-        // vocabulary prior, not a hard pitch constraint.
+        // Russian-vocal contour: the body behaves more like speech than
+        // like a continuously changing synth melody. Keep most notes close
+        // to a phrase anchor, then reserve real movement for the tail.
         if (vocalDNA)
         {
+            if (phrasePos <= 2)
+            {
+                const float anchorWeight = (phrasePos == 0 ? 3.8f
+                    : phrasePos == 1 ? 3.0f : 2.0f);
+                score += anchorWeight - 0.85f * std::abs(note - vocalAnchor);
+                if (std::abs(note - vocalAnchor) <= 2) score += 1.4f;
+            }
+            // Do not let chord-tone preference completely erase the vocal
+            // anchor. A small amount of harmonic tension is intentional here.
+
             const int target = vocalTargetPitch(x, index);
             if (target >= 0)
-                score += 4.0f - 0.70f * std::abs(note - target);
+                score += 6.5f - 0.85f * std::abs(note - target);
 
             // Keep the body of the phrase conversational: repeated anchors
             // are allowed, but reward a small departure before returning.
@@ -484,6 +510,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         }
 
         // Cadence has the strongest harmonic gravity.
+        if (vocalDNA && phrasePos <= 2 && !ending)
+        {
+            // Strongly favor the anchor without hard-quantizing every note.
+            // This preserves human variation while making the "read -> move"
+            // topology clearly audible.
+            const float bodyAnchorRoll = (phrasePos == 0 ? 0.68f
+                : phrasePos == 1 ? 0.54f : 0.38f);
+            if (r.nextFloat() < bodyAnchorRoll)
+            {
+                int anchored = vocalAnchor;
+                while (anchored - previous > 7) anchored -= 12;
+                while (previous - anchored > 7) anchored += 12;
+                if (std::abs(anchored - previous) <= 7)
+                    note = anchored;
+            }
+        }
+
         if (ending)
         {
             const int root = snapToScale(chordTones[0]);
@@ -589,6 +632,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 for (int o = -1; o <= 1; ++o)
                     candidates.push_back(vp + 12 * o);
             }
+            for (int o = -1; o <= 1; ++o)
+                candidates.push_back(vocalAnchor + 12 * o);
         }
         for (const auto& ev : prevBar) candidates.push_back(ev.note);
         if (!phraseStart)
@@ -631,6 +676,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (vocalTarget >= 0 && !ending
             && std::abs(note - vocalTarget) <= 4)
             note = vocalTarget;
+
+        if (vocalDNA && phrasePos <= 2 && !ending)
+        {
+            // Strongly favor the anchor without hard-quantizing every note.
+            // This preserves human variation while making the "read -> move"
+            // topology clearly audible.
+            const float bodyAnchorRoll = (phrasePos == 0 ? 0.68f
+                : phrasePos == 1 ? 0.54f : 0.38f);
+            if (r.nextFloat() < bodyAnchorRoll)
+            {
+                int anchored = vocalAnchor;
+                while (anchored - previous > 7) anchored -= 12;
+                while (previous - anchored > 7) anchored += 12;
+                if (std::abs(anchored - previous) <= 7)
+                    note = anchored;
+            }
+        }
 
         if (ending)
         {
