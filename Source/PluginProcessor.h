@@ -7,7 +7,10 @@
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
-enum Genre { Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic };
+enum Genre {
+    Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic,
+    RnB, GenrePop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental, Lofi
+};
 enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };

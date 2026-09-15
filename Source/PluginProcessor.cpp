@@ -21,7 +21,7 @@ samplePosition = 0;
 pendingOffs.clear();
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
-void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,6,v);regenerate();}
+void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
 void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setProgression(int v){progression=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regenerate();}
@@ -80,6 +80,15 @@ case Techno:return{0,5,3,4};
 case BoomBap:return{0,5,3,4};
 case Ambient:return{0,3,5,4};
 case Cinematic:return{0,3,4,5};
+case RnB:return{1,4,0,5};
+case GenrePop:return{0,4,5,3};
+case Drill:return{0,5,3,6};
+case DnB:return{0,5,3,4};
+case Jersey:return{0,5,3,4};
+case Afro:return{0,3,4,5};
+case Hyperpop:return{0,4,5,3};
+case Experimental:return{0,2,5,3};
+case Lofi:return{0,5,3,4};
 default:return{0,5,3,4};
 }
 }
@@ -221,8 +230,10 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
 {
 int root=juce::jlimit(18,55,degreeToPitch(degree,octave-2));
 std::vector<int> steps;
-if(genre==Trap)steps={0,3,6,10,14};
-else if(genre==House||genre==Techno)steps={0,4,8,12};
+if(genre==Trap || genre==Drill)steps={0,3,6,10,14};
+else if(genre==House || genre==Techno || genre==DnB)steps={0,4,8,12};
+else if(genre==Jersey || genre==Afro)steps={0,3,8,11,14};
+else if(genre==RnB || genre==Lofi)steps={0,8,12};
 else steps={0,8,12};
 for(int x:steps){
 if(!rhythmHit(x)||r.nextFloat()>bassDensity*e)continue;
@@ -230,7 +241,8 @@ int note=root;
 if(complexity>0.5f&&r.nextFloat()<0.22f)note+=r.nextBool()?7:-5;
 note=juce::jlimit(18,60,note);
 bool ghost=r.nextFloat()<ghostChance*.5f&&x!=0;
-int len=(genre==House||genre==Techno)?3:(x==0?7:3);
+int len=(genre==House||genre==Techno||genre==DnB)?3:
+        ((genre==RnB||genre==Lofi)?6:(x==0?7:3));
 int vel=juce::jlimit(1,127,92+(x==0?7:0)-(ghost?20:0));
 s.notes.push_back({barOffset*16+x,len,note,vel,2,ghost});
 }
@@ -251,6 +263,34 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     const bool soundCloud = leadStyleSoundCloud;
     const bool hook = hookMode;
+
+    // 0.19 Musical DNA: genre is no longer a cosmetic label.  Each genre
+    // supplies a compact compositional bias that affects rhythm, space,
+    // register, leap size and motif behaviour.  The values are deliberately
+    // soft preferences so MAGIC can still surprise us instead of producing
+    // a rigid genre template.
+    float dnaSpace = 0.50f, dnaLeap = 0.25f, dnaSync = 0.25f;
+    float dnaDensity = 0.50f, dnaRegister = 0.50f, dnaMotif = 0.65f;
+    int dnaRhythmBias = 0;
+    switch (genre)
+    {
+        case Trap:       dnaSpace=.68f; dnaLeap=.38f; dnaSync=.58f; dnaDensity=.40f; dnaRegister=.58f; dnaMotif=.82f; dnaRhythmBias=0; break;
+        case House:      dnaSpace=.28f; dnaLeap=.18f; dnaSync=.38f; dnaDensity=.72f; dnaRegister=.46f; dnaMotif=.74f; dnaRhythmBias=1; break;
+        case Techno:     dnaSpace=.38f; dnaLeap=.20f; dnaSync=.42f; dnaDensity=.62f; dnaRegister=.42f; dnaMotif=.72f; dnaRhythmBias=2; break;
+        case BoomBap:    dnaSpace=.54f; dnaLeap=.30f; dnaSync=.50f; dnaDensity=.46f; dnaRegister=.52f; dnaMotif=.88f; dnaRhythmBias=3; break;
+        case Ambient:    dnaSpace=.82f; dnaLeap=.22f; dnaSync=.18f; dnaDensity=.25f; dnaRegister=.62f; dnaMotif=.48f; dnaRhythmBias=7; break;
+        case Cinematic:  dnaSpace=.58f; dnaLeap=.55f; dnaSync=.22f; dnaDensity=.36f; dnaRegister=.70f; dnaMotif=.55f; dnaRhythmBias=5; break;
+        case RnB:        dnaSpace=.70f; dnaLeap=.32f; dnaSync=.54f; dnaDensity=.38f; dnaRegister=.58f; dnaMotif=.80f; dnaRhythmBias=5; break;
+        case GenrePop:        dnaSpace=.48f; dnaLeap=.28f; dnaSync=.32f; dnaDensity=.55f; dnaRegister=.55f; dnaMotif=.94f; dnaRhythmBias=2; break;
+        case Drill:      dnaSpace=.62f; dnaLeap=.48f; dnaSync=.72f; dnaDensity=.36f; dnaRegister=.64f; dnaMotif=.84f; dnaRhythmBias=3; break;
+        case DnB:        dnaSpace=.32f; dnaLeap=.42f; dnaSync=.66f; dnaDensity=.76f; dnaRegister=.60f; dnaMotif=.70f; dnaRhythmBias=0; break;
+        case Jersey:     dnaSpace=.40f; dnaLeap=.34f; dnaSync=.78f; dnaDensity=.68f; dnaRegister=.54f; dnaMotif=.86f; dnaRhythmBias=3; break;
+        case Afro:       dnaSpace=.42f; dnaLeap=.25f; dnaSync=.74f; dnaDensity=.62f; dnaRegister=.48f; dnaMotif=.76f; dnaRhythmBias=5; break;
+        case Hyperpop:   dnaSpace=.34f; dnaLeap=.68f; dnaSync=.60f; dnaDensity=.70f; dnaRegister=.76f; dnaMotif=.72f; dnaRhythmBias=7; break;
+        case Experimental:dnaSpace=.55f; dnaLeap=.72f; dnaSync=.70f; dnaDensity=.45f; dnaRegister=.78f; dnaMotif=.58f; dnaRhythmBias=7; break;
+        case Lofi:       dnaSpace=.76f; dnaLeap=.18f; dnaSync=.36f; dnaDensity=.32f; dnaRegister=.44f; dnaMotif=.68f; dnaRhythmBias=4; break;
+        default:         break;
+    }
 
     auto hash32 = [](uint32_t x)
     {
@@ -275,7 +315,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
     const int archetype = (int) (hash32(generationSeed
                                         ^ (uint32_t) variationSalt * 0x27d4eb2du
-                                        ^ (uint32_t) genre * 0x165667b1u) % 16u);
+                                        ^ (uint32_t) genre * 0x165667b1u
+                                        ^ (uint32_t)(dnaRhythmBias + 17) * 0x9e3779b9u) % 16u);
 
     // Rhythm is intentionally sparse.  These are positions, not mandatory
     // notes: later filtering creates breathing room and phrase punctuation.
@@ -303,8 +344,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         { 0, 3, 6, 8, 13, 15, -1, -1, -1, -1 }
     };
 
-    const int rhythmType = (int)(hash32(seed ^ (uint32_t)variationSalt * 0x9e3779b9u
+    int rhythmType = (int)(hash32(seed ^ (uint32_t)variationSalt * 0x9e3779b9u
                                          ^ (uint32_t)(barOffset + 1) * 0x85ebca6bu) % 16u);
+    // Genre DNA nudges the rhythmic family without hard-locking it.
+    rhythmType = (rhythmType + dnaRhythmBias + (int)(dnaSync * 3.0f)) % 16;
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -317,7 +360,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
-    const bool allowsOffGrid = (rhythmType == 0 || rhythmType == 3 || rhythmType == 5);
+    const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5;
     for (auto& x : positions)
     {
         const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
@@ -406,7 +449,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         { 2, 0, 5, 5, 3, -1 }, { 4, 6, 2, 1, 5, -1 }
     };
 
-    const int motifType = (int)(hash32(seed ^ (uint32_t)(archetype * 0x51ed270bu)) % 16u);
+    const int motifType = (int)(hash32(seed ^ (uint32_t)(archetype * 0x51ed270bu)
+                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % 16u);
     const int motifShift = (int)((seed >> 16) % (uint32_t)scaleCount);
 
     const int motifTransform = (int)(hash32(seed ^ 0x6d2b79f5u) % 4u);
@@ -445,6 +489,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (cycle == 2)
         {
             if (archetype == 2 || archetype == 6 || phraseIdentity == 1) d += 2;
+            if (dnaLeap > 0.55f && ((i + phraseCell) % 4 == 2))
+                d += (i & 1) ? 2 : -2;
+            else if (dnaSpace > 0.70f && (i % 3 == 1))
+                d = motifDegree(globalIndex + cycle);
             else if (phraseIdentity == 2) d -= 1;
             else d += ((i & 1u) ? -2 : 2);
         }
@@ -628,6 +676,30 @@ song.sections.push_back(std::move(sec));
 }
 void MidiForgeAudioProcessor::buildVariationBank()
 {
+    // Shared genre DNA for the candidate judge. Keep these targets aligned with
+    // addMelody() so the judge rewards the musical language it asked the
+    // generator to produce.
+    float dnaSpace = 0.50f, dnaDensity = 0.50f, dnaRegister = 0.50f;
+    switch (genre)
+    {
+        case Trap: dnaSpace=.68f; dnaDensity=.40f; dnaRegister=.58f; break;
+        case House: dnaSpace=.28f; dnaDensity=.72f; dnaRegister=.46f; break;
+        case Techno: dnaSpace=.38f; dnaDensity=.62f; dnaRegister=.42f; break;
+        case BoomBap: dnaSpace=.54f; dnaDensity=.46f; dnaRegister=.52f; break;
+        case Ambient: dnaSpace=.82f; dnaDensity=.25f; dnaRegister=.62f; break;
+        case Cinematic: dnaSpace=.58f; dnaDensity=.36f; dnaRegister=.70f; break;
+        case RnB: dnaSpace=.70f; dnaDensity=.38f; dnaRegister=.58f; break;
+        case GenrePop: dnaSpace=.48f; dnaDensity=.55f; dnaRegister=.55f; break;
+        case Drill: dnaSpace=.62f; dnaDensity=.36f; dnaRegister=.64f; break;
+        case DnB: dnaSpace=.32f; dnaDensity=.76f; dnaRegister=.60f; break;
+        case Jersey: dnaSpace=.40f; dnaDensity=.68f; dnaRegister=.54f; break;
+        case Afro: dnaSpace=.42f; dnaDensity=.62f; dnaRegister=.48f; break;
+        case Hyperpop: dnaSpace=.34f; dnaDensity=.70f; dnaRegister=.76f; break;
+        case Experimental: dnaSpace=.55f; dnaDensity=.45f; dnaRegister=.78f; break;
+        case Lofi: dnaSpace=.76f; dnaDensity=.32f; dnaRegister=.44f; break;
+        default: break;
+    }
+
     // 0.16 MAGIC CANDIDATE ENGINE
     // We no longer accept the first eight generations as "variations".
     // Instead we explore a much larger space, score complete loops, and then
@@ -902,7 +974,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
-        quality += 0.12f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
+        // Genre DNA fit: reward candidates that actually express the selected
+        // musical language, while keeping the generic quality judge dominant.
+        const float genreDensityTarget = juce::jlimit(0.0f,1.0f,dnaDensity);
+        const float genreSpaceTarget = juce::jlimit(0.0f,1.0f,dnaSpace);
+        const float genreRegisterTarget = juce::jlimit(0.0f,1.0f,dnaRegister);
+        quality += 0.10f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-genreDensityTarget)));
+        quality += 0.06f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.space-genreSpaceTarget)));
+        quality += 0.04f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.registerScore-genreRegisterTarget)));
+        quality += 0.08f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
         quality -= 0.28f*f.stepPenalty;
 
         // Taste profile nudges the search without collapsing it into one style.

@@ -51,7 +51,8 @@ sectionLabel.setFont (juce::Font (12.0f));
 addAndMakeVisible(title);addAndMakeVisible(sectionLabel);
 root.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"},1);
 root.setSelectedId(p.getRoot()+1); root.onChange=[this]{processor.setRoot(root.getSelectedId()-1);}; addAndMakeVisible(root);
-genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic"},1);
+genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic",
+                    "R&B","Pop","Drill","DnB","Jersey","Afro","Hyperpop","Experimental","Lo-Fi"},1);
 genre.setSelectedId(p.getGenre()+1); genre.onChange=[this]{processor.setGenre(genre.getSelectedId()-1);}; addAndMakeVisible(genre);
 scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic"},1);
 scale.setSelectedId(p.getScale()+1); scale.onChange=[this]{processor.setScale(scale.getSelectedId()-1);}; addAndMakeVisible(scale);
