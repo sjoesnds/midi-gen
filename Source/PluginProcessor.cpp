@@ -282,7 +282,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool soundCloud = leadStyleSoundCloud;
     const bool hook = hookMode;
 
-    // 0.21 Magic Overhaul: Musical DNA is now multi-axis. Genre is only one
+    // 0.22 Phrase Memory + Humanization: Musical DNA is now multi-axis. Genre is only one
     // dimension; mood, melody role and era alter the composition language too.
     float moodSpace = 0.0f, moodLeap = 0.0f, moodDensity = 0.0f, moodTension = 0.0f;
     switch (mood)
@@ -527,6 +527,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // Build pitches from the motif, with occasional octave displacement and
     // deliberate leaps.  We explicitly reject alternating neighbour-note motion.
+    // 0.22 Phrase Memory: the loop remembers the contour of the previous bar.
+    // A/A' and A'' should feel related without becoming literal copies.
+    // We only use the previous bar as a contour reference; the harmonic context
+    // and current bar candidate remain authoritative.
+    std::vector<NoteEvent> memoryBar;
+    if (barOffset > 0)
+    {
+        const int prevStart = (barOffset - 1) * 16;
+        for (const auto& ev : s.notes)
+            if (ev.channel == 3 && ev.step >= prevStart && ev.step < prevStart + 16)
+                memoryBar.push_back(ev);
+        std::sort(memoryBar.begin(), memoryBar.end(),
+                  [](const NoteEvent& a, const NoteEvent& b) { return a.step < b.step; });
+    }
+
     std::vector<int> generated;
     generated.reserve(chosen.size());
 
@@ -630,6 +645,27 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         else if (profile == 6 && i % 4 == 3)
             note = juce::jlimit(48, 98, snapToScale(note - 7));
 
+        // Reuse a previous-bar contour at controlled strength.  The B bar
+        // (cycle 2) gets less memory so it can provide contrast; A'/A'' keep
+        // more of the identity. This is phrase memory, not copy/paste.
+        if (memoryBar.size() >= 2 && !generated.empty())
+        {
+            const float memoryStrength = juce::jlimit(0.0f, 0.72f,
+                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f)));
+            const uint32_t mh = hash32(seed ^ (uint32_t)(i * 113 + 701));
+            if ((float)(mh % 1000u) / 1000.0f < memoryStrength)
+            {
+                const auto& ref = memoryBar[i % memoryBar.size()];
+                const int refAnchor = memoryBar.front().note;
+                const int currentAnchor = generated.front();
+                const int contourOffset = ref.note - refAnchor;
+                const int target = currentAnchor + contourOffset;
+                const int blended = juce::roundToInt((float)note * (1.0f - memoryStrength)
+                                                   + (float)target * memoryStrength);
+                note = juce::jlimit(48, 98, snapToScale(blended));
+            }
+        }
+
         // Harmonic anchor on strong positions, but leave weak positions free.
         if ((x == 0 || x == 8) && !chordTone(note))
         {
@@ -667,6 +703,19 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (cycle == 2) velocity += 5;
         if (hook && (x == 0 || x == 8)) velocity += 4;
         velocity += (int)(h % 7u) - 3;
+
+        // 0.22 Humanization: vary accents and sustain in a musically bounded
+        // way. Timing stays on the chosen grid; "human" here means phrasing
+        // and dynamics, not random off-grid MIDI.
+        const float human = juce::jlimit(0.0f, 1.0f, humanize);
+        const int accent = (int)std::round((float)((int)(h % 9u) - 4) * (2.0f + 7.0f * human));
+        if (x % 4 == 0) velocity += 2;
+        if (cycle == 2 && (x % 8) == 4) velocity += 3;
+        velocity += accent;
+        if (human > 0.12f && (h % 100u) < (uint32_t)(18.0f * human))
+            len = juce::jmin(4, len + 1);
+        if (human > 0.18f && (h % 100u) > 88u)
+            len = juce::jmax(1, len - 1);
         velocity = juce::jlimit(48, 112, velocity);
 
         s.notes.push_back({ barOffset * 16 + x, len, note, velocity, 3, false });
@@ -762,7 +811,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     dnaDensity = juce::jlimit(0.0f,1.0f,dnaDensity + typeDensityTarget[ti]);
     dnaSpace = juce::jlimit(0.0f,1.0f,dnaSpace + typeSpaceTarget[ti]);
 
-    // 0.20 MAGIC 1000-CANDIDATE SEARCH ENGINE
+    // 0.22 MAGIC 1000-CANDIDATE SEARCH ENGINE + PHRASE JUDGE
     // We no longer accept the first eight generations as "variations".
     // Instead we explore a much larger space, score complete loops, and then
     // greedily select a diverse set of winners.  1000 candidates give the
@@ -802,7 +851,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, seam=0, stepPenalty=0, registerScore=0, surprise=0;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, stepPenalty=0, registerScore=0, surprise=0;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -875,6 +924,40 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 ++comparisons;
             }
             f.motifIdentity=juce::jlimit(0.0f,1.0f,(float)matched/(float)juce::jmax(1,comparisons));
+
+            // Phrase memory score: compare the first and second bars by relative
+            // contour and onset positions. Reward recurrence, but only softly.
+            if (sec.bars >= 2)
+            {
+                std::vector<const NoteEvent*> firstBar, laterBar;
+                for (auto* n : m)
+                {
+                    if (n->step < 16) firstBar.push_back(n);
+                    else if (n->step < 32) laterBar.push_back(n);
+                }
+                if (firstBar.size() >= 2 && laterBar.size() >= 2)
+                {
+                    const size_t pairs = juce::jmin(firstBar.size(), laterBar.size());
+                    int sameRhythm = 0;
+                    int contourMatches = 0;
+                    for (size_t k = 0; k < pairs; ++k)
+                    {
+                        if ((firstBar[k]->step % 16) == (laterBar[k]->step % 16))
+                            ++sameRhythm;
+                        if (k > 0)
+                        {
+                            const int a = firstBar[k]->note - firstBar[k-1]->note;
+                            const int b = laterBar[k]->note - laterBar[k-1]->note;
+                            if ((a == 0 && b == 0) || (a > 0 && b > 0) || (a < 0 && b < 0))
+                                ++contourMatches;
+                        }
+                    }
+                    const float rhythmMatch = (float)sameRhythm / (float)pairs;
+                    const float contourMatch = (float)contourMatches
+                        / (float)juce::jmax<size_t>(1, pairs - 1);
+                    f.phraseMemory = 0.55f * rhythmMatch + 0.45f * contourMatch;
+                }
+            }
         }
 
         // Penalise endless scalar walking. Two-step alternation is especially
@@ -1035,6 +1118,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.08f*f.leap;
         quality += 0.08f*f.rhythmIdentity;
         quality += 0.08f*f.motifIdentity;
+        quality += 0.06f*f.phraseMemory;
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
