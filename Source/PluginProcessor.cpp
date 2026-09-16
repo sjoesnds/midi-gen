@@ -2,6 +2,21 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath>
+
+namespace
+{
+    // Shared deterministic hash used by generation and mutation paths.
+    // Kept at file scope so helper methods can use the same seed logic as addMelody().
+    static uint32_t hash32(uint32_t x)
+    {
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    }
+}
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
@@ -286,11 +301,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const float typeDensity[] = {.04f,-.10f,.06f,-.08f,.12f,-.04f,-.18f,.02f};
     const float typeLeap[]    = {.02f,.04f,.18f,-.02f,.08f,.12f,.06f,.10f};
     const float typeMotif[]   = {.16f,.12f,.10f,.18f,.04f,.08f,.14f,.10f};
-    const int eraYears[] = {1970,1980,1990,2000,2010,2020};
     const float eraSync[] = {-.05f,.02f,.08f,.12f,.16f,.20f};
     const float eraSpace[] = {.02f,-.02f,.02f,-.01f,.02f,.04f};
     const float eraNovelty[] = {.04f,.02f,.06f,.08f,.12f,.16f};
-    const float eraBias = eraSync[juce::jlimit(0,5,era)];
     const float roleSpace = typeSpace[juce::jlimit(0,7,melodyType)];
     const float roleDensity = typeDensity[juce::jlimit(0,7,melodyType)];
     const float roleLeap = typeLeap[juce::jlimit(0,7,melodyType)];
@@ -323,16 +336,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         case Lofi:       dnaSpace=.76f; dnaLeap=.18f; dnaSync=.36f; dnaDensity=.32f; dnaRegister=.44f; dnaMotif=.68f; dnaRhythmBias=4; break;
         default:         break;
     }
-
-    auto hash32 = [](uint32_t x)
-    {
-        x ^= x >> 16;
-        x *= 0x7feb352du;
-        x ^= x >> 15;
-        x *= 0x846ca68bu;
-        x ^= x >> 16;
-        return x;
-    };
 
     // Generation identity is part of the musical seed.  Previously the melody
     // seed depended only on variationSalt/genre, so every GENERATE rebuilt the
