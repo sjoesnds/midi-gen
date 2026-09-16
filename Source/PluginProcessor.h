@@ -15,6 +15,8 @@ enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pe
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
 enum SectionMode { Loop, SongMode, SongExtended };
+enum Mood { NeutralMood, DarkMood, MelancholicMood, EuphoricMood, AggressiveMood, DreamyMood, NostalgicMood, MysteriousMood, EnergeticMood };
+enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMelody, CounterMelody, SparseLeadMelody, PhraseMelody };
 MidiForgeAudioProcessor();
 ~MidiForgeAudioProcessor() override = default;
 void prepareToPlay(double, int) override;
@@ -37,10 +39,16 @@ void getStateInformation(juce::MemoryBlock&) override;
 void setStateInformation(const void*, int) override;
 void regenerate();
 void regenerateVariations();
+// Magic Overhaul: explore the whole musical state coherently.
+void magicRandomize();
+void rerollSameDNA();
+void mutateSelected(float amount = 0.45f);
+void evolveSelected();
 void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls
 void setRoot(int); void setGenre(int); void setScale(int);
+void setMood(int); void setMelodyType(int); void setEra(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
 // Musical controls
@@ -74,6 +82,9 @@ int getBars() const { return bars; }
 int getSeed() const { return seed; }
 int getOctave() const { return octave; }
 int getSectionMode() const { return sectionMode; }
+int getMood() const { return mood; }
+int getMelodyType() const { return melodyType; }
+int getEra() const { return era; }
 float getChordDensity() const { return chordDensity; }
 float getBassDensity() const { return bassDensity; }
 float getMelodyDensity() const { return melodyDensity; }
@@ -156,6 +167,7 @@ void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);
 int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
+int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
 uint32_t generationNonce = 0;
 uint32_t generationSeed = 0;

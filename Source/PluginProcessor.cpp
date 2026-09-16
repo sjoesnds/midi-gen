@@ -23,6 +23,9 @@ pendingOffs.clear();
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
 void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
+void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
+void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
+void MidiForgeAudioProcessor::setEra(int v){era=juce::jlimit(0,5,v);regenerate();}
 void MidiForgeAudioProcessor::setProgression(int v){progression=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regenerate();}
 void MidiForgeAudioProcessor::setBars(int v){bars=juce::jlimit(1,16,v);regenerate();}
@@ -264,6 +267,35 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool soundCloud = leadStyleSoundCloud;
     const bool hook = hookMode;
 
+    // 0.21 Magic Overhaul: Musical DNA is now multi-axis. Genre is only one
+    // dimension; mood, melody role and era alter the composition language too.
+    float moodSpace = 0.0f, moodLeap = 0.0f, moodDensity = 0.0f, moodTension = 0.0f;
+    switch (mood)
+    {
+        case DarkMood:        moodSpace=.08f; moodLeap=.10f; moodDensity=-.04f; moodTension=.24f; break;
+        case MelancholicMood: moodSpace=.16f; moodLeap=-.05f; moodDensity=-.08f; moodTension=.18f; break;
+        case EuphoricMood:    moodSpace=-.10f; moodLeap=.10f; moodDensity=.10f; moodTension=-.08f; break;
+        case AggressiveMood:  moodSpace=-.08f; moodLeap=.24f; moodDensity=.14f; moodTension=.12f; break;
+        case DreamyMood:      moodSpace=.24f; moodLeap=-.10f; moodDensity=-.12f; moodTension=.04f; break;
+        case NostalgicMood:   moodSpace=.08f; moodLeap=-.02f; moodDensity=-.02f; moodTension=.10f; break;
+        case MysteriousMood:  moodSpace=.18f; moodLeap=.12f; moodDensity=-.06f; moodTension=.22f; break;
+        case EnergeticMood:   moodSpace=-.14f; moodLeap=.16f; moodDensity=.18f; moodTension=-.02f; break;
+        default: break;
+    }
+    const float typeSpace[]   = {-.04f,.16f,-.02f,.18f,.02f,.10f,.28f,.04f};
+    const float typeDensity[] = {.04f,-.10f,.06f,-.08f,.12f,-.04f,-.18f,.02f};
+    const float typeLeap[]    = {.02f,.04f,.18f,-.02f,.08f,.12f,.06f,.10f};
+    const float typeMotif[]   = {.16f,.12f,.10f,.18f,.04f,.08f,.14f,.10f};
+    const int eraYears[] = {1970,1980,1990,2000,2010,2020};
+    const float eraSync[] = {-.05f,.02f,.08f,.12f,.16f,.20f};
+    const float eraSpace[] = {.02f,-.02f,.02f,-.01f,.02f,.04f};
+    const float eraNovelty[] = {.04f,.02f,.06f,.08f,.12f,.16f};
+    const float eraBias = eraSync[juce::jlimit(0,5,era)];
+    const float roleSpace = typeSpace[juce::jlimit(0,7,melodyType)];
+    const float roleDensity = typeDensity[juce::jlimit(0,7,melodyType)];
+    const float roleLeap = typeLeap[juce::jlimit(0,7,melodyType)];
+    const float roleMotif = typeMotif[juce::jlimit(0,7,melodyType)];
+
     // 0.19 Musical DNA: genre is no longer a cosmetic label.  Each genre
     // supplies a compact compositional bias that affects rhythm, space,
     // register, leap size and motif behaviour.  The values are deliberately
@@ -305,6 +337,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Generation identity is part of the musical seed.  Previously the melody
     // seed depended only on variationSalt/genre, so every GENERATE rebuilt the
     // exact same melody when the UI seed was unchanged.
+    dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + eraSpace[juce::jlimit(0,5,era)]);
+    dnaLeap = juce::jlimit(0.0f, 1.0f, dnaLeap + moodLeap + roleLeap);
+    dnaDensity = juce::jlimit(0.0f, 1.0f, dnaDensity + moodDensity + roleDensity);
+    dnaMotif = juce::jlimit(0.0f, 1.0f, dnaMotif + roleMotif);
+
     const uint32_t seed = hash32(generationSeed
                                  ^ (uint32_t) variationSalt * 0x9e3779b9u
                                  ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
@@ -385,8 +422,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // Always guarantee at least one real rest.  Unlike the previous generator,
     // density is not allowed to turn a melody into a continuous stream.
-    const float density = juce::jlimit(0.28f, 0.68f,
-        0.38f + 0.22f * melodyDensity + 0.12f * e);
+    const float density = juce::jlimit(0.16f, 0.78f,
+        0.34f + 0.22f * melodyDensity + 0.12f * e
+        + 0.16f * (dnaDensity - 0.50f) - 0.10f * (dnaSpace - 0.50f));
     std::vector<int> chosen;
     for (int x : positions)
     {
@@ -405,6 +443,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     if (chosen.empty())
         chosen.push_back(positions.front());
+
+    // Melody role changes phrasing, not just a label.
+    if (melodyType == SparseLeadMelody && chosen.size() > 3)
+        chosen.resize(juce::jmax<size_t>(2, chosen.size() - 1));
+    else if (melodyType == RiffMelody && chosen.size() < 4 && positions.size() >= 4)
+        chosen.push_back(positions[2]);
+    else if (melodyType == VocalLikeMelody && cycle == 0 && chosen.size() > 0)
+        chosen[0] = 0;
+    else if (melodyType == OstinatoMelody && !chosen.empty())
+        std::sort(chosen.begin(), chosen.end());
 
     std::sort(chosen.begin(), chosen.end());
     chosen.erase(std::unique(chosen.begin(), chosen.end()), chosen.end());
@@ -699,6 +747,17 @@ void MidiForgeAudioProcessor::buildVariationBank()
         case Lofi: dnaSpace=.76f; dnaDensity=.32f; dnaRegister=.44f; break;
         default: break;
     }
+
+    const float moodDensityTarget[] = {0.00f,-.06f,-.10f,.10f,.14f,-.12f,-.02f,-.05f,.16f};
+    const float moodSpaceTarget[]   = {0.00f,.10f,.16f,-.08f,-.10f,.22f,.08f,.16f,-.12f};
+    const int mi = juce::jlimit(0,8,mood);
+    dnaDensity = juce::jlimit(0.0f,1.0f,dnaDensity + moodDensityTarget[mi]);
+    dnaSpace = juce::jlimit(0.0f,1.0f,dnaSpace + moodSpaceTarget[mi]);
+    const float typeDensityTarget[] = {0.04f,-.08f,.08f,-.10f,.10f,-.02f,-.18f,.02f};
+    const float typeSpaceTarget[] = {-.04f,.14f,-.02f,.16f,.02f,.08f,.24f,.02f};
+    const int ti = juce::jlimit(0,7,melodyType);
+    dnaDensity = juce::jlimit(0.0f,1.0f,dnaDensity + typeDensityTarget[ti]);
+    dnaSpace = juce::jlimit(0.0f,1.0f,dnaSpace + typeSpaceTarget[ti]);
 
     // 0.20 MAGIC 1000-CANDIDATE SEARCH ENGINE
     // We no longer accept the first eight generations as "variations".
@@ -1067,6 +1126,99 @@ void MidiForgeAudioProcessor::buildVariationBank()
     dislikeCounts.fill(0);
 }
 
+void MidiForgeAudioProcessor::magicRandomize()
+{
+    // One coherent randomization pass. Direct assignment avoids triggering
+    // dozens of intermediate regenerations from individual setters.
+    auto magicHash32 = [](uint32_t x)
+    {
+        x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
+        x *= 0x846ca68bu; x ^= x >> 16; return x;
+    };
+    juce::Random r((juce::int64) magicHash32(generationSeed ^ (uint32_t)juce::Time::currentTimeMillis()));
+    auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
+    rootPc = pick(12);
+    genre = pick(16);
+    scale = pick(7);
+    progression = pick(7);
+    rhythm = pick(4);
+    static constexpr int barChoices[] = {1,2,4,8,16};
+    static constexpr int arpChoices[] = {1,2,4,8};
+    bars = barChoices[pick(5)];
+    octave = 3 + pick(4);
+    arpRate = arpChoices[pick(4)];
+    mood = pick(9);
+    melodyType = pick(8);
+    era = pick(6);
+
+    auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
+    chordDensity = rf(.45f,1.0f);
+    bassDensity = rf(.30f,.95f);
+    melodyDensity = rf(.25f,.85f);
+    arpDensity = rf(.05f,.55f);
+    swing = rf(0.0f,.35f);
+    humanize = rf(.06f,.28f);
+    complexity = rf(.25f,.90f);
+    melodyLength = rf(.15f,.75f);
+    pauseChance = rf(.05f,.35f);
+    leapChance = rf(.05f,.50f);
+    ghostChance = rf(.02f,.22f);
+    voicingWidth = rf(.25f,.80f);
+    motifStrength = rf(.55f,.95f);
+    variationAmount = rf(.25f,.80f);
+    fillAmount = rf(.05f,.35f);
+    energy = rf(.35f,.90f);
+    chordExtensions = r.nextFloat() > .28f;
+    inversions = r.nextFloat() > .20f;
+    chordsEnabled = true;
+    bassEnabled = r.nextFloat() > .08f;
+    melodyEnabled = true;
+    arpEnabled = r.nextFloat() > .55f;
+    hookMode = r.nextFloat() > .18f;
+    leadStyleSoundCloud = false;
+    seed = r.nextInt();
+    regenerate();
+}
+
+void MidiForgeAudioProcessor::rerollSameDNA()
+{
+    // Keep every musical control; only explore a new generation identity.
+    seed = static_cast<int>(hash32(generationSeed ^ 0x6d2b79f5u ^ generationNonce));
+    regenerateVariations();
+    chooseVariation(0);
+}
+
+void MidiForgeAudioProcessor::mutateSelected(float amount)
+{
+    amount = juce::jlimit(0.0f, 1.0f, amount);
+    std::vector<VisibleNote> notes = getVisibleNotes();
+    if (notes.empty()) { rerollSameDNA(); return; }
+    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu);
+    for (size_t i=0; i<notes.size(); ++i)
+    {
+        auto& n = notes[i];
+        if (n.channel != 3) continue;
+        const uint32_t h = hash32(base ^ (uint32_t)(i * 0x9e3779b9u));
+        if ((h % 100u) < (uint32_t)(18.0f + 45.0f * amount))
+        {
+            const int semis = ((h >> 8) & 1u) ? 2 : -2;
+            n.note = juce::jlimit(48, 98, snapToScale(n.note + semis));
+        }
+        if ((h % 100u) >= 42u && (h % 100u) < (uint32_t)(55.0f + 35.0f * amount))
+            n.length = juce::jlimit(1, 4, n.length + (((h >> 16) & 1u) ? 1 : -1));
+        if ((h % 100u) > 72u)
+            n.velocity = juce::jlimit(40, 118, n.velocity + (int)((h >> 20) % 11u) - 5);
+    }
+    replaceVisibleNotes(notes);
+}
+
+void MidiForgeAudioProcessor::evolveSelected()
+{
+    // Gentle evolution: preserve the current idea and mutate it rather than
+    // throwing the loop away. This is intentionally a small mutation pass.
+    mutateSelected(0.22f);
+}
+
 void MidiForgeAudioProcessor::regenerate()
 {
 buildVariationBank();
@@ -1220,6 +1372,7 @@ o.writeInt(arpRate);o.writeFloat(voicingWidth);o.writeBool(chordExtensions);o.wr
 o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
 o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
 o.writeInt(selectedVariation);
+o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -1234,6 +1387,7 @@ arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inve
 motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
+if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
 regenerate();
 chooseVariation (savedSelection);
 }

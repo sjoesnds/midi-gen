@@ -60,6 +60,12 @@ progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like"
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
 rhythm.addItemList({"Straight","Syncopated","Broken","Euclidean"},1);
 rhythm.setSelectedId(p.getRhythm()+1); rhythm.onChange=[this]{processor.setRhythm(rhythm.getSelectedId()-1);}; addAndMakeVisible(rhythm);
+moodBox.addItemList({"Neutral","Dark","Melancholic","Euphoric","Aggressive","Dreamy","Nostalgic","Mysterious","Energetic"},1);
+moodBox.setSelectedId(p.getMood()+1); moodBox.onChange=[this]{processor.setMood(moodBox.getSelectedId()-1);}; addAndMakeVisible(moodBox);
+melodyTypeBox.addItemList({"Hook","Vocal-like","Riff","Ostinato","Arp","Counter","Sparse Lead","Phrase"},1);
+melodyTypeBox.setSelectedId(p.getMelodyType()+1); melodyTypeBox.onChange=[this]{processor.setMelodyType(melodyTypeBox.getSelectedId()-1);}; addAndMakeVisible(melodyTypeBox);
+eraBox.addItemList({"70s","80s","90s","00s","10s","20s"},1);
+eraBox.setSelectedId(p.getEra()+1); eraBox.onChange=[this]{processor.setEra(eraBox.getSelectedId()-1);}; addAndMakeVisible(eraBox);
 mode.setVisible(false);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
@@ -124,12 +130,12 @@ addAndMakeVisible(soundCloudButton);
 variationBox.addItemList({"VAR 1","VAR 2","VAR 3","VAR 4","VAR 5","VAR 6","VAR 7","VAR 8"},1);
 variationBox.setSelectedId(1); addAndMakeVisible(variationBox);
 variationBox.onChange=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
-generate.setButtonText("MAGIC 8");
+generate.setButtonText("MAGIC");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
-generate.onClick=[this]{ processor.regenerateVariations(); pianoRoll.resetEditHistory(); };
-newSeed.onClick=[this]{ processor.setSeed(juce::Random::getSystemRandom().nextInt()); pianoRoll.resetEditHistory(); };
+generate.onClick=[this]{ processor.magicRandomize(); pianoRoll.resetEditHistory(); };
+newSeed.onClick=[this]{ processor.rerollSameDNA(); pianoRoll.resetEditHistory(); };
 applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 exportMidi.onClick=[this]{
 fileChooser = std::make_unique<juce::FileChooser>(
@@ -160,7 +166,10 @@ ok ? "MIDI exported successfully."
 "OK");
 });
 };
+mutateButton.onClick=[this]{ processor.mutateSelected(0.45f); pianoRoll.resetEditHistory(); };
+evolveButton.onClick=[this]{ processor.evolveSelected(); pianoRoll.resetEditHistory(); };
 addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
+addAndMakeVisible(mutateButton); addAndMakeVisible(evolveButton);
 
 // --- P2: Undo / Redo / Clear ------------------------------------------
 undoBtn.onClick = [this] { pianoRoll.undo(); };
@@ -246,7 +255,7 @@ g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(10.f),12.f,1.f);
 g.setColour(juce::Colours::white);
 g.setFont(12.f);
 g.drawFittedText("SOURCE / HARMONY",20,82,860,18,juce::Justification::left,1);
-g.drawFittedText("PART DENSITY",20,146,860,18,juce::Justification::left,1);
+g.drawFittedText("PART DENSITY / MUSICAL DNA",20,146,860,18,juce::Justification::left,1);
 g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
 g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
 g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
@@ -284,6 +293,9 @@ inversions.setBounds(440,112,68,22);
 arpRate.setBounds(512,112,58,22);
 hookModeButton.setBounds(574,112,72,22);
 soundCloudButton.setBounds(650,112,110,22);
+moodBox.setBounds(20,136,106,24);
+melodyTypeBox.setBounds(133,136,112,24);
+eraBox.setBounds(252,136,70,24);
 
 // Two-column compact control layout.
 const int sliderH = 21;
@@ -322,7 +334,9 @@ applyVariation.setBounds(342,687,92,32);
 exportMidi.setBounds(442,687,118,32);
 likeBtn.setBounds(568,687,70,32);
 dislikeBtn.setBounds(644,687,82,32);
-tasteLabel.setBounds(732,690,W - 752,28);
+mutateButton.setBounds(732,687,76,32);
+evolveButton.setBounds(814,687,76,32);
+tasteLabel.setBounds(530,764,350,28);
 
 exportButton.setBounds(20,733,122,28);
 undoBtn.setBounds(150,733,66,28);
@@ -347,5 +361,8 @@ void MidiForgeAudioProcessorEditor::timerCallback()
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
 variationBox.setSelectedId (id, juce::dontSendNotification);
+if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
+if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
+if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 refreshTaste();
 }

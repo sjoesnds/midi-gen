@@ -19,13 +19,14 @@ void refreshTaste();
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel;
- juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox;
+ juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
  juce::ToggleButton chords,bass,melody,arp,extensions,inversions,hookModeButton,soundCloudButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
+ juce::TextButton mutateButton{"MUTATE"}, evolveButton{"EVOLVE"};
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
  juce::TextButton likeBtn, dislikeBtn;
  juce::Label tasteLabel;
