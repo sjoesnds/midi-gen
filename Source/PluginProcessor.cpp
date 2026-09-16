@@ -700,11 +700,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         default: break;
     }
 
-    // 0.16 MAGIC CANDIDATE ENGINE
+    // 0.20 MAGIC 1000-CANDIDATE SEARCH ENGINE
     // We no longer accept the first eight generations as "variations".
     // Instead we explore a much larger space, score complete loops, and then
-    // greedily select a diverse set of winners.  This makes MAGIC a search
-    // process rather than a random-note button.
+    // greedily select a diverse set of winners.  1000 candidates give the
+    // judge a substantially wider search space without changing the final UI
+    // bank of eight variations. This makes MAGIC a search process rather than
+    // a random-note button.
     ++generationNonce;
     const uint32_t uiSeed = static_cast<uint32_t>(seed);
     const uint32_t nonce = generationNonce * 0x9e3779b9u;
@@ -945,7 +947,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     };
 
     std::vector<Candidate> candidates;
-    constexpr int candidateCount=96;
+    constexpr int candidateCount=1000;
     candidates.reserve(candidateCount);
 
     for(int c=0;c<candidateCount;++c)
