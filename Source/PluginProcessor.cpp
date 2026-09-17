@@ -155,73 +155,191 @@ d=juce::jlimit(0.f,1.f,(float)mel/(float)(barsN*8));
 e=juce::jlimit(0.f,1.f,velN>0?(float)velSum/(float)velN/127.f:0.5f);
 c=juce::jlimit(0.f,1.f,intN>0?(float)intSum/(float)intN/12.f:0.5f);
 }
+void MidiForgeAudioProcessor::sampleVariationTaste(int varIndex, std::array<float,8>& features) const
+{
+    features.fill(0.5f);
+    juce::ScopedLock sl(variationsLock);
+    if (varIndex < 0 || varIndex >= (int)variations.size()) return;
+
+    const auto& notes = variations[(size_t)varIndex].notes;
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : notes)
+        if (n.channel == 3) melody.push_back(&n);
+    if (melody.empty()) return;
+
+    const int totalSteps = juce::jmax(1, variations[(size_t)varIndex].bars * 16);
+
+    float velocity = 0.5f;
+    for (auto* n : melody) velocity += (float)n->velocity / 127.0f;
+    velocity /= (float)melody.size() + 1.0f;
+
+    int leaps = 0, repeatedIntervals = 0, intervalCount = 0;
+    std::vector<int> uniquePitches;
+    int minPitch = 127, maxPitch = 0;
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        minPitch = juce::jmin(minPitch, melody[i]->note);
+        maxPitch = juce::jmax(maxPitch, melody[i]->note);
+        uniquePitches.push_back(melody[i]->note % 12);
+        if (i > 0)
+        {
+            const int d = melody[i]->note - melody[i - 1]->note;
+            if (std::abs(d) >= 5) ++leaps;
+            if (i > 1)
+            {
+                const int prev = melody[i - 1]->note - melody[i - 2]->note;
+                if (std::abs(d) == std::abs(prev)) ++repeatedIntervals;
+            }
+            ++intervalCount;
+        }
+    }
+    std::sort(uniquePitches.begin(), uniquePitches.end());
+    uniquePitches.erase(std::unique(uniquePitches.begin(), uniquePitches.end()), uniquePitches.end());
+
+    int offbeats = 0;
+    float lengthNorm = 0.0f;
+    for (auto* n : melody)
+    {
+        if ((n->step % 4) != 0) ++offbeats;
+        lengthNorm += (float)n->length / 16.0f;
+    }
+    lengthNorm /= (float)melody.size();
+
+    features[0] = juce::jlimit(0.0f, 1.0f, (float)melody.size() / (float)juce::jmax(1, variations[(size_t)varIndex].bars * 6));
+    features[1] = juce::jlimit(0.0f, 1.0f, velocity);
+    features[2] = intervalCount > 0 ? juce::jlimit(0.0f, 1.0f, (float)leaps / (float)intervalCount) : 0.5f;
+    features[3] = juce::jlimit(0.0f, 1.0f, (float)offbeats / (float)melody.size());
+    features[4] = intervalCount > 1 ? juce::jlimit(0.0f, 1.0f, (float)repeatedIntervals / (float)(intervalCount - 1)) : 0.5f;
+    features[5] = juce::jlimit(0.0f, 1.0f, (float)uniquePitches.size() / 6.0f);
+    features[6] = juce::jlimit(0.0f, 1.0f, (float)(maxPitch - minPitch) / 24.0f);
+    features[7] = juce::jlimit(0.0f, 1.0f, lengthNorm);
+
+    juce::ignoreUnused(totalSteps);
+}
+
+void MidiForgeAudioProcessor::applyTasteToCandidate(float& quality, float density, float velocity, float leap,
+                                                     float rhythm, float repetition, float variety,
+                                                     float registerScore, float noteLength) const
+{
+    if (likedFeatureN > 0)
+    {
+        const float confidence = juce::jlimit(0.0f, 1.0f, (float)likedFeatureN / 8.0f);
+        const float f[8] = { density, velocity, leap, rhythm, repetition, variety, registerScore, noteLength };
+        float similarity = 0.0f;
+        for (int i = 0; i < 8; ++i)
+            similarity += 1.0f - juce::jlimit(0.0f, 1.0f, std::abs(f[i] - likedFeatures[(size_t)i]));
+        similarity /= 8.0f;
+        quality += 0.16f * confidence * similarity;
+    }
+
+    if (dislikedFeatureN > 0)
+    {
+        const float confidence = juce::jlimit(0.0f, 1.0f, (float)dislikedFeatureN / 8.0f);
+        const float f[8] = { density, velocity, leap, rhythm, repetition, variety, registerScore, noteLength };
+        float similarity = 0.0f;
+        for (int i = 0; i < 8; ++i)
+            similarity += 1.0f - juce::jlimit(0.0f, 1.0f, std::abs(f[i] - dislikedFeatures[(size_t)i]));
+        similarity /= 8.0f;
+        quality -= 0.13f * confidence * similarity;
+    }
+}
+
 void MidiForgeAudioProcessor::likeVariation(int vi)
 {
-if(vi<0||vi>7)return;
-likeCounts[(size_t)vi]++;
-float d,e,c; sampleVariationFeatures(vi,d,e,c);
-likedD=(likedD*likedN+d)/(likedN+1);
-likedE=(likedE*likedN+e)/(likedN+1);
-likedC=(likedC*likedN+c)/(likedN+1);
-likedN++;
-savePreferences();
-applyLearnedWeights();
+    if (vi < 0 || vi > 7) return;
+    likeCounts[(size_t)vi]++;
+    float d, e, c; sampleVariationFeatures(vi, d, e, c);
+    std::array<float,8> f; sampleVariationTaste(vi, f);
+    likedD = (likedD * likedN + d) / (likedN + 1);
+    likedE = (likedE * likedN + e) / (likedN + 1);
+    likedC = (likedC * likedN + c) / (likedN + 1);
+    ++likedN;
+    for (int i = 0; i < 8; ++i)
+        likedFeatures[(size_t)i] = (likedFeatures[(size_t)i] * (float)(likedFeatureN) + f[(size_t)i])
+                                   / (float)(likedFeatureN + 1);
+    ++likedFeatureN;
+    savePreferences();
+    applyLearnedWeights();
 }
+
 void MidiForgeAudioProcessor::dislikeVariation(int vi)
 {
-if(vi<0||vi>7)return;
-dislikeCounts[(size_t)vi]++;
-float d,e,c; sampleVariationFeatures(vi,d,e,c);
-disD=(disD*disN+d)/(disN+1);
-disE=(disE*disN+e)/(disN+1);
-disC=(disC*disN+c)/(disN+1);
-disN++;
-savePreferences();
-applyLearnedWeights();
+    if (vi < 0 || vi > 7) return;
+    dislikeCounts[(size_t)vi]++;
+    float d, e, c; sampleVariationFeatures(vi, d, e, c);
+    std::array<float,8> f; sampleVariationTaste(vi, f);
+    disD = (disD * disN + d) / (disN + 1);
+    disE = (disE * disN + e) / (disN + 1);
+    disC = (disC * disN + c) / (disN + 1);
+    ++disN;
+    for (int i = 0; i < 8; ++i)
+        dislikedFeatures[(size_t)i] = (dislikedFeatures[(size_t)i] * (float)(dislikedFeatureN) + f[(size_t)i])
+                                      / (float)(dislikedFeatureN + 1);
+    ++dislikedFeatureN;
+    savePreferences();
+    applyLearnedWeights();
 }
-int MidiForgeAudioProcessor::getLikeCount(int vi) const { return (vi>=0&&vi<8)?likeCounts[(size_t)vi]:0; }
-int MidiForgeAudioProcessor::getDislikeCount(int vi) const { return (vi>=0&&vi<8)?dislikeCounts[(size_t)vi]:0; }
-int MidiForgeAudioProcessor::getVariationScore(int vi) const { return getLikeCount(vi)-getDislikeCount(vi); }
+
+int MidiForgeAudioProcessor::getLikeCount(int vi) const { return (vi >= 0 && vi < 8) ? likeCounts[(size_t)vi] : 0; }
+int MidiForgeAudioProcessor::getDislikeCount(int vi) const { return (vi >= 0 && vi < 8) ? dislikeCounts[(size_t)vi] : 0; }
+int MidiForgeAudioProcessor::getVariationScore(int vi) const { return getLikeCount(vi) - getDislikeCount(vi); }
+
 void MidiForgeAudioProcessor::applyLearnedWeights()
 {
-// Направление = что вкусу нравится против того, что он отвергает.
-float dirD=0,dirE=0,dirC=0; int w=0;
-if(likedN>0&&disN>0){ dirD=likedD-disD; dirE=likedE-disE; dirC=likedC-disC; w=juce::jmin(likedN,disN); }
-else if(likedN>0){ dirD=likedD-melodyDensity; dirE=likedE-energy; dirC=likedC-complexity; w=likedN; }
-else if(disN>0){ dirD=melodyDensity-disD; dirE=energy-disE; dirC=complexity-disC; w=disN; }
-if(w<=0)return;
-const float g=0.15f*juce::jlimit(0.f,1.f,(float)w/6.f);
-melodyDensity=juce::jlimit(0.f,1.f,melodyDensity+dirD*g);
-energy=juce::jlimit(0.f,1.f,energy+dirE*g);
-complexity=juce::jlimit(0.f,1.f,complexity+dirC*g);
+    float dirD = 0, dirE = 0, dirC = 0; int w = 0;
+    if (likedN > 0 && disN > 0) { dirD = likedD - disD; dirE = likedE - disE; dirC = likedC - disC; w = juce::jmin(likedN, disN); }
+    else if (likedN > 0) { dirD = likedD - melodyDensity; dirE = likedE - energy; dirC = likedC - complexity; w = likedN; }
+    else if (disN > 0) { dirD = melodyDensity - disD; dirE = energy - disE; dirC = complexity - disC; w = disN; }
+    if (w <= 0) return;
+    const float g = 0.15f * juce::jlimit(0.f, 1.f, (float)w / 6.f);
+    melodyDensity = juce::jlimit(0.f, 1.f, melodyDensity + dirD * g);
+    energy = juce::jlimit(0.f, 1.f, energy + dirE * g);
+    complexity = juce::jlimit(0.f, 1.f, complexity + dirC * g);
 }
+
 void MidiForgeAudioProcessor::savePreferences()
 {
-juce::DynamicObject* o=new juce::DynamicObject();
-o->setProperty("likedN",likedN); o->setProperty("likedD",(double)likedD);
-o->setProperty("likedE",(double)likedE); o->setProperty("likedC",(double)likedC);
-o->setProperty("disN",disN); o->setProperty("disD",(double)disD);
-o->setProperty("disE",(double)disE); o->setProperty("disC",(double)disC);
-juce::Array<juce::var> lk,dk;
-for(int i=0;i<8;++i){ lk.add(likeCounts[(size_t)i]); dk.add(dislikeCounts[(size_t)i]); }
-o->setProperty("likes",lk); o->setProperty("dislikes",dk);
-preferencesFile.getParentDirectory().createDirectory();
-preferencesFile.replaceWithText(juce::JSON::toString(juce::var(o)));
+    juce::DynamicObject* o = new juce::DynamicObject();
+    o->setProperty("likedN", likedN); o->setProperty("likedD", (double)likedD);
+    o->setProperty("likedE", (double)likedE); o->setProperty("likedC", (double)likedC);
+    o->setProperty("disN", disN); o->setProperty("disD", (double)disD);
+    o->setProperty("disE", (double)disE); o->setProperty("disC", (double)disC);
+    o->setProperty("likedFeatureN", likedFeatureN);
+    o->setProperty("dislikedFeatureN", dislikedFeatureN);
+    juce::Array<juce::var> lk, dk, lf, df;
+    for (int i = 0; i < 8; ++i)
+    {
+        lk.add(likeCounts[(size_t)i]); dk.add(dislikeCounts[(size_t)i]);
+        lf.add((double)likedFeatures[(size_t)i]); df.add((double)dislikedFeatures[(size_t)i]);
+    }
+    o->setProperty("likes", lk); o->setProperty("dislikes", dk);
+    o->setProperty("likedFeatures", lf); o->setProperty("dislikedFeatures", df);
+    preferencesFile.getParentDirectory().createDirectory();
+    preferencesFile.replaceWithText(juce::JSON::toString(juce::var(o)));
 }
+
 void MidiForgeAudioProcessor::loadPreferences()
 {
-if(!preferencesFile.existsAsFile())return;
-juce::var v=juce::JSON::parse(preferencesFile.loadFileAsString());
-if(auto* o=v.getDynamicObject()){
-likedN=(int)o->getProperty("likedN"); disN=(int)o->getProperty("disN");
-likedD=(float)o->getProperty("likedD"); likedE=(float)o->getProperty("likedE"); likedC=(float)o->getProperty("likedC");
-disD=(float)o->getProperty("disD"); disE=(float)o->getProperty("disE"); disC=(float)o->getProperty("disC");
-if(auto* la=o->getProperty("likes").getArray())
-for(int i=0;i<8&&i<la->size();++i) likeCounts[(size_t)i]=(int)(*la)[i];
-if(auto* da=o->getProperty("dislikes").getArray())
-for(int i=0;i<8&&i<da->size();++i) dislikeCounts[(size_t)i]=(int)(*da)[i];
+    if (!preferencesFile.existsAsFile()) return;
+    juce::var v = juce::JSON::parse(preferencesFile.loadFileAsString());
+    if (auto* o = v.getDynamicObject())
+    {
+        likedN = (int)o->getProperty("likedN"); disN = (int)o->getProperty("disN");
+        likedD = (float)o->getProperty("likedD"); likedE = (float)o->getProperty("likedE"); likedC = (float)o->getProperty("likedC");
+        disD = (float)o->getProperty("disD"); disE = (float)o->getProperty("disE"); disC = (float)o->getProperty("disC");
+        likedFeatureN = (int)o->getProperty("likedFeatureN");
+        dislikedFeatureN = (int)o->getProperty("dislikedFeatureN");
+        if (auto* la = o->getProperty("likes").getArray())
+            for (int i = 0; i < 8 && i < la->size(); ++i) likeCounts[(size_t)i] = (int)(*la)[i];
+        if (auto* da = o->getProperty("dislikes").getArray())
+            for (int i = 0; i < 8 && i < da->size(); ++i) dislikeCounts[(size_t)i] = (int)(*da)[i];
+        if (auto* la = o->getProperty("likedFeatures").getArray())
+            for (int i = 0; i < 8 && i < la->size(); ++i) likedFeatures[(size_t)i] = (float)(*la)[i];
+        if (auto* da = o->getProperty("dislikedFeatures").getArray())
+            for (int i = 0; i < 8 && i < da->size(); ++i) dislikedFeatures[(size_t)i] = (float)(*da)[i];
+    }
 }
-}
+
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -851,7 +969,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, stepPenalty=0, registerScore=0, surprise=0;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -1012,6 +1130,24 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float jitter=(float)((hash32(identity)^0x55aa33u)%1000u)/100000.0f;
         f.hook=juce::jlimit(0.0f,1.0f,f.hook+jitter);
         juce::ignoreUnused(totalSteps);
+        // Taste Learning 2.0 features.
+        if (!m.empty())
+        {
+            float velSum = 0.0f, lenSum = 0.0f;
+            int minPitch = 127, maxPitch = 0;
+            for (auto* n : m)
+            {
+                velSum += (float)n->velocity / 127.0f;
+                lenSum += (float)n->length / 16.0f;
+                minPitch = juce::jmin(minPitch, n->note);
+                maxPitch = juce::jmax(maxPitch, n->note);
+            }
+            f.velocity = juce::jlimit(0.0f, 1.0f, velSum / (float)m.size());
+            f.noteLength = juce::jlimit(0.0f, 1.0f, lenSum / (float)m.size());
+            // 24 semitones is a useful musical register reference.
+            f.registerScore = juce::jlimit(0.0f, 1.0f, (float)(maxPitch - minPitch) / 24.0f);
+        }
+
         return f;
     };
 
@@ -1146,6 +1282,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // Taste profile nudges the search without collapsing it into one style.
         if(likedN>0) quality += 0.10f*(1.0f-std::abs(f.density-likedD));
         if(disN>0) quality -= 0.08f*(1.0f-std::abs(f.density-disD));
+
+        // Taste Learning 2.0: use a broader musical fingerprint. The effect is
+        // deliberately capped so the learned profile guides rather than dictates.
+        applyTasteToCandidate(quality, f.density, f.velocity, f.leap, f.rhythmIdentity,
+                              f.repetition, f.variety, f.registerScore, f.noteLength);
 
         candidates.push_back({std::move(flat),quality,identity});
     }

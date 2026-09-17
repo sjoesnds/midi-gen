@@ -204,11 +204,20 @@ std::vector<PendingOff> pendingOffs;
 float likedD = 0, likedE = 0, likedC = 0; int likedN = 0;
 float disD = 0, disE = 0, disC = 0; int disN = 0;
 std::array<int,8> likeCounts {}; std::array<int,8> dislikeCounts {};
+// Taste Learning 2.0: persistent musical feature preferences.
+// [density, velocity, leap, rhythm, repetition, variety, register, noteLength]
+std::array<float,8> likedFeatures {};
+std::array<float,8> dislikedFeatures {};
+int likedFeatureN = 0, dislikedFeatureN = 0;
 juce::File preferencesFile;
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();
 void savePreferences();
+void sampleVariationTaste(int varIndex, std::array<float,8>& features) const;
+void applyTasteToCandidate(float& quality, float density, float velocity, float leap,
+                           float rhythm, float repetition, float variety,
+                           float registerScore, float noteLength) const;
 std::vector<int> scaleSemitones() const;
 std::vector<int> progressionDegrees() const;
 int degreeToPitch(int degree, int baseOctave) const;
