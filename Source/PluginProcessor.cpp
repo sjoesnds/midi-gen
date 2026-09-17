@@ -471,6 +471,34 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int cycle = loopBar % 4;
     const int phraseCell = (barOffset / 4) % 4;
     const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
+
+    // 0.26 Melody Engine 3.0: give every 4-bar phrase a compositional grammar.
+    // A = statement, A' = variation, B = contrast/peak, A'' = return/cadence.
+    // The grammar changes the destination of notes rather than merely adding
+    // random pitch offsets, so a loop develops an audible arc.
+    const int phraseStyle = (int)(hash32(seed ^ 0x4f1bbcd3u) % 6u);
+    const float phraseStrength = juce::jlimit(0.35f, 0.92f,
+        0.45f + 0.30f * dnaMotif + 0.15f * (1.0f - dnaSurprise));
+
+    auto phraseTargetOffset = [&](int noteIndex, int noteCount) -> int
+    {
+        if (noteCount <= 0) return 0;
+        const float pos = (float)noteIndex / (float)juce::jmax(1, noteCount - 1);
+
+        // Six broad contour grammars. They operate in scale degrees, keeping
+        // the result scale-safe while creating different phrase shapes.
+        static const int contours[6][5] =
+        {
+            { 0,  1,  2,  1,  0 }, // rise / settle
+            { 0,  2,  1,  3,  0 }, // hook peak
+            { 1,  0, -1,  1,  0 }, // fall / return
+            { 0, -1,  1,  2,  0 }, // delayed rise
+            { 0,  2,  3,  1, -1 }, // high point / release
+            { 0, -2,  0,  2,  0 }  // dip / rebound
+        };
+        int slot = juce::jlimit(0, 4, (int)std::floor(pos * 4.999f));
+        return contours[phraseStyle][slot];
+    };
     const int archetype = (int) (hash32(generationSeed
                                         ^ (uint32_t) variationSalt * 0x27d4eb2du
                                         ^ (uint32_t) genre * 0x165667b1u
@@ -685,6 +713,31 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Return toward the motif without forcing a textbook cadence.
             d += (phraseIdentity == 3 ? (i == 0 ? 2 : 0) : (i == 0 ? 1 : -1));
         }
+
+        // Apply the phrase grammar after the A/A'/B/A'' transformation.
+        // B receives the strongest contour deviation; A' and A'' retain the
+        // identity of the statement but move its destination slightly.
+        const int contour = phraseTargetOffset((int)i, (int)chosen.size());
+        float contourWeight = (cycle == 2 ? phraseStrength
+                               : (cycle == 1 ? phraseStrength * 0.62f
+                                             : phraseStrength * 0.48f));
+        if (melodyType == OstinatoMelody)
+            contourWeight *= 0.45f;
+        if (soundCloud)
+            contourWeight *= 0.55f;
+        if (contour != 0 && contourWeight > 0.1f)
+        {
+            const int scaled = (int)std::round((float)contour * contourWeight);
+            d += scaled;
+        }
+
+        // A real phrase peak: on B, one note near the middle of the phrase can
+        // enter a higher register. The return bar deliberately avoids repeating
+        // that peak at the same location.
+        if (cycle == 2 && i == chosen.size() / 2 && dnaRegister > 0.42f)
+            d += (dnaRegister > 0.72f ? 4 : 2);
+        if (cycle == 3 && i == chosen.size() / 2 && dnaRegister > 0.72f)
+            d -= 1;
 
         int note = pitchForDegree(d, octave);
         if (((seed >> ((i * 7) & 23)) & 1u) != 0u && archetype >= 2)
@@ -969,7 +1022,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -1075,6 +1128,34 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         / (float)juce::jmax<size_t>(1, pairs - 1);
                     f.phraseMemory = 0.55f * rhythmMatch + 0.45f * contourMatch;
                 }
+            }
+        }
+
+        // 0.26 Phrase Judge: reward an audible rise/peak/return rather than
+        // four bars with the same average register. This is intentionally a
+        // soft score; minimal loops can still win if their other features are strong.
+        if (m.size() >= 4 && sec.bars >= 4)
+        {
+            float barAvg[4] = {0,0,0,0};
+            int barCount[4] = {0,0,0,0};
+            for (auto* n : m)
+            {
+                const int b = juce::jlimit(0, 3, n->step / 16);
+                barAvg[b] += (float)n->note;
+                ++barCount[b];
+            }
+            for (int b = 0; b < 4; ++b)
+                if (barCount[b] > 0) barAvg[b] /= (float)barCount[b];
+
+            if (barCount[0] > 0 && barCount[1] > 0 && barCount[2] > 0 && barCount[3] > 0)
+            {
+                const float rise = barAvg[2] - barAvg[0];
+                const float release = barAvg[2] - barAvg[3];
+                const bool hasPeak = rise >= 1.5f && release >= 0.5f;
+                const bool hasContrast = std::abs(barAvg[1] - barAvg[0]) >= 1.0f
+                                      || std::abs(barAvg[2] - barAvg[1]) >= 1.5f;
+                f.phraseArc = hasPeak ? (hasContrast ? 1.0f : 0.78f)
+                                      : (hasContrast ? 0.50f : 0.18f);
             }
         }
 
@@ -1263,6 +1344,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.08f*f.rhythmIdentity;
         quality += 0.08f*f.motifIdentity;
         quality += 0.06f*f.phraseMemory;
+        quality += 0.06f*f.phraseArc;
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
