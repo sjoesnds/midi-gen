@@ -1110,6 +1110,14 @@ void MidiForgeAudioProcessor::buildVariationBank()
         Section flat=flatten(song,c,local);
         const auto f=melodyFeatures(flat,identity);
         float quality=0.0f;
+        // Magic DNA 2.0: candidate features are judged against the same
+        // musical universe created by MAGIC. The generic judge remains
+        // dominant, while DNA steers the final selection.
+        const float melodyFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.variety - dnaMelody));
+        const float rhythmFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.rhythmIdentity - dnaRhythm));
+        const float motifFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.motifIdentity - dnaMotif));
+        const float registerFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.registerScore - dnaRegister));
+        const float surpriseFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.surprise - dnaSurprise));
         quality += 0.22f*f.hook;
         quality += 0.10f*f.space;
         quality += 0.10f*f.repetition;
@@ -1122,6 +1130,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
+        quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
+        quality += 0.030f*registerFit + 0.025f*surpriseFit;
         // Genre DNA fit: reward candidates that actually express the selected
         // musical language, while keeping the generic quality judge dominant.
         const float genreDensityTarget = juce::jlimit(0.0f,1.0f,dnaDensity);
@@ -1215,62 +1225,103 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
 void MidiForgeAudioProcessor::magicRandomize()
 {
-    // One coherent randomization pass. Direct assignment avoids triggering
-    // dozens of intermediate regenerations from individual setters.
+    // MAGIC 2.0: first create one coherent musical DNA, then derive the
+    // existing controls from it. This keeps the search space expressive
+    // without introducing a second parallel generation engine.
     auto magicHash32 = [](uint32_t x)
     {
         x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
         x *= 0x846ca68bu; x ^= x >> 16; return x;
     };
-    juce::Random r((juce::int64) magicHash32(generationSeed ^ (uint32_t)juce::Time::currentTimeMillis()));
+
+    const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
+    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
+    juce::Random r((juce::int64) magicDnaSeed);
     auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
-    rootPc = pick(12);
+    auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
+
+    // DNA axes. Related axes are intentionally sampled together rather than
+    // treating every parameter as an independent dice roll.
+    dnaMelody  = rf(.15f, .90f);
+    dnaRhythm  = juce::jlimit(.0f,1.0f, dnaMelody * .35f + rf(.15f,.85f) * .65f);
+    dnaHarmony = rf(.20f, .90f);
+    dnaMotif   = juce::jlimit(.0f,1.0f, .35f + dnaMelody * .45f + rf(-.12f,.18f));
+    dnaRegister= rf(.20f, .85f);
+    dnaGroove  = juce::jlimit(.0f,1.0f, .25f + dnaRhythm * .55f + rf(-.12f,.20f));
+    dnaEnergy  = juce::jlimit(.0f,1.0f, .20f + rf(.0f,.70f));
+    dnaSurprise= juce::jlimit(.0f,1.0f, .12f + rf(.0f,.58f));
+
+    // Keep layer locks meaningful: a locked layer keeps its character controls.
+    if (!lockChordsLayer)
+    {
+        rootPc = pick(12);
+        scale = pick(7);
+        progression = pick(7);
+        chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
+        chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
+        inversions = r.nextFloat() > .28f;
+        voicingWidth = juce::jlimit(.20f,.85f,.25f + dnaHarmony*.55f);
+    }
+
+    if (!lockBassLayer)
+    {
+        bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
+    }
+
+    if (!lockMelodyLayer)
+    {
+        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
+        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
+        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
+        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
+        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
+        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
+        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
+    }
+
+    if (!lockArpLayer)
+    {
+        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
+        static constexpr int arpChoices[] = {1,2,4,8};
+        arpRate = arpChoices[pick(4)];
+    }
+
+    // Global musical identity. These affect all layers coherently.
     genre = pick(16);
-    scale = pick(7);
-    progression = pick(7);
-    rhythm = pick(4);
-    static constexpr int barChoices[] = {1,2,4,8,16};
-    static constexpr int arpChoices[] = {1,2,4,8};
-    bars = barChoices[pick(5)];
-    octave = 3 + pick(4);
-    arpRate = arpChoices[pick(4)];
     mood = pick(9);
     melodyType = pick(8);
+    rhythm = pick(4);
+    static constexpr int barChoices[] = {1,2,4,8,16};
+    bars = barChoices[pick(5)];
+    octave = 3 + pick(4);
     era = pick(6);
 
-    auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
-    chordDensity = rf(.45f,1.0f);
-    bassDensity = rf(.30f,.95f);
-    melodyDensity = rf(.25f,.85f);
-    arpDensity = rf(.05f,.55f);
-    swing = rf(0.0f,.35f);
-    humanize = rf(.06f,.28f);
-    complexity = rf(.25f,.90f);
-    melodyLength = rf(.15f,.75f);
-    pauseChance = rf(.05f,.35f);
-    leapChance = rf(.05f,.50f);
-    ghostChance = rf(.02f,.22f);
-    voicingWidth = rf(.25f,.80f);
-    motifStrength = rf(.55f,.95f);
-    variationAmount = rf(.25f,.80f);
-    fillAmount = rf(.05f,.35f);
-    energy = rf(.35f,.90f);
-    chordExtensions = r.nextFloat() > .28f;
-    inversions = r.nextFloat() > .20f;
+    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
+    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
+    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
+    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
+    energy = dnaEnergy;
+
+    // Rhythm DNA and genre still get a chance to create distinct identities.
+    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
+    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
+    hookMode = dnaMotif > .46f;
     chordsEnabled = true;
-    bassEnabled = r.nextFloat() > .08f;
+    bassEnabled = r.nextFloat() > .06f;
     melodyEnabled = true;
-    arpEnabled = r.nextFloat() > .55f;
-    hookMode = r.nextFloat() > .18f;
+    arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
     leadStyleSoundCloud = false;
-    seed = r.nextInt();
+
+    // Seed controls the candidate search; DNA seed remains stable for
+    // REROLL, so REROLL explores the same musical universe.
+    seed = static_cast<int>(magicDnaSeed);
     regenerate();
 }
 
 void MidiForgeAudioProcessor::rerollSameDNA()
 {
-    // Keep every musical control; only explore a new generation identity.
-    seed = static_cast<int>(hash32(generationSeed ^ 0x6d2b79f5u ^ generationNonce));
+    // Preserve all DNA axes and controls; only change the generation identity.
+    seed = static_cast<int>(hash32(magicDnaSeed ^ generationNonce ^ 0x6d2b79f5u));
     regenerateVariations();
     chooseVariation(0);
 }
@@ -1280,6 +1331,7 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     amount = juce::jlimit(0.0f, 1.0f, amount);
     std::vector<VisibleNote> notes = getVisibleNotes();
     if (notes.empty()) { rerollSameDNA(); return; }
+    if (lockMelodyLayer) { return; }
     const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu);
     for (size_t i=0; i<notes.size(); ++i)
     {

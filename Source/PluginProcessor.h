@@ -171,6 +171,10 @@ int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
 uint32_t generationNonce = 0;
 uint32_t generationSeed = 0;
+// Magic DNA 2.0: coherent latent targets used by the candidate judge.
+float dnaMelody = 0.50f, dnaRhythm = 0.50f, dnaHarmony = 0.50f, dnaMotif = 0.50f;
+float dnaRegister = 0.50f, dnaGroove = 0.50f, dnaEnergy = 0.50f, dnaSurprise = 0.35f;
+uint32_t magicDnaSeed = 0xC0FFEEu;
 int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;
