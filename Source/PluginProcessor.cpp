@@ -510,30 +510,47 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // profiles deliberately use 16th-note syncopation.  The generator chooses
     // one identity per bar from the generation seed, so repeated GENERATE calls
     // do not collapse onto one groove.
+    // 0.27 Rhythm Engine 2.0: a larger vocabulary of phrase-level grooves.
+    // Patterns are deliberately grouped by feel: straight, syncopated,
+    // sparse, driving and broken.  Odd 16th positions are used only by
+    // syncopated patterns; the engine never adds arbitrary timing jitter.
     static const int rhythms[][10] =
     {
-        { 0, 3, 7, 10, 14, -1, -1, -1, -1, -1 },
-        { 0, 6, 8, 13, -1, -1, -1, -1, -1, -1 },
-        { 0, 4, 7, 12, -1, -1, -1, -1, -1, -1 },
-        { 1, 4, 8, 11, 14, -1, -1, -1, -1, -1 },
-        { 0, 2, 6, 9, 12, -1, -1, -1, -1, -1 },
-        { 0, 5, 9, 15, -1, -1, -1, -1, -1, -1 },
-        { 2, 7, 10, 14, -1, -1, -1, -1, -1, -1 },
-        { 0, 8, 11, -1, -1, -1, -1, -1, -1, -1 },
-        { 0, 4, 8, 10, 14, -1, -1, -1, -1, -1 },
-        { 0, 6, 10, 12, -1, -1, -1, -1, -1, -1 },
-        { 0, 2, 8, 12, 14, -1, -1, -1, -1, -1 },
-        { 0, 4, 6, 12, -1, -1, -1, -1, -1, -1 },
-        { 0, 7, 8, 14, -1, -1, -1, -1, -1, -1 },
-        { 2, 4, 10, 14, -1, -1, -1, -1, -1, -1 },
-        { 0, 8, 12, 14, -1, -1, -1, -1, -1, -1 },
-        { 0, 3, 6, 8, 13, 15, -1, -1, -1, -1 }
+        // straight / pocket
+        {0, 4, 8, 12, -1,-1,-1,-1,-1,-1},
+        {0, 2, 6, 8, 12, 14, -1,-1,-1,-1},
+        {0, 4, 6, 10, 12, -1,-1,-1,-1,-1},
+        {0, 2, 4, 8, 10, 12, 14, -1,-1,-1},
+        // sparse
+        {0, 8, -1,-1,-1,-1,-1,-1,-1,-1},
+        {0, 6, 12, -1,-1,-1,-1,-1,-1,-1},
+        {2, 8, 14, -1,-1,-1,-1,-1,-1,-1},
+        {0, 4, 12, 14, -1,-1,-1,-1,-1,-1},
+        // syncopated
+        {0, 3, 8, 11, 14, -1,-1,-1,-1,-1},
+        {0, 6, 7, 12, 15, -1,-1,-1,-1,-1},
+        {1, 4, 8, 11, 14, -1,-1,-1,-1,-1},
+        {0, 3, 6, 10, 13, -1,-1,-1,-1,-1},
+        {0, 5, 8, 11, 15, -1,-1,-1,-1,-1},
+        {2, 4, 9, 12, 15, -1,-1,-1,-1,-1},
+        // driving / repeated pulse
+        {0, 2, 4, 6, 8, 10, 12, 14, -1,-1},
+        {0, 4, 6, 8, 12, 14, -1,-1,-1,-1},
+        {0, 2, 6, 8, 10, 14, -1,-1,-1,-1},
+        // broken / conversational
+        {0, 2, 7, 12, -1,-1,-1,-1,-1,-1},
+        {0, 5, 6, 12, -1,-1,-1,-1,-1,-1},
+        {2, 4, 10, 14, -1,-1,-1,-1,-1,-1},
+        {0, 6, 10, 15, -1,-1,-1,-1,-1,-1},
+        {0, 4, 9, 12, -1,-1,-1,-1,-1,-1},
+        {0, 2, 8, 10, 14, -1,-1,-1,-1,-1},
+        {1, 6, 8, 13, -1,-1,-1,-1,-1,-1}
     };
 
     int rhythmType = (int)(hash32(seed ^ (uint32_t)variationSalt * 0x9e3779b9u
-                                         ^ (uint32_t)(barOffset + 1) * 0x85ebca6bu) % 16u);
+                                         ^ (uint32_t)(barOffset + 1) * 0x85ebca6bu) % 24u);
     // Genre DNA nudges the rhythmic family without hard-locking it.
-    rhythmType = (rhythmType + dnaRhythmBias + (int)(dnaSync * 3.0f)) % 16;
+    rhythmType = (rhythmType + dnaRhythmBias + (int)(dnaSync * 3.0f)) % 24;
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -868,11 +885,34 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmin(4, len + 1);
         if (soundCloud)
             len = (h % 100u < 60u) ? 2 : 1;
+
+        // Sparse grooves leave more air; driving grooves connect pulses.
+        if (rhythmType >= 4 && rhythmType <= 7 && (h % 100u) < (uint32_t)(25.0f * groove))
+            len = juce::jmin(4, len + 1);
+        if (rhythmType >= 14 && (h % 100u) < (uint32_t)(22.0f * groove))
+            len = juce::jmax(1, len - 1);
+
         len = juce::jmin(len, 16 - x);
 
         int velocity = 70 + (x % 4 == 0 ? 8 : 0);
         if (cycle == 2) velocity += 5;
         if (hook && (x == 0 || x == 8)) velocity += 4;
+
+        // Rhythm Engine 2.0: groove changes accents and sustain according to
+        // the rhythmic identity.  This affects feel without moving the note
+        // onset off the selected grid.
+        const bool offBeat = (x % 4) != 0;
+        const bool backBeat = (x % 8) == 4;
+        const float groove = juce::jlimit(0.0f, 1.0f, dnaGroove);
+        if (offBeat)
+            velocity += (int)std::round(4.0f * groove);
+        if (backBeat)
+            velocity += (int)std::round(5.0f * groove);
+        if (rhythmType >= 8 && rhythmType <= 13 && offBeat)
+            velocity += (int)std::round(3.0f * groove);
+        if (rhythmType >= 14 && (x % 4) == 0)
+            velocity += 2;
+
         velocity += (int)(h % 7u) - 3;
 
         // 0.22 Humanization: vary accents and sustain in a musically bounded
