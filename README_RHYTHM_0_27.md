@@ -10,3 +10,6 @@
 
 ## Build
 Full JUCE/MSBuild build was not run in this environment. Validate with GitHub Actions.
+
+
+Build fix: rhythm note-length logic now references the member `dnaGroove` directly; the previous local `groove` variable was out of scope in `addMelody`.

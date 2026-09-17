@@ -887,9 +887,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = (h % 100u < 60u) ? 2 : 1;
 
         // Sparse grooves leave more air; driving grooves connect pulses.
-        if (rhythmType >= 4 && rhythmType <= 7 && (h % 100u) < (uint32_t)(25.0f * groove))
+        if (rhythmType >= 4 && rhythmType <= 7 && (h % 100u) < (uint32_t)(25.0f * dnaGroove))
             len = juce::jmin(4, len + 1);
-        if (rhythmType >= 14 && (h % 100u) < (uint32_t)(22.0f * groove))
+        if (rhythmType >= 14 && (h % 100u) < (uint32_t)(22.0f * dnaGroove))
             len = juce::jmax(1, len - 1);
 
         len = juce::jmin(len, 16 - x);
