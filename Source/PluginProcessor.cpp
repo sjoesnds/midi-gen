@@ -1363,6 +1363,21 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         n.length = juce::jmax(2, n.length - (int)(h % 4u));
                     if(mode >= 27u && mode < 31u)
                         n.velocity = juce::jlimit(35,118,n.velocity - 10);
+                    // Advanced Magic: rare, scale-safe happy accidents.
+                    if(mode >= 31u && mode < 35u)
+                    {
+                        const int accident = (int)((h >> 14) % 5u);
+                        if(accident == 0)
+                            n.length = juce::jlimit(1, 16, n.length + 2);
+                        else if(accident == 1)
+                            n.length = juce::jmax(1, n.length - 2);
+                        else if(accident == 2)
+                            n.note = juce::jlimit(48, 98, snapToScale(n.note + 12));
+                        else if(accident == 3)
+                            n.note = juce::jlimit(48, 98, snapToScale(n.note - 12));
+                        else
+                            n.velocity = juce::jlimit(35, 118, n.velocity + 9);
+                    }
                 }
                 flat.notes.push_back(n);
             }
@@ -1413,6 +1428,39 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.05f*f.surprise;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
+        // Hybrid DNA 1.0: combine Genre + Mood + Era + Melody Type into one
+        // coherent target fingerprint. Each axis contributes softly, so no single
+        // preset can collapse the search into one exact pattern.
+        float hybridLeap = 0.30f, hybridRhythm = 0.48f, hybridMotif = 0.48f;
+        float hybridSurprise = 0.30f, hybridRepeat = 0.50f;
+        // Mood shifts energy/space/novelty.
+        hybridSurprise += (mood - 4) * 0.025f;
+        hybridRepeat   += (4 - std::abs(mood - 4)) * 0.010f;
+        // Melody type defines the phrase grammar bias.
+        switch (melodyType)
+        {
+            case HookMelody:       hybridMotif += .14f; hybridRepeat += .10f; break;
+            case SparseMelody:     hybridRhythm -= .10f; hybridRepeat -= .04f; break;
+            case WideMelody:       hybridLeap += .16f; hybridSurprise += .08f; break;
+            case SyncMelody:       hybridRhythm += .16f; hybridSurprise += .04f; break;
+            case BrokenMelody:     hybridRhythm += .10f; hybridMotif -= .06f; break;
+            case CallResponse:     hybridMotif += .06f; hybridLeap += .06f; break;
+            case LateEntryMelody:  hybridRhythm += .04f; hybridRepeat += .02f; break;
+            case VerySparseMelody: hybridRhythm -= .16f; hybridRepeat -= .08f; break;
+            default: break;
+        }
+        // Era is deliberately a small modifier, not a historical stereotype.
+        hybridSurprise += (era - 2.5f) * .018f;
+        hybridRhythm += (era < 2 ? -.04f : (era > 3 ? .05f : 0.0f));
+        hybridLeap += (era > 3 ? .025f : -.01f);
+        hybridLeap = juce::jlimit(.05f,.90f,hybridLeap);
+        hybridRhythm = juce::jlimit(.05f,.90f,hybridRhythm);
+        hybridMotif = juce::jlimit(.05f,.90f,hybridMotif);
+        hybridSurprise = juce::jlimit(.05f,.90f,hybridSurprise);
+        hybridRepeat = juce::jlimit(.05f,.90f,hybridRepeat);
+
+        // Blend Genre fingerprint with the current DNA/mood/type/era fingerprint.
+        // This is intentionally low-weight: the candidate judge remains dominant.
         // Genre DNA 2.0: every genre gets a broader fingerprint than density,
         // space and register. These targets bias rhythm, contour, motif, leap,
         // repetition and surprise while the generic judge remains dominant.
@@ -1441,6 +1489,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
             default: break;
         }
 
+        genreLeapTarget = juce::jlimit(.0f,1.0f,.68f*genreLeapTarget + .32f*hybridLeap);
+        genreRhythmTarget = juce::jlimit(.0f,1.0f,.68f*genreRhythmTarget + .32f*hybridRhythm);
+        genreMotifTarget = juce::jlimit(.0f,1.0f,.68f*genreMotifTarget + .32f*hybridMotif);
+        genreSurpriseTarget = juce::jlimit(.0f,1.0f,.68f*genreSurpriseTarget + .32f*hybridSurprise);
+        genreRepeatTarget = juce::jlimit(.0f,1.0f,.68f*genreRepeatTarget + .32f*hybridRepeat);
         const float genreDensityTarget = juce::jlimit(0.0f,1.0f,dnaDensity);
         const float genreSpaceTarget = juce::jlimit(0.0f,1.0f,dnaSpace);
         const float genreRegisterTarget = juce::jlimit(0.0f,1.0f,dnaRegister);
