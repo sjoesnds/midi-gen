@@ -36,6 +36,10 @@ dragStarted = false;
 return;
 }
 owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
+// The host has finished consuming the temporary MIDI file when the native
+// drag operation returns. Remove it so repeated drags do not accumulate files.
+file.deleteFile();
+dragStarted = false;
 }
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)

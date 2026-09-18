@@ -20,7 +20,16 @@ enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMe
 MidiForgeAudioProcessor();
 ~MidiForgeAudioProcessor() override = default;
 void prepareToPlay(double, int) override;
-void releaseResources() override {}
+void releaseResources() override
+{
+    const juce::ScopedLock sl (activeNotesLock);
+    activeNotes.clear();
+    activeBars = 4;
+    pendingOffs.clear();
+    samplePosition = 0;
+    lastGlobalStep.store (-1);
+    uiCurrentStep.store (-1);
+}
 bool isBusesLayoutSupported(const BusesLayout&) const override;
 void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 juce::AudioProcessorEditor* createEditor() override;

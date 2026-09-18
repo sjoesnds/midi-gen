@@ -1868,19 +1868,32 @@ const int globalStep=(int)std::floor(ppq*4.0);
 if (globalStep != lastGlobalStep.load())
 {
 lastGlobalStep.store (globalStep);
-const juce::ScopedLock sl(activeNotesLock);
-if(!activeNotes.empty()){
-const int period=juce::jmax(16,activeBars*16);
-int local=globalStep%period;
-if(local<0)local+=period;
-uiCurrentStep.store (local);
-int offset=0;
-if((local%2)==1)
-offset=(int)(swing*sampleRate*60.0/juce::jmax(20.0,currentBpm.load())/8.0);
-int velBias=(int)((realtimeRng.nextFloat()*2.f-1.f)*14.f*humanize);
-for(const auto& e:activeNotes){
-if(e.step==local) emitNote(e,out,offset,velBias);
+int local = 0;
+std::array<NoteEvent, 256> dueNotes {};
+int dueCount = 0;
+{
+    const juce::ScopedLock sl (activeNotesLock);
+    if (!activeNotes.empty())
+    {
+        const int period = juce::jmax (16, activeBars * 16);
+        local = globalStep % period;
+        if (local < 0) local += period;
+        for (const auto& e : activeNotes)
+            if (e.step == local && dueCount < (int) dueNotes.size())
+                dueNotes[(size_t) dueCount++] = e;
+    }
 }
+if (dueCount > 0)
+{
+    uiCurrentStep.store (local);
+    int offset = 0;
+    if ((local % 2) == 1)
+        offset = (int) (swing * sampleRate * 60.0
+                        / juce::jmax (20.0, currentBpm.load()) / 8.0);
+    const int velBias = (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f)
+                               * 14.0f * humanize);
+    for (int n = 0; n < dueCount; ++n)
+        emitNote (dueNotes[(size_t) n], out, offset, velBias);
 }
 }
 }
