@@ -19,3 +19,7 @@ See `README_MAGIC_0_18.md` for the expanded rhythm, motif, phrase and candidate-
 - Avoids holding the active-note lock while emitting MIDI.
 - Uses a fixed-size audio-thread note snapshot (no per-block vector allocation).
 - Temporary MIDI drag files are deleted after the native drag operation returns.
+
+
+### 0.36.1 Drag-to-FL Studio fix
+The temporary MIDI file is kept alive until the external drag operation completion callback, preventing it from being deleted before FL Studio can consume it.
