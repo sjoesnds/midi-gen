@@ -343,24 +343,47 @@ void MidiForgeAudioProcessor::loadPreferences()
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
-std::vector<int> chordDegrees={degree,degree+2,degree+4};
-if(chordExtensions && (complexity>0.45f || r.nextFloat()<0.4f)) chordDegrees.push_back(degree+6);
-if(chordExtensions && complexity>0.75f && r.nextFloat()<0.45f) chordDegrees.push_back(degree+8);
-int root=degreeToPitch(degree,octave-1);
-int transpose=r.nextFloat()<voicingWidth*.25f?(r.nextBool()?12:-12):0;
-for(int i=0;i<(int)chordDegrees.size();++i){
-if(r.nextFloat()>juce::jlimit(0.f,1.f,chordDensity*(0.65f+0.35f*e)))continue;
-int note=juce::jlimit(24,108,degreeToPitch(chordDegrees[(size_t)i],octave-1)+transpose);
-if(inversions && barOffset>0 && r.nextFloat()<0.45f){
-note=juce::jlimit(24,108,note+(r.nextBool()?12:-12));
-}
-s.notes.push_back({barOffset*16,16,note,72-i*4,1,false});
-}
-if((genre==House||genre==Techno) && r.nextFloat()<e)
-s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,root+12),63,1,false});
-// FLAGSHIP: add9 sparkle сверху для современного колорита.
-if(chordExtensions && r.nextFloat()<0.18f)
-s.notes.push_back({barOffset*16+8,8,juce::jlimit(24,108,degreeToPitch(degree+8,octave)),60,1,false});
+    // Harmony Engine 2.0: build diatonic stacks first, then choose a coherent
+    // voicing. No fixed semitone triads: every chord stays inside the active scale.
+    std::vector<int> chordDegrees={degree,degree+2,degree+4};
+    const float hDNA = juce::jlimit(0.0f,1.0f,dnaHarmony);
+    const bool addSeventh = chordExtensions && (complexity>0.40f || hDNA>0.48f) && r.nextFloat() < (0.28f+0.52f*hDNA);
+    const bool addNinth = chordExtensions && hDNA>0.62f && complexity>0.58f && r.nextFloat() < (0.12f+0.28f*hDNA);
+    if(addSeventh) chordDegrees.push_back(degree+6);
+    if(addNinth) chordDegrees.push_back(degree+8);
+
+    const int root=degreeToPitch(degree,octave-1);
+    const int transpose = (voicingWidth > 0.55f && (hash32(generationSeed ^ (uint32_t)(barOffset*41+degree*17))%100u)<22u) ? (r.nextBool()?12:-12) : 0;
+    const int inversion = (int)(hash32(generationSeed ^ (uint32_t)(barOffset*97+degree*31)) % (uint32_t)chordDegrees.size());
+    const int spread = juce::jlimit(0,2,(int)std::round(voicingWidth*2.0f));
+
+    for(int i=0;i<(int)chordDegrees.size();++i)
+    {
+        if(r.nextFloat()>juce::jlimit(0.f,1.f,chordDensity*(0.65f+0.35f*e))) continue;
+        int degreeIndex=i;
+        if(chordDegrees.size()>=3)
+            degreeIndex=(i+inversion)%(int)chordDegrees.size();
+        int note=degreeToPitch(chordDegrees[(size_t)degreeIndex],octave-1);
+
+        // Rotate chord tones into different octaves. The result is still scale-safe,
+        // but avoids the block-chord / school-exercise sound.
+        int octaveLift=0;
+        if(i>0 && degreeIndex<inversion) octaveLift=12;
+        if(spread>=1 && i%2==1) octaveLift+=12;
+        if(spread>=2 && i==2) octaveLift+=12;
+        if(inversions && i==0 && barOffset>0 && (hash32(generationSeed+barOffset*13u)%100u)<55u)
+            octaveLift+=12;
+
+        note=juce::jlimit(24,108,note+octaveLift+transpose);
+        const int vel=juce::jlimit(45,90,76-i*5+(i==0?5:0));
+        s.notes.push_back({barOffset*16,16,note,vel,1,false});
+    }
+
+    // Genre-aware rhythmic chord punctuation, still scale-safe.
+    if((genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
+        s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,root+12),63,1,false});
+    if(chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
+        s.notes.push_back({barOffset*16+8,8,juce::jlimit(24,108,degreeToPitch(degree+8,octave)),60,1,false});
 }
 void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -1594,26 +1617,62 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     amount = juce::jlimit(0.0f, 1.0f, amount);
     std::vector<VisibleNote> notes = getVisibleNotes();
     if (notes.empty()) { rerollSameDNA(); return; }
-    if (lockMelodyLayer) { return; }
-    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu);
-    for (size_t i=0; i<notes.size(); ++i)
+
+    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu ^ (uint32_t)(amount*1000.0f));
+    for(size_t i=0;i<notes.size();++i)
     {
-        auto& n = notes[i];
-        if (n.channel != 3) continue;
-        const uint32_t h = hash32(base ^ (uint32_t)(i * 0x9e3779b9u));
-        if ((h % 100u) < (uint32_t)(18.0f + 45.0f * amount))
+        auto& n=notes[i];
+        const uint32_t h=hash32(base ^ (uint32_t)(i*0x9e3779b9u));
+        const float roll=(float)(h%1000u)/1000.0f;
+
+        // Each layer has its own mutation grammar. Locked layers are untouched.
+        const bool locked=(n.channel==1&&lockChordsLayer)||(n.channel==2&&lockBassLayer)||
+                           (n.channel==3&&lockMelodyLayer)||(n.channel==4&&lockArpLayer);
+        if(locked) continue;
+
+        const float chance=0.10f+0.48f*amount;
+        if(roll<chance)
         {
-            const int semis = ((h >> 8) & 1u) ? 2 : -2;
-            n.note = juce::jlimit(48, 98, snapToScale(n.note + semis));
+            if(n.channel==3)
+            {
+                // Melody: scale-safe pitch mutation, occasional direction flip.
+                const int step=((h>>8)&1u)?2:-2;
+                n.note=juce::jlimit(48,98,snapToScale(n.note+step));
+            }
+            else if(n.channel==2)
+            {
+                // Bass: mostly octave/scale-degree movement, never chromatic.
+                const int move=((h>>9)&3u)==0 ? 12 : (((h>>9)&1u)?2:-2);
+                n.note=juce::jlimit(18,60,snapToScale(n.note+move));
+            }
+            else if(n.channel==1)
+            {
+                // Chords: alter voicing rather than changing the harmony identity.
+                if((h&3u)==0) n.note=juce::jlimit(24,108,n.note+12);
+                else if((h&3u)==1) n.note=juce::jlimit(24,108,n.note-12);
+                else n.velocity=juce::jlimit(40,105,n.velocity+(int)((h>>12)%13u)-6);
+            }
+            else if(n.channel==4)
+            {
+                // Arp: move along the active scale, preserving its role.
+                n.note=juce::jlimit(36,108,snapToScale(n.note+(((h>>10)&1u)?2:-2)));
+            }
         }
-        if ((h % 100u) >= 42u && (h % 100u) < (uint32_t)(55.0f + 35.0f * amount))
-            n.length = juce::jlimit(1, 4, n.length + (((h >> 16) & 1u) ? 1 : -1));
-        if ((h % 100u) > 72u)
-            n.velocity = juce::jlimit(40, 118, n.velocity + (int)((h >> 20) % 11u) - 5);
+
+        // Rhythm mutation: shift only by 1/8-note cells, so we don't reintroduce
+        // the accidental off-grid 1/16 positions fixed in Rhythm Engine 2.0.
+        if((h%100u) < (uint32_t)(18.0f+35.0f*amount))
+        {
+            const int delta=((h>>18)&1u)?2:-2;
+            n.step=juce::jmax(0,n.step+delta);
+        }
+        if((h%100u)>62u)
+            n.length=juce::jlimit(1,16,n.length+(((h>>20)&1u)?1:-1));
+        if((h%100u)>78u)
+            n.velocity=juce::jlimit(38,118,n.velocity+(int)((h>>22)%11u)-5);
     }
     replaceVisibleNotes(notes);
 }
-
 void MidiForgeAudioProcessor::evolveSelected()
 {
     // Gentle evolution: preserve the current idea and mutate it rather than
