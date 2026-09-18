@@ -1440,13 +1440,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         switch (melodyType)
         {
             case HookMelody:       hybridMotif += .14f; hybridRepeat += .10f; break;
-            case SparseMelody:     hybridRhythm -= .10f; hybridRepeat -= .04f; break;
-            case WideMelody:       hybridLeap += .16f; hybridSurprise += .08f; break;
-            case SyncMelody:       hybridRhythm += .16f; hybridSurprise += .04f; break;
-            case BrokenMelody:     hybridRhythm += .10f; hybridMotif -= .06f; break;
-            case CallResponse:     hybridMotif += .06f; hybridLeap += .06f; break;
-            case LateEntryMelody:  hybridRhythm += .04f; hybridRepeat += .02f; break;
-            case VerySparseMelody: hybridRhythm -= .16f; hybridRepeat -= .08f; break;
+            case SparseLeadMelody:     hybridRhythm -= .10f; hybridRepeat -= .04f; break;
+            case RiffMelody:       hybridLeap += .16f; hybridSurprise += .08f; break;
+            case ArpMelody:       hybridRhythm += .16f; hybridSurprise += .04f; break;
+            case OstinatoMelody:     hybridRhythm += .10f; hybridMotif -= .06f; break;
+            case CounterMelody:     hybridMotif += .06f; hybridLeap += .06f; break;
+            case VocalLikeMelody:  hybridRhythm += .04f; hybridRepeat += .02f; break;
+            case PhraseMelody: hybridRhythm -= .16f; hybridRepeat -= .08f; break;
             default: break;
         }
         // Era is deliberately a small modifier, not a historical stereotype.
