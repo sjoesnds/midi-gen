@@ -1413,14 +1413,45 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.05f*f.surprise;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
-        // Genre DNA fit: reward candidates that actually express the selected
-        // musical language, while keeping the generic quality judge dominant.
+        // Genre DNA 2.0: every genre gets a broader fingerprint than density,
+        // space and register. These targets bias rhythm, contour, motif, leap,
+        // repetition and surprise while the generic judge remains dominant.
+        float genreLeapTarget = 0.30f;
+        float genreRhythmTarget = 0.45f;
+        float genreMotifTarget = 0.45f;
+        float genreSurpriseTarget = 0.28f;
+        float genreRepeatTarget = 0.50f;
+        switch (genre)
+        {
+            case Trap:       genreLeapTarget=.34f; genreRhythmTarget=.62f; genreMotifTarget=.58f; genreSurpriseTarget=.30f; genreRepeatTarget=.62f; break;
+            case House:      genreLeapTarget=.18f; genreRhythmTarget=.52f; genreMotifTarget=.48f; genreSurpriseTarget=.18f; genreRepeatTarget=.54f; break;
+            case Techno:     genreLeapTarget=.16f; genreRhythmTarget=.48f; genreMotifTarget=.50f; genreSurpriseTarget=.16f; genreRepeatTarget=.58f; break;
+            case BoomBap:    genreLeapTarget=.28f; genreRhythmTarget=.66f; genreMotifTarget=.60f; genreSurpriseTarget=.25f; genreRepeatTarget=.64f; break;
+            case Ambient:    genreLeapTarget=.24f; genreRhythmTarget=.30f; genreMotifTarget=.38f; genreSurpriseTarget=.34f; genreRepeatTarget=.36f; break;
+            case Cinematic:  genreLeapTarget=.48f; genreRhythmTarget=.42f; genreMotifTarget=.42f; genreSurpriseTarget=.48f; genreRepeatTarget=.36f; break;
+            case RnB:        genreLeapTarget=.30f; genreRhythmTarget=.58f; genreMotifTarget=.68f; genreSurpriseTarget=.24f; genreRepeatTarget=.66f; break;
+            case GenrePop:   genreLeapTarget=.24f; genreRhythmTarget=.50f; genreMotifTarget=.62f; genreSurpriseTarget=.22f; genreRepeatTarget=.68f; break;
+            case Drill:      genreLeapTarget=.42f; genreRhythmTarget=.70f; genreMotifTarget=.54f; genreSurpriseTarget=.34f; genreRepeatTarget=.58f; break;
+            case DnB:        genreLeapTarget=.30f; genreRhythmTarget=.78f; genreMotifTarget=.42f; genreSurpriseTarget=.38f; genreRepeatTarget=.42f; break;
+            case Jersey:     genreLeapTarget=.26f; genreRhythmTarget=.76f; genreMotifTarget=.46f; genreSurpriseTarget=.34f; genreRepeatTarget=.46f; break;
+            case Afro:       genreLeapTarget=.22f; genreRhythmTarget=.72f; genreMotifTarget=.54f; genreSurpriseTarget=.28f; genreRepeatTarget=.52f; break;
+            case Hyperpop:   genreLeapTarget=.55f; genreRhythmTarget=.68f; genreMotifTarget=.46f; genreSurpriseTarget=.62f; genreRepeatTarget=.34f; break;
+            case Experimental: genreLeapTarget=.58f; genreRhythmTarget=.55f; genreMotifTarget=.28f; genreSurpriseTarget=.78f; genreRepeatTarget=.22f; break;
+            case Lofi:       genreLeapTarget=.20f; genreRhythmTarget=.54f; genreMotifTarget=.58f; genreSurpriseTarget=.20f; genreRepeatTarget=.64f; break;
+            default: break;
+        }
+
         const float genreDensityTarget = juce::jlimit(0.0f,1.0f,dnaDensity);
         const float genreSpaceTarget = juce::jlimit(0.0f,1.0f,dnaSpace);
         const float genreRegisterTarget = juce::jlimit(0.0f,1.0f,dnaRegister);
         quality += 0.10f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-genreDensityTarget)));
         quality += 0.06f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.space-genreSpaceTarget)));
         quality += 0.04f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.registerScore-genreRegisterTarget)));
+        quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.leap-genreLeapTarget)));
+        quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.rhythmIdentity-genreRhythmTarget)));
+        quality += 0.040f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.motifIdentity-genreMotifTarget)));
+        quality += 0.035f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.surprise-genreSurpriseTarget)));
+        quality += 0.035f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.repetition-genreRepeatTarget)));
         quality += 0.08f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
         quality -= 0.28f*f.stepPenalty;
 
