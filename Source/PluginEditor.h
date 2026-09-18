@@ -18,7 +18,7 @@ void timerCallback() override;
 void refreshTaste();
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
-juce::Label title, sectionLabel;
+juce::Label title, sectionLabel, variationInfoLabel;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
@@ -26,6 +26,8 @@ juce::Label title, sectionLabel;
  juce::ToggleButton chords,bass,melody,arp,extensions,inversions,hookModeButton,soundCloudButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
+ juce::ComboBox pianoGridBox;
+ juce::TextButton quantizeButton{"QUANTIZE"}, resetViewButton{"RESET VIEW"};
  juce::TextButton mutateButton{"MUTATE"}, evolveButton{"EVOLVE"};
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
  juce::TextButton likeBtn, dislikeBtn;
@@ -130,10 +132,11 @@ juce::Label title, sectionLabel;
          {
              const float x = contentX + (float) (s - startStep) * stepW;
              const bool bar = (s % 16) == 0;
-             const bool half = (s % 4) == 0;
+             const bool grid = (s % juce::jmax (1, gridSteps)) == 0;
+             const bool beat = (s % 4) == 0;
              g.setColour (bar ? juce::Colour (0xff596170).withAlpha (0.9f)
-                              : juce::Colour (0xff303640).withAlpha (half ? 0.8f : 0.42f));
-             g.fillRect (x, 0.0f, bar ? 1.5f : 1.0f, (float) getHeight());
+                              : juce::Colour (0xff303640).withAlpha (grid ? 0.72f : 0.24f));
+             g.fillRect (x, 0.0f, bar ? 1.5f : (grid ? 1.0f : 0.5f), (float) getHeight());
              if (bar)
                  g.drawText ("BAR " + juce::String (s / 16 + 1), (int) x + 3, 2, 60, 16,
                              juce::Justification::left, false);
@@ -182,7 +185,7 @@ juce::Label title, sectionLabel;
 
          g.setColour (juce::Colours::white.withAlpha (0.65f));
          g.setFont (11.0f);
-         const juce::String help = "LMB add/move   drag right edge = length   RMB delete   1-4 layer   Ctrl+C/V   Ctrl+Z/Y   wheel=scroll   Ctrl+wheel=zoom";
+         const juce::String help = "LMB add/move   drag right edge = length   RMB delete   1-4 layer   Ctrl+C/V   Ctrl+Z/Y   wheel=scroll   Ctrl+wheel=zoom   grid=snap";
          g.drawFittedText (help, (int) pianoWidth + 6, getHeight() - 18, getWidth() - (int) pianoWidth - 12, 16,
                            juce::Justification::centredLeft, 1);
 
@@ -418,7 +421,8 @@ juce::Label title, sectionLabel;
      int snapStep (float step) const
      {
          const int value = juce::jmax (0, juce::roundToInt (step));
-         return value; // One grid unit = one 1/16 step.
+         const int g = juce::jmax (1, gridSteps);
+         return (value + g / 2) / g * g;
      }
 
      int hitTestNote (juce::Point<float> p) const
@@ -479,6 +483,20 @@ juce::Label title, sectionLabel;
      }
 
  public:
+     void setGridSteps (int steps)
+     {
+         gridSteps = juce::jlimit (1, 16, steps);
+         repaint();
+     }
+
+     void resetView()
+     {
+         viewStartStep = 0;
+         viewLowNote = 36;
+         zoom = 1.0f;
+         repaint();
+     }
+
      void resetEditHistory()
      {
          history.clear();
@@ -602,6 +620,7 @@ juce::Label title, sectionLabel;
      int viewStartStep = 0;
      int viewLowNote = 36;
      float zoom = 1.0f;
+     int gridSteps = 1;
      float lastMouseX = 450.0f;
      const int noteSpan = 60;
      DragMode dragMode = DragMode::none;

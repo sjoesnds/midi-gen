@@ -42,7 +42,7 @@ MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProce
 {
 setSize(900,800);
 setResizable(true, true);
-setResizeLimits(760, 720, 1400, 1100);
+setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (31.0f, juce::Font::bold));
@@ -189,6 +189,10 @@ dislikeBtn.setButtonText("DISLIKE");
 likeBtn.onClick=[this]{
 processor.likeVariation(processor.getSelectedVariation());
 refreshTaste();
+const int varIndex = processor.getSelectedVariation();
+const int score = processor.getVariationScore(varIndex);
+variationInfoLabel.setText ("VAR " + juce::String (varIndex + 1) + "  •  SCORE " + juce::String (score),
+                            juce::dontSendNotification);
 };
 dislikeBtn.onClick=[this]{
 processor.dislikeVariation(processor.getSelectedVariation());
@@ -327,15 +331,16 @@ complexity.setBounds(x1 + 2 * ((contentW - 16) / 3) + 16,428,(contentW - 16) / 3
 pianoRoll.setBounds(left,472,contentW,190);
 
 // Bottom action rows — always visible in the default 800px editor.
-variationBox.setBounds(20,690,98,28);
-generate.setBounds(126,687,102,32);
-newSeed.setBounds(236,687,98,32);
-applyVariation.setBounds(342,687,92,32);
-exportMidi.setBounds(442,687,118,32);
-likeBtn.setBounds(568,687,70,32);
-dislikeBtn.setBounds(644,687,82,32);
-mutateButton.setBounds(732,687,76,32);
-evolveButton.setBounds(814,687,76,32);
+variationBox.setBounds(20,690,74,28);
+variationInfoLabel.setBounds(100,690,118,28);
+generate.setBounds(222,687,102,32);
+newSeed.setBounds(328,687,98,32);
+applyVariation.setBounds(432,687,92,32);
+exportMidi.setBounds(530,687,118,32);
+likeBtn.setBounds(654,687,70,32);
+dislikeBtn.setBounds(730,687,82,32);
+mutateButton.setBounds(818,687,76,32);
+evolveButton.setBounds(900,687,76,32);
 tasteLabel.setBounds(530,764,350,28);
 
 exportButton.setBounds(20,733,122,28);
