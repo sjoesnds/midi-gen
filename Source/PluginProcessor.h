@@ -218,6 +218,11 @@ std::array<int,8> likeCounts {}; std::array<int,8> dislikeCounts {};
 std::array<float,8> likedFeatures {};
 std::array<float,8> dislikedFeatures {};
 int likedFeatureN = 0, dislikedFeatureN = 0;
+// 0.37 Taste ML: online logistic-regression model.
+// 8 musical features + bias, trained locally from Like/Dislike feedback.
+std::array<float,9> tasteModelWeights {};
+int tasteModelSamples = 0;
+float tasteModelLearningRate = 0.08f;
 juce::File preferencesFile;
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
@@ -227,6 +232,8 @@ void sampleVariationTaste(int varIndex, std::array<float,8>& features) const;
 void applyTasteToCandidate(float& quality, float density, float velocity, float leap,
                            float rhythm, float repetition, float variety,
                            float registerScore, float noteLength) const;
+void updateTasteModel(const std::array<float,8>& features, float label);
+float tasteModelProbability(const std::array<float,8>& features) const;
 std::vector<int> scaleSemitones() const;
 std::vector<int> progressionDegrees() const;
 int degreeToPitch(int degree, int baseOctave) const;

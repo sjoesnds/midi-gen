@@ -217,6 +217,45 @@ void MidiForgeAudioProcessor::sampleVariationTaste(int varIndex, std::array<floa
     juce::ignoreUnused(totalSteps);
 }
 
+
+void MidiForgeAudioProcessor::updateTasteModel(const std::array<float,8>& features, float label)
+{
+    // Online logistic regression: one example at a time, local-only.
+    // The first eight weights correspond to musical features; the ninth is bias.
+    float z = tasteModelWeights[8];
+    for (int i = 0; i < 8; ++i)
+        z += tasteModelWeights[(size_t)i] * juce::jlimit(0.0f, 1.0f, features[(size_t)i]);
+
+    z = juce::jlimit(-12.0f, 12.0f, z);
+    const float p = 1.0f / (1.0f + std::exp(-z));
+    const float error = label - p;
+
+    for (int i = 0; i < 8; ++i)
+    {
+        const float x = juce::jlimit(0.0f, 1.0f, features[(size_t)i]);
+        // Small L2 regularisation keeps the model from exploding after a few clicks.
+        tasteModelWeights[(size_t)i] += tasteModelLearningRate * (error * x - 0.001f * tasteModelWeights[(size_t)i]);
+        tasteModelWeights[(size_t)i] = juce::jlimit(-3.0f, 3.0f, tasteModelWeights[(size_t)i]);
+    }
+
+    tasteModelWeights[8] += tasteModelLearningRate * error;
+    tasteModelWeights[8] = juce::jlimit(-2.0f, 2.0f, tasteModelWeights[8]);
+    ++tasteModelSamples;
+}
+
+float MidiForgeAudioProcessor::tasteModelProbability(const std::array<float,8>& features) const
+{
+    if (tasteModelSamples <= 0)
+        return 0.5f;
+
+    float z = tasteModelWeights[8];
+    for (int i = 0; i < 8; ++i)
+        z += tasteModelWeights[(size_t)i] * juce::jlimit(0.0f, 1.0f, features[(size_t)i]);
+
+    z = juce::jlimit(-12.0f, 12.0f, z);
+    return 1.0f / (1.0f + std::exp(-z));
+}
+
 void MidiForgeAudioProcessor::applyTasteToCandidate(float& quality, float density, float velocity, float leap,
                                                      float rhythm, float repetition, float variety,
                                                      float registerScore, float noteLength) const
@@ -242,6 +281,17 @@ void MidiForgeAudioProcessor::applyTasteToCandidate(float& quality, float densit
         similarity /= 8.0f;
         quality -= 0.13f * confidence * similarity;
     }
+
+    // Taste ML 0.37: online logistic regression predicts whether this
+    // musical fingerprint resembles what the user has liked.
+    const std::array<float,8> modelFeatures =
+        { density, velocity, leap, rhythm, repetition, variety, registerScore, noteLength };
+    if (tasteModelSamples > 0)
+    {
+        const float p = tasteModelProbability(modelFeatures);
+        const float confidence = juce::jlimit(0.0f, 1.0f, (float)tasteModelSamples / 20.0f);
+        quality += 0.24f * confidence * (p - 0.5f) * 2.0f;
+    }
 }
 
 void MidiForgeAudioProcessor::likeVariation(int vi)
@@ -250,6 +300,7 @@ void MidiForgeAudioProcessor::likeVariation(int vi)
     likeCounts[(size_t)vi]++;
     float d, e, c; sampleVariationFeatures(vi, d, e, c);
     std::array<float,8> f; sampleVariationTaste(vi, f);
+    updateTasteModel(f, 1.0f);
     likedD = (likedD * likedN + d) / (likedN + 1);
     likedE = (likedE * likedN + e) / (likedN + 1);
     likedC = (likedC * likedN + c) / (likedN + 1);
@@ -268,6 +319,7 @@ void MidiForgeAudioProcessor::dislikeVariation(int vi)
     dislikeCounts[(size_t)vi]++;
     float d, e, c; sampleVariationFeatures(vi, d, e, c);
     std::array<float,8> f; sampleVariationTaste(vi, f);
+    updateTasteModel(f, 0.0f);
     disD = (disD * disN + d) / (disN + 1);
     disE = (disE * disN + e) / (disN + 1);
     disC = (disC * disN + c) / (disN + 1);
@@ -314,6 +366,12 @@ void MidiForgeAudioProcessor::savePreferences()
     }
     o->setProperty("likes", lk); o->setProperty("dislikes", dk);
     o->setProperty("likedFeatures", lf); o->setProperty("dislikedFeatures", df);
+    o->setProperty("tasteModelSamples", tasteModelSamples);
+    o->setProperty("tasteModelLearningRate", (double)tasteModelLearningRate);
+    juce::Array<juce::var> mw;
+    for (int i = 0; i < 9; ++i)
+        mw.add((double)tasteModelWeights[(size_t)i]);
+    o->setProperty("tasteModelWeights", mw);
     preferencesFile.getParentDirectory().createDirectory();
     preferencesFile.replaceWithText(juce::JSON::toString(juce::var(o)));
 }
@@ -337,6 +395,14 @@ void MidiForgeAudioProcessor::loadPreferences()
             for (int i = 0; i < 8 && i < la->size(); ++i) likedFeatures[(size_t)i] = (float)(*la)[i];
         if (auto* da = o->getProperty("dislikedFeatures").getArray())
             for (int i = 0; i < 8 && i < da->size(); ++i) dislikedFeatures[(size_t)i] = (float)(*da)[i];
+
+        tasteModelSamples = (int)o->getProperty("tasteModelSamples");
+        if (tasteModelSamples < 0) tasteModelSamples = 0;
+        if (o->hasProperty("tasteModelLearningRate"))
+            tasteModelLearningRate = juce::jlimit(0.01f, 0.20f, (float)o->getProperty("tasteModelLearningRate"));
+        if (auto* mw = o->getProperty("tasteModelWeights").getArray())
+            for (int i = 0; i < 9 && i < mw->size(); ++i)
+                tasteModelWeights[(size_t)i] = juce::jlimit(-3.0f, 3.0f, (float)(*mw)[i]);
     }
 }
 

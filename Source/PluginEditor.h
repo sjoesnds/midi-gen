@@ -10,17 +10,9 @@ private juce::Timer
 {
 public:
 explicit MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor&);
-~MidiForgeAudioProcessorEditor() override
-    {
-        stopTimer();
-        for (const auto& f : externalDragFiles)
-            if (f.existsAsFile()) f.deleteFile();
-    }
+~MidiForgeAudioProcessorEditor() override { stopTimer(); }
 void paint(juce::Graphics&) override;
 void resized() override;
-    bool shouldDropFilesWhenDraggedExternally (const juce::DragAndDropTarget::SourceDetails& sourceDetails,
-                                                juce::StringArray& files,
-                                                bool& canMoveFiles) override;
 private:
 void timerCallback() override;
 void refreshTaste();
@@ -48,14 +40,13 @@ juce::Label title, sectionLabel, variationInfoLabel;
  std::unique_ptr<juce::FileChooser> fileChooser;
  // Небольшой компонент-"ручка": тащишь мышкой прямо в плейлист/пиано-ролл FL Studio,
  // плагин пишет временный .mid файл и запускает системный drag-and-drop.
- juce::Array<juce::File> externalDragFiles;
-
-    struct DragHandle : public juce::Component
+ struct DragHandle : public juce::Component
  {
      explicit DragHandle (MidiForgeAudioProcessorEditor& o) : owner (o) {}
      void paint (juce::Graphics& g) override;
-     void mouseDown (const juce::MouseEvent&) override;
-     void mouseUp (const juce::MouseEvent&) override;
+     void mouseDown (const juce::MouseEvent&) override { dragStarted = false; }
+     void mouseDrag (const juce::MouseEvent&) override;
+     void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
      MidiForgeAudioProcessorEditor& owner;
      bool dragStarted = false;
  };
