@@ -56,7 +56,6 @@ juce::Label title, sectionLabel, variationInfoLabel;
      void paint (juce::Graphics& g) override;
      void mouseDown (const juce::MouseEvent&) override;
      void mouseUp (const juce::MouseEvent&) override;
-     void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
      MidiForgeAudioProcessorEditor& owner;
      bool dragStarted = false;
  };
