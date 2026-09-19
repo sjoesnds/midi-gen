@@ -60,6 +60,7 @@ void setRoot(int); void setGenre(int); void setScale(int);
 void setMood(int); void setMelodyType(int); void setEra(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
+void setSoundTarget(int);
 // Musical controls
 void setChordDensity(float); void setBassDensity(float);
 void setMelodyDensity(float); void setArpDensity(float);
@@ -93,6 +94,7 @@ int getOctave() const { return octave; }
 int getSectionMode() const { return sectionMode; }
 int getMood() const { return mood; }
 int getMelodyType() const { return melodyType; }
+int getSoundTarget() const { return soundTarget; }
 int getEra() const { return era; }
 float getChordDensity() const { return chordDensity; }
 float getBassDensity() const { return bassDensity; }
@@ -177,6 +179,7 @@ int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
+int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
 uint32_t generationNonce = 0;
 uint32_t generationSeed = 0;

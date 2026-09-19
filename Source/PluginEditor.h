@@ -19,7 +19,7 @@ void refreshTaste();
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel, variationInfoLabel;
- juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox;
+ juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
