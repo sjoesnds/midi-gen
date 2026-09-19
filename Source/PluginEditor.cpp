@@ -33,11 +33,15 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
     dragStarted = true;
     lastDragStart = now;
 
+    // Предыдущий drag уже завершён (OLE-сессия синхронная) — старый временный файл можно убрать.
+    if (activeDragFile != juce::File())
+        activeDragFile.deleteFile();
+
     activeDragFile = owner.processor.writeTemporaryMidiFile();
     if (!activeDragFile.existsAsFile())
     {
         dragStarted = false;
-        activeDragFile = {};
+        activeDragFile = juce::File();
         return;
     }
 

@@ -49,6 +49,8 @@ juce::Label title, sectionLabel, variationInfoLabel;
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
      MidiForgeAudioProcessorEditor& owner;
      bool dragStarted = false;
+     juce::Time lastDragStart;   // защита от двойного старта drag (anti-double-start)
+     juce::File activeDragFile;  // временный .mid, живёт до следующего drag
  };
  DragHandle dragHandle { *this };
  // Раздельный drag-and-drop по партиям: тащишь только бас, только аккорды и т.д.
@@ -72,7 +74,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &owner);
+         owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
      MidiForgeAudioProcessorEditor& owner;
