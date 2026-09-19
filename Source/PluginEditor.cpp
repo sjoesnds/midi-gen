@@ -18,30 +18,43 @@ g.drawFittedText ("Drag to FL Studio", getLocalBounds(), juce::Justification::ce
 }
 void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEvent& e)
 {
-// mouseDrag fires repeatedly (on every mouse-move during the gesture), not once.
-// Starting a new native OS drag session on each of those calls stacked overlapping
-// drag operations on top of each other — this is what made the drag look broken,
-// and could leave an orphaned OS/COM drag handle alive that later blocked Windows
-// from unloading the plugin DLL when it was removed from the mixer.
-if (dragStarted)
-return;
-// Small threshold so a click doesn't immediately count as a drag.
-if (e.getDistanceFromDragStart() < 6)
-return;
-dragStarted = true;
-// Explicitly provide the plugin editor as the drag source. In a VST3 hosted
-// window, relying on "component under the mouse" can resolve to the host's
-// embedded wrapper instead of our JUCE editor, so the native drag never starts
-// reliably in FL Studio.
-auto file = owner.processor.writeTemporaryMidiFile();
-if (!file.existsAsFile())
-{
-dragStarted = false;
-return;
-}
-owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &owner,
-    [] {});
-dragStarted = false;
+    // Only one native OLE drag may be started for a gesture.
+    if (dragStarted)
+        return;
+
+    if (e.getDistanceFromDragStart() < 6)
+        return;
+
+    const auto now = juce::Time::getCurrentTime();
+    if (lastDragStart.toMilliseconds() != 0
+        && (now - lastDragStart).inMilliseconds() < 250)
+        return;
+
+    dragStarted = true;
+    lastDragStart = now;
+
+    activeDragFile = owner.processor.writeTemporaryMidiFile();
+    if (!activeDragFile.existsAsFile())
+    {
+        dragStarted = false;
+        activeDragFile = {};
+        return;
+    }
+
+    // The actual button is the OLE source. Using the editor itself can make the
+    // VST3 wrapper become the source window inside FL Studio.
+    owner.performExternalDragDropOfFiles ({ activeDragFile.getFullPathName() },
+                                          false,
+                                          this,
+                                          [this]
+                                          {
+                                              dragStarted = false;
+                                          });
+
+    // JUCE's native drag call is synchronous on Windows, so this runs only after
+    // the OLE session has ended. The file is intentionally kept alive until the
+    // next drag/editor lifetime instead of being deleted during the drag.
+    dragStarted = false;
 }
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
