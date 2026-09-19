@@ -231,6 +231,8 @@ std::vector<int> scaleSemitones() const;
 std::vector<int> progressionDegrees() const;
 int degreeToPitch(int degree, int baseOctave) const;
 int snapToScale(int midi) const;
+// 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).
+void registerLane (int part, int& lo, int& hi) const;
 bool rhythmHit(int stepInBar) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,

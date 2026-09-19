@@ -110,6 +110,28 @@ case Lofi:return{0,5,3,4};
 default:return{0,5,3,4};
 }
 }
+// 0.38 Register lanes ---------------------------------------------------
+// Every layer lives in its own register, so the parts no longer pile up in the
+// same octaves.  The Octave control moves chords and melody together by at most
+// one octave; the bass lane is fixed (never below E1 = MIDI 28, which is still
+// audible on ordinary speakers/headphones).
+static int foldIntoLane (int note, int lo, int hi)
+{
+    if (hi - lo < 11) return juce::jlimit (lo, hi, note);
+    while (note < lo) note += 12;
+    while (note > hi) note -= 12;
+    return note;
+}
+void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
+{
+    const int shift = juce::jlimit (-1, 1, octave - 4) * 12;
+    switch (part)
+    {
+        case 0:  lo = 48 + shift; hi = juce::jmin (72 + shift, 84); break;   // chords
+        case 1:  lo = 28;         hi = 52;                          break;   // bass
+        default: lo = 62 + shift; hi = juce::jmin (86 + shift, 92); break;   // melody
+    }
+}
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
 const auto s=scaleSemitones(); int count=(int)s.size();
@@ -343,71 +365,129 @@ void MidiForgeAudioProcessor::loadPreferences()
 // --- Generation ---------------------------------------------------------
 void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
-    // Harmony Engine 2.0: build diatonic stacks first, then choose a coherent
-    // voicing. No fixed semitone triads: every chord stays inside the active scale.
+    // 0.38 Harmony Foundation.
+    // Root, third and fifth are ALWAYS present: density no longer deletes chord
+    // tones (it used to leave dyads, single notes or empty bars).  Density now
+    // controls fullness (extensions / doubled root).  The voicing is chosen by
+    // simple voice leading: the inversion closest to the previous chord that
+    // fits the chord lane.
+    juce::ignoreUnused(e);
     std::vector<int> chordDegrees={degree,degree+2,degree+4};
     const float hDNA = juce::jlimit(0.0f,1.0f,dnaHarmony);
-    const bool addSeventh = chordExtensions && (complexity>0.40f || hDNA>0.48f) && r.nextFloat() < (0.28f+0.52f*hDNA);
-    const bool addNinth = chordExtensions && hDNA>0.62f && complexity>0.58f && r.nextFloat() < (0.12f+0.28f*hDNA);
+    const float fullness = juce::jlimit(0.0f,1.0f,chordDensity);
+    const float extScale = 0.55f + 0.45f*fullness;
+    const bool addSeventh = chordExtensions && (complexity>0.40f || hDNA>0.48f) && r.nextFloat() < (0.28f+0.52f*hDNA)*extScale;
+    const bool addNinth = chordExtensions && hDNA>0.62f && complexity>0.58f && r.nextFloat() < (0.12f+0.28f*hDNA)*extScale;
     if(addSeventh) chordDegrees.push_back(degree+6);
     if(addNinth) chordDegrees.push_back(degree+8);
 
-    const int root=degreeToPitch(degree,octave-1);
-    const int transpose = (voicingWidth > 0.55f && (hash32(generationSeed ^ (uint32_t)(barOffset*41+degree*17))%100u)<22u) ? (r.nextBool()?12:-12) : 0;
-    const int inversion = (int)(hash32(generationSeed ^ (uint32_t)(barOffset*97+degree*31)) % (uint32_t)chordDegrees.size());
-    const int spread = juce::jlimit(0,2,(int)std::round(voicingWidth*2.0f));
+    int lo=48, hi=72;
+    registerLane(0,lo,hi);
 
-    for(int i=0;i<(int)chordDegrees.size();++i)
+    // Closed-position stack, ascending from the root (all notes diatonic).
+    std::vector<int> stack;
+    stack.push_back(foldIntoLane(degreeToPitch(degree,3),lo,lo+11));
+    for(size_t k=1;k<chordDegrees.size();++k)
     {
-        if(r.nextFloat()>juce::jlimit(0.f,1.f,chordDensity*(0.65f+0.35f*e))) continue;
-        int degreeIndex=i;
-        if(chordDegrees.size()>=3)
-            degreeIndex=(i+inversion)%(int)chordDegrees.size();
-        int note=degreeToPitch(chordDegrees[(size_t)degreeIndex],octave-1);
+        const int prev=stack.back();
+        const int raw=degreeToPitch(chordDegrees[k],3);
+        stack.push_back(prev+1+(((raw-prev-1)%12)+12)%12);
+    }
+    const int n=(int)stack.size();
 
-        // Rotate chord tones into different octaves. The result is still scale-safe,
-        // but avoids the block-chord / school-exercise sound.
-        int octaveLift=0;
-        if(i>0 && degreeIndex<inversion) octaveLift=12;
-        if(spread>=1 && i%2==1) octaveLift+=12;
-        if(spread>=2 && i==2) octaveLift+=12;
-        if(inversions && i==0 && barOffset>0 && (hash32(generationSeed+barOffset*13u)%100u)<55u)
-            octaveLift+=12;
+    // Centre of the previous chord (voice leading reference).
+    float prevCentre=-1.0f;
+    if(barOffset>0)
+    {
+        float sum=0.0f; int cnt=0;
+        for(const auto& ev : s.notes)
+            if(ev.channel==1 && ev.step==(barOffset-1)*16) { sum+=(float)ev.note; ++cnt; }
+        if(cnt>0) prevCentre=sum/(float)cnt;
+    }
+    const float laneCentre=0.5f*(float)(lo+hi);
 
-        note=juce::jlimit(24,108,note+octaveLift+transpose);
-        const int vel=juce::jlimit(45,90,76-i*5+(i==0?5:0));
-        s.notes.push_back({barOffset*16,16,note,vel,1,false});
+    std::vector<int> best=stack;
+    float bestCost=1.0e9f;
+    const int maxInv=inversions ? n : 1;
+    for(int inv=0;inv<maxInv;++inv)
+        for(int shift=-12;shift<=12;shift+=12)
+        {
+            std::vector<int> v=stack;
+            for(int k=0;k<inv;++k){ v.push_back(v.front()+12); v.erase(v.begin()); }
+            for(auto& p : v) p+=shift;
+            float mean=0.0f; for(int p : v) mean+=(float)p; mean/=(float)n;
+            const int span=v.back()-v.front();
+            float cost=0.35f*std::abs(mean-laneCentre);
+            cost += (prevCentre>=0.0f) ? std::abs(mean-prevCentre) : 0.6f*std::abs(mean-laneCentre);
+            for(int p : v){ if(p<lo) cost+=2.0f*(float)(lo-p); if(p>hi) cost+=2.0f*(float)(p-hi); }
+            cost += 0.8f*(float)juce::jmax(0,span-14);
+            cost += 0.3f*(float)inv;
+            cost += 2.0f*(float)(hash32(generationSeed ^ (uint32_t)(barOffset*97+inv*31+(shift+12)))%100u)/100.0f;
+            if(cost<bestCost){ bestCost=cost; best=v; }
+        }
+
+    // Wider voicing: lift the middle voice by an octave (keeps the span sane).
+    const int spread=juce::jlimit(0,2,(int)std::round(voicingWidth*2.0f));
+    if(spread>=1 && best.size()>=3
+       && (hash32(generationSeed ^ (uint32_t)(barOffset*53+degree*11))%100u) < (uint32_t)(35*spread))
+    {
+        const int lifted=best[1]+12;
+        if(lifted<=hi+2 && (juce::jmax(best.back(),lifted)-best.front())<=19)
+        {
+            best[1]=lifted;
+            std::sort(best.begin(),best.end());
+        }
+    }
+    // Fullness: double the root on top of a plain triad.
+    if(fullness>0.75f && best.size()==3 && r.nextFloat()<0.35f)
+    {
+        const int top=best.front()+12;
+        if(top<=hi+4 && top>best.back()) best.push_back(top);
+    }
+
+    for(int i=0;i<(int)best.size();++i)
+    {
+        const int vel=juce::jlimit(45,90,76-i*4+(i==0?5:0));
+        s.notes.push_back({barOffset*16,16,juce::jlimit(24,108,best[(size_t)i]),vel,1,false});
     }
 
     // Genre-aware rhythmic chord punctuation, still scale-safe.
     if((genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
-        s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,root+12),63,1,false});
+        s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree,3),lo+12,hi+12)),63,1,false});
     if(chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
-        s.notes.push_back({barOffset*16+8,8,juce::jlimit(24,108,degreeToPitch(degree+8,octave)),60,1,false});
+        s.notes.push_back({barOffset*16+8,8,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree+8,3),lo+12,hi+12)),60,1,false});
 }
 void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
-int root=juce::jlimit(18,55,degreeToPitch(degree,octave-2));
-std::vector<int> steps;
-if(genre==Trap || genre==Drill)steps={0,3,6,10,14};
-else if(genre==House || genre==Techno || genre==DnB)steps={0,4,8,12};
-else if(genre==Jersey || genre==Afro)steps={0,3,8,11,14};
-else if(genre==RnB || genre==Lofi)steps={0,8,12};
-else steps={0,8,12};
-for(int x:steps){
-if(!rhythmHit(x)||r.nextFloat()>bassDensity*e)continue;
-int note=root;
-if(complexity>0.5f&&r.nextFloat()<0.22f)note+=r.nextBool()?7:-5;
-note=juce::jlimit(18,60,note);
-bool ghost=r.nextFloat()<ghostChance*.5f&&x!=0;
-int len=(genre==House||genre==Techno||genre==DnB)?3:
-        ((genre==RnB||genre==Lofi)?6:(x==0?7:3));
-int vel=juce::jlimit(1,127,92+(x==0?7:0)-(ghost?20:0));
-s.notes.push_back({barOffset*16+x,len,note,vel,2,ghost});
-}
-// FLAGSHIP: sub drop октавой вниз на сильную долю для веса (trap/cinematic).
-if((genre==Trap||genre==Cinematic) && e>0.5f && r.nextFloat()<0.35f)
-s.notes.push_back({barOffset*16,8,juce::jlimit(18,60,root-12),100,2,false});
+    // 0.38 Bass Foundation: a guaranteed root on beat 1 of every bar, the rest
+    // of the genre pattern is optional.  The bass lives in its own lane
+    // (E1..E3) instead of drifting down to inaudible sub-frequencies.
+    int lo=28, hi=52;
+    registerLane(1,lo,hi);
+    const int root=foldIntoLane(degreeToPitch(degree,2),lo,hi);
+    std::vector<int> steps;
+    if(genre==Trap || genre==Drill)steps={0,3,6,10,14};
+    else if(genre==House || genre==Techno || genre==DnB)steps={0,4,8,12};
+    else if(genre==Jersey || genre==Afro)steps={0,3,8,11,14};
+    else if(genre==RnB || genre==Lofi)steps={0,8,12};
+    else steps={0,8,12};
+    const float hitChance=juce::jlimit(0.20f,0.95f,bassDensity*(0.62f+0.50f*e));
+    for(int x:steps){
+        const bool anchor=(x==0);
+        if(!anchor && (!rhythmHit(x)||r.nextFloat()>hitChance))continue;
+        int note=root;
+        if(!anchor && complexity>0.5f&&r.nextFloat()<0.22f)note+=r.nextBool()?7:-5;
+        note=foldIntoLane(note,lo,hi);
+        bool ghost=r.nextFloat()<ghostChance*.5f&&x!=0;
+        int len=(genre==House||genre==Techno||genre==DnB)?3:
+                ((genre==RnB||genre==Lofi)?6:(x==0?7:3));
+        int vel=juce::jlimit(1,127,92+(x==0?7:0)-(ghost?20:0));
+        s.notes.push_back({barOffset*16+x,len,note,vel,2,ghost});
+    }
+    // FLAGSHIP: sub drop an octave down on the strong beat (trap/cinematic),
+    // only when it stays above the audible floor.
+    if((genre==Trap||genre==Cinematic) && e>0.5f && r.nextFloat()<0.35f && root-12>=lo)
+        s.notes.push_back({barOffset*16,8,root-12,100,2,false});
 }
 void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
@@ -495,11 +575,28 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int phraseCell = (barOffset / 4) % 4;
     const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
 
+    // 0.38 Loop identity: rhythm, motif and contour grammar are decided once per
+    // loop (A) and once per phrase for the contrast bar (B).  Bars of the same
+    // role therefore repeat instead of being re-rolled every bar - this is what
+    // makes a hook recognisable.  Small per-bar variation still comes from `seed`.
+    const uint32_t loopSeed = hash32(generationSeed
+                                     ^ (uint32_t) variationSalt * 0x9e3779b9u
+                                     ^ (uint32_t) genre * 0xc2b2ae35u
+                                     ^ 0x7a3c19e5u);
+    const uint32_t identitySeed = (cycle == 2)
+        ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset / 4) * 0x27d4eb2du)
+        : loopSeed;
+    int melLo = 62, melHi = 86;
+    registerLane(2, melLo, melHi);
+    const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
+    const int minNotes = sparseAllowed ? 2 : 4;
+    const int minHits = sparseAllowed ? 2 : 5;
+
     // 0.26 Melody Engine 3.0: give every 4-bar phrase a compositional grammar.
     // A = statement, A' = variation, B = contrast/peak, A'' = return/cadence.
     // The grammar changes the destination of notes rather than merely adding
     // random pitch offsets, so a loop develops an audible arc.
-    const int phraseStyle = (int)(hash32(seed ^ 0x4f1bbcd3u) % 6u);
+    const int phraseStyle = (int)(hash32(identitySeed ^ 0x4f1bbcd3u) % 6u);
     const float phraseStrength = juce::jlimit(0.35f, 0.92f,
         0.45f + 0.30f * dnaMotif + 0.15f * (1.0f - dnaSurprise));
 
@@ -570,10 +667,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {1, 6, 8, 13, -1,-1,-1,-1,-1,-1}
     };
 
-    int rhythmType = (int)(hash32(seed ^ (uint32_t)variationSalt * 0x9e3779b9u
-                                         ^ (uint32_t)(barOffset + 1) * 0x85ebca6bu) % 24u);
+    int rhythmType = (int)(hash32(identitySeed ^ 0x51ed270bu) % 24u);
     // Genre DNA nudges the rhythmic family without hard-locking it.
     rhythmType = (rhythmType + dnaRhythmBias + (int)(dnaSync * 3.0f)) % 24;
+    // Melodic loops need enough onsets to be heard as a line, not as scattered notes.
+    auto hitCount = [&](int t) { int c = 0; for (int k = 0; k < 10; ++k) if (rhythms[t][k] >= 0) ++c; return c; };
+    for (int k = 0; k < 24 && hitCount(rhythmType) < minHits; ++k)
+        rhythmType = (rhythmType + 1) % 24;
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -589,19 +689,18 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5;
     for (auto& x : positions)
     {
-        const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
         if ((x & 1) != 0 && !allowsOffGrid)
             x = juce::jlimit(0, 15, x - 1);
     }
 
     // The second half of a 4-bar cell can breathe, but never introduce an
     // arbitrary 1-step shift into an otherwise straight groove.
-    if (cycle == 1 || cycle == 3)
+    if (cycle == 3)
     {
         for (auto& x : positions)
         {
             const uint32_t h = hash32(seed ^ (uint32_t)(x + 17));
-            if ((h % 100u) < 18u)
+            if ((h % 100u) < 12u)
             {
                 const int delta = allowsOffGrid ? ((h & 1u) ? 1 : -1) : ((h & 1u) ? 2 : -2);
                 x = juce::jlimit(0, 15, x + delta);
@@ -611,23 +710,37 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // Always guarantee at least one real rest.  Unlike the previous generator,
     // density is not allowed to turn a melody into a continuous stream.
-    const float density = juce::jlimit(0.16f, 0.78f,
-        0.34f + 0.22f * melodyDensity + 0.12f * e
-        + 0.16f * (dnaDensity - 0.50f) - 0.10f * (dnaSpace - 0.50f));
+    const float density = juce::jlimit(0.30f, 0.95f,
+        0.64f + 0.30f * melodyDensity + 0.12f * e
+        + 0.16f * (dnaDensity - 0.50f) - 0.10f * (dnaSpace - 0.50f)
+        - 0.60f * (pauseChance - 0.10f));
     std::vector<int> chosen;
+    auto posRank = [&](int x) { return hash32(identitySeed ^ (uint32_t)(x * 97 + 31)) % 1000u; };
     for (int x : positions)
-    {
-        const uint32_t h = hash32(seed ^ (uint32_t)(x * 97 + 31));
-        if ((float)(h % 1000u) / 1000.0f < density)
+        if ((float)posRank(x) / 1000.0f < density)
             chosen.push_back(x);
+    // Never fall below a playable number of notes: bring back the most
+    // "important" removed positions (deterministic per loop identity).
+    while ((int)chosen.size() < minNotes && chosen.size() < positions.size())
+    {
+        int bestPos = -1; uint32_t bestRank = 100000u;
+        for (int x : positions)
+        {
+            if (std::find(chosen.begin(), chosen.end(), x) != chosen.end()) continue;
+            const uint32_t rk = posRank(x);
+            if (rk < bestRank) { bestRank = rk; bestPos = x; }
+        }
+        if (bestPos < 0) break;
+        chosen.push_back(bestPos);
     }
+    std::sort(chosen.begin(), chosen.end());
 
     // Phrase punctuation: don't fill every bar.  Some loops enter late or leave
     // the last quarter empty, which makes the loop breathe when repeated.
-    if ((archetype == 1 || archetype == 7) && cycle == 0 && !chosen.empty())
+    if ((archetype == 1 || archetype == 7) && cycle == 0 && (int)chosen.size() > minNotes)
         chosen.erase(chosen.begin());
     if (cycle == 3 && (archetype == 2 || archetype == 5 || archetype == 7)
-        && chosen.size() > 2)
+        && (int)chosen.size() > minNotes)
         chosen.pop_back();
 
     if (chosen.empty())
@@ -686,12 +799,12 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         { 2, 0, 5, 5, 3, -1 }, { 4, 6, 2, 1, 5, -1 }
     };
 
-    const int motifType = (int)(hash32(seed ^ (uint32_t)(archetype * 0x51ed270bu)
+    const int motifType = (int)(hash32(identitySeed ^ (uint32_t)(archetype * 0x51ed270bu)
                                            ^ (uint32_t)(dnaMotif * 1000.0f)) % 16u);
-    const int motifShift = (int)((seed >> 16) % (uint32_t)scaleCount);
+    const int motifShift = (int)((identitySeed >> 16) % (uint32_t)scaleCount);
 
-    const int motifTransform = (int)(hash32(seed ^ 0x6d2b79f5u) % 4u);
-    const int motifRotation = (int)(hash32(seed ^ 0x1b873593u) % 5u);
+    const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 4u);
+    const int motifRotation = (int)(hash32(identitySeed ^ 0x1b873593u) % 5u);
 
     auto motifDegree = [&](int index) -> int
     {
@@ -734,8 +847,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     for (size_t i = 0; i < chosen.size(); ++i)
     {
         const int x = chosen[i];
-        const int globalIndex = barOffset * 5 + (int)i;
-        int d = motifDegree(globalIndex + cycle);
+        int d = motifDegree((int)i);
 
         // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
         if (cycle == 2)
@@ -744,7 +856,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             if (dnaLeap > 0.55f && ((i + phraseCell) % 4 == 2))
                 d += (i & 1) ? 2 : -2;
             else if (dnaSpace > 0.70f && (i % 3 == 1))
-                d = motifDegree(globalIndex + cycle);
+                d = motifDegree((int)i);
             else if (phraseIdentity == 2) d -= 1;
             else d += ((i & 1u) ? -2 : 2);
         }
@@ -780,13 +892,12 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             d -= 1;
 
         int note = pitchForDegree(d, octave);
-        if (((seed >> ((i * 7) & 23)) & 1u) != 0u && archetype >= 2)
+        if (((identitySeed >> ((i * 7) & 23)) & 1u) != 0u && archetype >= 2)
             note += 12;
 
         // Keep a comfortable lead register and find the nearest useful octave.
-        while (note < 52) note += 12;
-        while (note > 91) note -= 12;
-        note = juce::jlimit(48, 98, snapToScale(note));
+        note = foldIntoLane(note, melLo, melHi);
+        note = juce::jlimit(melLo, melHi, snapToScale(note));
 
         if (!generated.empty())
         {
@@ -807,7 +918,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                                                  last + (a > 0 ? -4 : 4) };
                     for (int candidate : alternatives)
                     {
-                        candidate = juce::jlimit(48, 98, snapToScale(candidate));
+                        candidate = juce::jlimit(melLo, melHi, snapToScale(candidate));
                         if (std::abs(candidate - last) >= 4
                             && std::abs(candidate - last) <= 8)
                         {
@@ -821,12 +932,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Controlled leap: some archetypes need a recognizable interval,
             // otherwise the generator falls back to scalar motion too often.
             interval = note - last;
-            const bool wantsLeap = (archetype == 2 || archetype == 5 || archetype == 6)
-                && ((globalIndex + (int)(seed & 7u)) % 5 == 2);
+            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6)
+                && (((int)i + (int)(identitySeed & 7u)) % 5 == 2))
+                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f < leapChance * 0.45f);
             if (wantsLeap && std::abs(interval) < 4)
             {
-                const int dir = ((hash32(seed ^ (uint32_t)globalIndex) & 1u) ? 1 : -1);
-                note = juce::jlimit(48, 98, snapToScale(last + dir * (5 + (int)(seed % 3u))));
+                const int dir = ((hash32(identitySeed ^ (uint32_t)i) & 1u) ? 1 : -1);
+                note = juce::jlimit(melLo, melHi, snapToScale(last + dir * (5 + (int)(identitySeed % 3u))));
             }
 
             // After a large leap, don't immediately walk back by one step.
@@ -835,26 +947,26 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             {
                 const int prior = last - generated[generated.size() - 2];
                 if (std::abs(prior) >= 5 && std::abs(interval) <= 2)
-                    note = juce::jlimit(48, 98, snapToScale(last + (prior > 0 ? -3 : 3)));
+                    note = juce::jlimit(melLo, melHi, snapToScale(last + (prior > 0 ? -3 : 3)));
             }
         }
 
         // Composition profiles: each generation has a different balance of
         // anchor / contrast / register / repetition.  These are musical rules,
         // not random pitch noise, and they are intentionally subtle.
-        const int profile = (int)(hash32(seed ^ 0x9e3779b9u) % 8u);
+        const int profile = (int)(hash32(identitySeed ^ 0x9e3779b9u) % 8u);
         if (profile == 1 && (i & 1u) == 0)
-            note = juce::jlimit(48, 98, snapToScale(note + ((i % 3 == 0) ? 2 : -2)));
+            note = juce::jlimit(melLo, melHi, snapToScale(note + ((i % 3 == 0) ? 2 : -2)));
         else if (profile == 2 && i == chosen.size() / 2)
-            note = juce::jlimit(48, 98, snapToScale(note + 5));
+            note = juce::jlimit(melLo, melHi, snapToScale(note + 5));
         else if (profile == 3 && (i % 3 == 1))
-            note = juce::jlimit(48, 98, snapToScale(note - 5));
+            note = juce::jlimit(melLo, melHi, snapToScale(note - 5));
         else if (profile == 4 && (i == 0 || i + 1 == chosen.size()))
-            note = juce::jlimit(48, 98, snapToScale(note + (i == 0 ? -3 : 3)));
+            note = juce::jlimit(melLo, melHi, snapToScale(note + (i == 0 ? -3 : 3)));
         else if (profile == 5 && i % 4 == 2)
-            note = juce::jlimit(48, 98, snapToScale(note + 7));
+            note = juce::jlimit(melLo, melHi, snapToScale(note + 7));
         else if (profile == 6 && i % 4 == 3)
-            note = juce::jlimit(48, 98, snapToScale(note - 7));
+            note = juce::jlimit(melLo, melHi, snapToScale(note - 7));
 
         // Reuse a previous-bar contour at controlled strength.  The B bar
         // (cycle 2) gets less memory so it can provide contrast; A'/A'' keep
@@ -873,7 +985,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 const int target = currentAnchor + contourOffset;
                 const int blended = juce::roundToInt((float)note * (1.0f - memoryStrength)
                                                    + (float)target * memoryStrength);
-                note = juce::jlimit(48, 98, snapToScale(blended));
+                note = juce::jlimit(melLo, melHi, snapToScale(blended));
             }
         }
 
@@ -882,11 +994,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {
             const int root = pitchForDegree(degree, octave);
             const int third = pitchForDegree(degree + 2, octave);
-            if ((hash32(seed ^ (uint32_t)(x + 101)) % 100u) < 62u)
+            if ((hash32(identitySeed ^ (uint32_t)(x + 101)) % 100u) < 82u)
                 note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
-            while (note < 52) note += 12;
-            while (note > 91) note -= 12;
-            note = juce::jlimit(48, 98, snapToScale(note));
+            note = foldIntoLane(note, melLo, melHi);
+            note = juce::jlimit(melLo, melHi, snapToScale(note));
         }
 
         generated.push_back(note);
@@ -895,7 +1006,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // Duration is part of the phrase identity.  Long notes create space;
         // short notes are reserved for the rhythmic hook.
         int len = 1;
-        const uint32_t h = hash32(seed ^ (uint32_t)(globalIndex * 41 + 9));
+        const uint32_t h = hash32(identitySeed ^ (uint32_t)((int)i * 41 + 9));
         if (archetype == 1 || archetype == 7)
             len = (h % 100u < 42u) ? 2 : 1;
         else if (archetype == 0 || archetype == 5)
@@ -942,7 +1053,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // way. Timing stays on the chosen grid; "human" here means phrasing
         // and dynamics, not random off-grid MIDI.
         const float human = juce::jlimit(0.0f, 1.0f, humanize);
-        const int accent = (int)std::round((float)((int)(h % 9u) - 4) * (2.0f + 7.0f * human));
+        const int accent = juce::jlimit(-10, 10, (int)std::round((float)((int)(h % 9u) - 4) * (2.0f + 7.0f * human)));
         if (x % 4 == 0) velocity += 2;
         if (cycle == 2 && (x % 8) == 4) velocity += 3;
         velocity += accent;
@@ -952,6 +1063,15 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmax(1, len - 1);
         velocity = juce::jlimit(48, 112, velocity);
 
+        // Melody Length: how much of the gap to the next note is sustained.
+        // (This slider used to be stored but never applied.)
+        {
+            const int nextX = (i + 1 < chosen.size()) ? chosen[i + 1] : 16;
+            const int gap = juce::jmax(1, nextX - x);
+            const int sustained = 1 + (int) std::round(melodyLength * (float) (gap - 1));
+            len = juce::jmax(len, juce::jmin(sustained, gap));
+            len = juce::jlimit(1, juce::jmax(1, 16 - x), len);
+        }
         s.notes.push_back({ barOffset * 16 + x, len, note, velocity, 3, false });
     }
 }
@@ -1094,7 +1214,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         const int totalSteps = juce::jmax(1, sec.bars * 16);
         f.density = juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 6));
-        f.space = 1.0f - juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 5));
+        f.space = 1.0f - juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 9));
 
         if (m.size() >= 2)
         {
@@ -1265,7 +1385,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         f.hook = 0.24f*f.repetition + 0.16f*f.contour + 0.16f*f.leap
                + 0.16f*f.variety + 0.14f*f.rhythmIdentity + 0.10f*f.motifIdentity
                + 0.04f*f.surprise;
-        const float densityTarget = hookMode ? 0.48f : 0.40f;
+        const float densityTarget = hookMode ? 0.86f : 0.74f;
         const float densityFit = 1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-densityTarget)/0.42f);
         f.hook = 0.65f*f.hook + 0.35f*densityFit;
 
@@ -1322,6 +1442,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                       +0.18f*sameIntervals+0.20f*lengthSim);
     };
 
+    int mLo = 62, mHi = 86;
+    registerLane(2, mLo, mHi);
     auto flatten = [&](const SongData& song, int candidateIndex, juce::Random& local)
     {
         Section flat;
@@ -1358,7 +1480,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         n.step = juce::jlimit(0, juce::jmax(0, flat.bars*16-1), n.step + delta);
                     }
                     if(mode >= 19u && mode < 23u)
-                        n.note = juce::jlimit(48, 98, snapToScale(n.note + (((h>>9)&1u) ? 12 : -12)));
+                        n.note = foldIntoLane(snapToScale(n.note + (((h>>9)&1u) ? 12 : -12)), mLo, mHi);
                     if(mode >= 23u && mode < 27u && n.length > 2)
                         n.length = juce::jmax(2, n.length - (int)(h % 4u));
                     if(mode >= 27u && mode < 31u)
@@ -1372,9 +1494,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         else if(accident == 1)
                             n.length = juce::jmax(1, n.length - 2);
                         else if(accident == 2)
-                            n.note = juce::jlimit(48, 98, snapToScale(n.note + 12));
+                            n.note = foldIntoLane(snapToScale(n.note + 12), mLo, mHi);
                         else if(accident == 3)
-                            n.note = juce::jlimit(48, 98, snapToScale(n.note - 12));
+                            n.note = foldIntoLane(snapToScale(n.note - 12), mLo, mHi);
                         else
                             n.velocity = juce::jlimit(35, 118, n.velocity + 9);
                     }
@@ -1386,6 +1508,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         return flat;
     };
 
+    const bool sparseTypeAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     std::vector<Candidate> candidates;
     constexpr int candidateCount=1000;
     candidates.reserve(candidateCount);
@@ -1494,7 +1617,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         genreMotifTarget = juce::jlimit(.0f,1.0f,.68f*genreMotifTarget + .32f*hybridMotif);
         genreSurpriseTarget = juce::jlimit(.0f,1.0f,.68f*genreSurpriseTarget + .32f*hybridSurprise);
         genreRepeatTarget = juce::jlimit(.0f,1.0f,.68f*genreRepeatTarget + .32f*hybridRepeat);
-        const float genreDensityTarget = juce::jlimit(0.0f,1.0f,dnaDensity);
+        const float genreDensityTarget = juce::jlimit(0.0f,1.0f,0.40f+0.60f*dnaDensity);
         const float genreSpaceTarget = juce::jlimit(0.0f,1.0f,dnaSpace);
         const float genreRegisterTarget = juce::jlimit(0.0f,1.0f,dnaRegister);
         quality += 0.10f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-genreDensityTarget)));
@@ -1505,8 +1628,55 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.040f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.motifIdentity-genreMotifTarget)));
         quality += 0.035f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.surprise-genreSurpriseTarget)));
         quality += 0.035f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.repetition-genreRepeatTarget)));
-        quality += 0.08f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.46f)/0.50f));
+        quality += 0.08f*(1.0f-juce::jlimit(0.0f,1.0f,std::abs(f.density-0.80f)/0.50f));
         quality -= 0.28f*f.stepPenalty;
+
+        // 0.38 Layer judge: the old judge looked at the melody only.  Now the whole
+        // loop is scored: complete chords, a bass anchor, a repeating rhythmic
+        // hook and a playable note density.
+        {
+            const int barsN = juce::jmax(1, flat.bars);
+            int chordOk = 0, bassOk = 0, melNotes = 0;
+            std::vector<std::vector<int>> sig((size_t) barsN);
+            std::vector<std::vector<int>> pcs((size_t) barsN);
+            std::vector<bool> hasAnchor((size_t) barsN, false);
+            for (const auto& n : flat.notes)
+            {
+                const int b = juce::jlimit(0, barsN - 1, n.step / 16);
+                if (n.channel == 1 && n.step % 16 == 0) pcs[(size_t) b].push_back(((n.note % 12) + 12) % 12);
+                if (n.channel == 2 && n.step % 16 == 0) hasAnchor[(size_t) b] = true;
+                if (n.channel == 3) { sig[(size_t) b].push_back(n.step % 16); ++melNotes; }
+            }
+            for (int b = 0; b < barsN; ++b)
+            {
+                auto& v = pcs[(size_t) b];
+                std::sort(v.begin(), v.end());
+                v.erase(std::unique(v.begin(), v.end()), v.end());
+                if (v.size() >= 3) ++chordOk;
+                if (hasAnchor[(size_t) b]) ++bassOk;
+                std::sort(sig[(size_t) b].begin(), sig[(size_t) b].end());
+            }
+            const float chordComplete = chordsEnabled ? (float) chordOk / (float) barsN : 1.0f;
+            const float bassAnchor = bassEnabled ? (float) bassOk / (float) barsN : 1.0f;
+            float hookRepeat = 0.55f;
+            if (barsN >= 2)
+            {
+                int repeats = 0;
+                for (int b = 1; b < barsN; ++b)
+                {
+                    if (sig[(size_t) b].empty()) continue;
+                    for (int a = 0; a < b; ++a)
+                        if (sig[(size_t) a] == sig[(size_t) b]) { ++repeats; break; }
+                }
+                hookRepeat = (float) repeats / (float) (barsN - 1);
+            }
+            const float perBar = (float) melNotes / (float) barsN;
+            const float minPerBar = sparseTypeAllowed ? 2.0f : 4.2f;
+            const float sparsePenalty = juce::jlimit(0.0f, 1.0f, (minPerBar - perBar) / minPerBar);
+            quality += 0.10f * chordComplete + 0.05f * bassAnchor;
+            quality += 0.10f * (1.0f - juce::jlimit(0.0f, 1.0f, std::abs(hookRepeat - 0.55f) / 0.55f));
+            quality -= 0.20f * sparsePenalty;
+        }
 
         // Taste profile nudges the search without collapsing it into one style.
         if(likedN>0) quality += 0.10f*(1.0f-std::abs(f.density-likedD));
@@ -1721,13 +1891,13 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
             {
                 // Melody: scale-safe pitch mutation, occasional direction flip.
                 const int step=((h>>8)&1u)?2:-2;
-                n.note=juce::jlimit(48,98,snapToScale(n.note+step));
+                { int ml=62, mh=86; registerLane(2,ml,mh); n.note=juce::jlimit(ml,mh,snapToScale(n.note+step)); }
             }
             else if(n.channel==2)
             {
                 // Bass: mostly octave/scale-degree movement, never chromatic.
                 const int move=((h>>9)&3u)==0 ? 12 : (((h>>9)&1u)?2:-2);
-                n.note=juce::jlimit(18,60,snapToScale(n.note+move));
+                { int bl=28, bh=52; registerLane(1,bl,bh); n.note=foldIntoLane(snapToScale(n.note+move),bl,bh); }
             }
             else if(n.channel==1)
             {
