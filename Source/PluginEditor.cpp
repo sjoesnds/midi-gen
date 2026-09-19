@@ -16,33 +16,49 @@ g.setColour (juce::Colours::black);
 g.setFont (13.0f);
 g.drawFittedText ("Drag to FL Studio", getLocalBounds(), juce::Justification::centred, 1);
 }
-void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEvent& e)
+void MidiForgeAudioProcessorEditor::DragHandle::mouseDown (const juce::MouseEvent& e)
 {
-// mouseDrag fires repeatedly (on every mouse-move during the gesture), not once.
-// Starting a new native OS drag session on each of those calls stacked overlapping
-// drag operations on top of each other — this is what made the drag look broken,
-// and could leave an orphaned OS/COM drag handle alive that later blocked Windows
-// from unloading the plugin DLL when it was removed from the mixer.
-if (dragStarted)
-return;
-// Small threshold so a click doesn't immediately count as a drag.
-if (e.getDistanceFromDragStart() < 6)
-return;
-dragStarted = true;
-// Explicitly provide the plugin editor as the drag source. In a VST3 hosted
-// window, relying on "component under the mouse" can resolve to the host's
-// embedded wrapper instead of our JUCE editor, so the native drag never starts
-// reliably in FL Studio.
-auto file = owner.processor.writeTemporaryMidiFile();
-if (!file.existsAsFile())
+    dragStarted = true;
+
+    // Let JUCE own the drag gesture.  When the cursor leaves the plugin,
+    // MidiForgeAudioProcessorEditor::shouldDropFilesWhenDraggedExternally()
+    // supplies a fresh MIDI file.  This is the JUCE-supported path for
+    // repeated native OS drags and avoids starting multiple native drags
+    // directly from mouseDrag.
+    owner.startDragging ("MidiForge MIDI", this, juce::ScaledImage(), false,
+                         nullptr, &e.source);
+}
+
+void MidiForgeAudioProcessorEditor::DragHandle::mouseUp (const juce::MouseEvent&)
 {
-dragStarted = false;
-return;
+    dragStarted = false;
 }
-owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &owner,
-    [] {});
-dragStarted = false;
+
+bool MidiForgeAudioProcessorEditor::shouldDropFilesWhenDraggedExternally (
+    const juce::DragAndDropTarget::SourceDetails& sourceDetails,
+    juce::StringArray& files,
+    bool& canMoveFiles)
+{
+    if (sourceDetails.sourceComponent.get() != &dragHandle)
+        return false;
+
+    auto file = processor.writeTemporaryMidiFile();
+
+    if (!file.existsAsFile())
+        return false;
+
+    // Keep every generated drag file alive until the editor is destroyed.
+    // The native OS drag is asynchronous, so deleting the file here can make
+    // FL Studio fail to read it.  Keeping unique files also makes repeated
+    // drags reliable.
+    externalDragFiles.add (file);
+
+    files.clear();
+    files.add (file.getFullPathName());
+    canMoveFiles = false;
+    return true;
 }
+
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
 {
