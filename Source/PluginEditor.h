@@ -72,7 +72,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false);
+         owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &owner);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
      MidiForgeAudioProcessorEditor& owner;

@@ -29,14 +29,18 @@ return;
 if (e.getDistanceFromDragStart() < 6)
 return;
 dragStarted = true;
+// Explicitly provide the plugin editor as the drag source. In a VST3 hosted
+// window, relying on "component under the mouse" can resolve to the host's
+// embedded wrapper instead of our JUCE editor, so the native drag never starts
+// reliably in FL Studio.
 auto file = owner.processor.writeTemporaryMidiFile();
 if (!file.existsAsFile())
 {
 dragStarted = false;
 return;
 }
-owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, nullptr,
-    [file] { file.deleteFile(); });
+owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, &owner,
+    [] {});
 dragStarted = false;
 }
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
