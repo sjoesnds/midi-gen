@@ -22,7 +22,7 @@
 namespace taste
 {
     constexpr int kDim = 17;
-    constexpr int kSounds = 6;
+    constexpr int kSounds = 8;
     constexpr int kGenres = 16;
     using Vec = std::array<float, kDim>;
 
@@ -237,15 +237,17 @@ namespace taste
             auto* jws = o->getProperty ("ws").getArray();
             auto* jwg = o->getProperty ("wg").getArray();
             if (jw == nullptr || jws == nullptr || jwg == nullptr
-                || jw->size() != kDim || jws->size() != kSounds * kDim || jwg->size() != kGenres * kDim)
+                || jw->size() != kDim || jws->size() % kDim != 0 || jws->size() / kDim < 1
+                || jws->size() / kDim > kSounds || jwg->size() != kGenres * kDim)
                 return false;
+            const int savedSounds = jws->size() / kDim;     // models saved by older versions had fewer sounds
             Model m;
             m.bias = (float) (double) o->getProperty ("b");
             m.n = (float) (double) o->getProperty ("n");
             m.pos = (float) (double) o->getProperty ("pos");
             m.neg = (float) (double) o->getProperty ("neg");
             for (int i = 0; i < kDim; ++i) m.w[(size_t) i] = (float) (double) (*jw)[i];
-            for (int s = 0; s < kSounds; ++s) for (int i = 0; i < kDim; ++i) m.ws[(size_t) s][(size_t) i] = (float) (double) (*jws)[s * kDim + i];
+            for (int s = 0; s < savedSounds; ++s) for (int i = 0; i < kDim; ++i) m.ws[(size_t) s][(size_t) i] = (float) (double) (*jws)[s * kDim + i];
             for (int g = 0; g < kGenres; ++g) for (int i = 0; i < kDim; ++i) m.wg[(size_t) g][(size_t) i] = (float) (double) (*jwg)[g * kDim + i];
             *this = m;
             return true;

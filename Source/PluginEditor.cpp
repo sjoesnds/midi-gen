@@ -89,8 +89,14 @@ melodyTypeBox.addItemList({"Hook","Vocal-like","Riff","Ostinato","Arp","Counter"
 melodyTypeBox.setSelectedId(p.getMelodyType()+1); melodyTypeBox.onChange=[this]{processor.setMelodyType(melodyTypeBox.getSelectedId()-1);}; addAndMakeVisible(melodyTypeBox);
 eraBox.addItemList({"70s","80s","90s","00s","10s","20s"},1);
 eraBox.setSelectedId(p.getEra()+1); eraBox.onChange=[this]{processor.setEra(eraBox.getSelectedId()-1);}; addAndMakeVisible(eraBox);
-soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: Bell / Mallet","Sound: Pad / Strings","Sound: Brass"},1);
+soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: Bell / Mallet","Sound: Pad / Strings","Sound: Brass","Sound: 808 / Sub Lead","Sound: Guitar"},1);
 soundBox.setSelectedId(p.getSoundTarget()+1); soundBox.onChange=[this]{processor.setSoundTarget(soundBox.getSelectedId()-1);}; addAndMakeVisible(soundBox);
+articBox.addItemList({"Artic: Off","Artic: Slides","Artic: Slides + Vibrato"},1);
+articBox.setSelectedId(p.getArticulation()+1); articBox.onChange=[this]{processor.setArticulation(articBox.getSelectedId()-1);}; addAndMakeVisible(articBox);
+autoNextBtn.setButtonText("AUTO-NEXT");
+autoNextBtn.setToggleState(p.getAutoNext(), juce::dontSendNotification);
+autoNextBtn.onClick=[this]{ processor.setAutoNext(autoNextBtn.getToggleState()); };
+addAndMakeVisible(autoNextBtn);
 mode.setVisible(false);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
@@ -220,7 +226,8 @@ variationInfoLabel.setText ("VAR " + juce::String (varIndex + 1) + "  •  SCORE
                             juce::dontSendNotification);
 };
 dislikeBtn.onClick=[this]{
-processor.dislikeVariation(processor.getSelectedVariation());
+processor.dislikeAndAdvance();
+pianoRoll.resetEditHistory();
 refreshTaste();
 };
 addAndMakeVisible(likeBtn);addAndMakeVisible(dislikeBtn);
@@ -339,6 +346,8 @@ moodBox.setBounds(20,136,106,24);
 melodyTypeBox.setBounds(133,136,112,24);
 eraBox.setBounds(252,136,70,24);
 soundBox.setBounds(329,136,168,24);
+articBox.setBounds(503,136,176,24);
+autoNextBtn.setBounds(818,690,78,26);
 
 // Two-column compact control layout.
 const int sliderH = 21;
@@ -410,5 +419,6 @@ if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(proc
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
 if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
+if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 refreshTaste();
 }

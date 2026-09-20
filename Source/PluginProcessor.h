@@ -96,6 +96,12 @@ int getSectionMode() const { return sectionMode; }
 int getMood() const { return mood; }
 int getMelodyType() const { return melodyType; }
 int getSoundTarget() const { return soundTarget; }
+// 0.42 Articulation (0 off, 1 slides, 2 slides + vibrato) - applies to profiles that support it (Synth Lead, 808)
+int getArticulation() const { return articulation; }
+void setArticulation (int v);
+bool getAutoNext() const { return autoNextOnDislike; }
+void setAutoNext (bool on) { autoNextOnDislike = on; }
+void dislikeAndAdvance();   // DISLIKE the selected loop and move on to the next one
 int getEra() const { return era; }
 float getChordDensity() const { return chordDensity; }
 float getBassDensity() const { return bassDensity; }
@@ -175,6 +181,12 @@ struct Section {
 struct SongData {
     std::vector<Section> sections;
 };
+// 0.42 Articulation is decided from the melody line itself when a MIDI file is written,
+// so it never has to survive piano-roll edits.
+struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
+std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
+void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
+                      double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
 // из GUI-потока (регенерация, выбор варианта) — доступ защищён этим локом.
 mutable juce::CriticalSection variationsLock;
@@ -187,7 +199,9 @@ int activeBars = 4;
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
-int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass
+int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
+int articulation = 1;
+bool autoNextOnDislike = true;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
 uint32_t generationNonce = 0;
 uint32_t generationSeed = 0;

@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
+#ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
+#endif
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -37,18 +39,23 @@ namespace
         int   maxLeap;        // max interval to the previous note in semitones (0 = unlimited)
         int   chordLen;       // chord hit length in steps (16 = sustained)
         bool  chordTwoHits;   // second chord hit on beat 3 (stab styles)
+        float slideChance;    // 0.42: chance of a legato slide into the next note (Articulation)
+        float vibChance;      // 0.42: chance of vibrato on a long note (Articulation = Slides + Vibrato)
+        bool  bassOff;        // the melody IS the bass voice (808): no separate bass layer
     };
     static SoundProfile soundProfileFor (int id)
     {
         switch (id)
         {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true  }; // Pluck
-            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true  }; // Brass
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false }; // Piano (neutral)
+            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff
+            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false }; // Pluck
+            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false }; // Synth Lead
+            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false }; // Bell / Mallet
+            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false }; // Pad / Strings
+            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false }; // Brass
+            case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true  }; // 808 / Sub Lead
+            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false }; // Guitar
+            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false }; // Piano (neutral)
         }
     }
 }
@@ -75,7 +82,18 @@ void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regener
 void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
-void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,5,v);regenerate();}
+void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7,v);regenerate();}
+void MidiForgeAudioProcessor::setArticulation(int v){articulation=juce::jlimit(0,2,v);}
+void MidiForgeAudioProcessor::dislikeAndAdvance()
+{
+    const int vi = selectedVariation;
+    dislikeVariation(vi);
+    if (! autoNextOnDislike) return;
+    int count = 0;
+    { juce::ScopedLock sl(variationsLock); count = (int) variations.size(); }
+    if (vi + 1 < count) chooseVariation(vi + 1);
+    else magicRandomize();
+}
 void MidiForgeAudioProcessor::setEra(int v){era=juce::jlimit(0,5,v);regenerate();}
 void MidiForgeAudioProcessor::setProgression(int v){progression=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regenerate();}
@@ -1424,7 +1442,7 @@ for(int bar=0;bar<bars;++bar){
 int deg=prog[(size_t)((bar+sectionIndex)%prog.size())];
 if(chordsEnabled)
 addChords(section,bar,deg,targetEnergy,r);
-if(bassEnabled)
+if(bassEnabled && !soundProfileFor(soundTarget).bassOff)
 addBass(section,bar,deg,targetEnergy,r);
 if(melodyEnabled)
 addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
@@ -1982,7 +2000,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 std::sort(sig[(size_t) b].begin(), sig[(size_t) b].end());
             }
             const float chordComplete = chordsEnabled ? (float) chordOk / (float) barsN : 1.0f;
-            const float bassAnchor = bassEnabled ? (float) bassOk / (float) barsN : 1.0f;
+            const float bassAnchor = (bassEnabled && ! judgeProf.bassOff) ? (float) bassOk / (float) barsN : 1.0f;
             float hookRepeat = 0.55f;
             if (barsN >= 2)
             {
@@ -2354,17 +2372,20 @@ conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNot
 conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
 const int totalSteps = juce::jmax(1, song.bars * 16);
 const double endTick = (double) totalSteps * ticksPerStep;
+const auto songArt = articulationFor (song.notes);
 conductor.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
 file.addTrack(conductor);
 for (int channel = 1; channel <= 4; ++channel)
 {
 juce::MidiMessageSequence track;
-for (const auto& e : song.notes)
+for (size_t ei = 0; ei < song.notes.size(); ++ei)
 {
+const auto& e = song.notes[ei];
 if (e.channel != channel)
 continue;
 const double onTick = (double) e.step * ticksPerStep;
-const double offTick = onTick + (double) juce::jmax(1, e.length) * ticksPerStep;
+double offTick = onTick + (double) juce::jmax(1, e.length) * ticksPerStep;
+addArticulation (track, songArt[ei], channel, onTick, offTick, (double) ticksPerStep);
 const int velocity = juce::jlimit(1, 127, e.velocity);
 track.addEvent(juce::MidiMessage::noteOn(channel, e.note, (juce::uint8) velocity), onTick);
 track.addEvent(juce::MidiMessage::noteOff(channel, e.note), offTick);
@@ -2456,6 +2477,7 @@ o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o
 o.writeInt(selectedVariation);
 o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
 o.writeInt(soundTarget);
+o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -2471,11 +2493,60 @@ motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
 if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
-if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,5,i.readInt());
+if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
+if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
 regenerate();
 chooseVariation (savedSelection);
 }
 // --- MIDI export --------------------------------------------------------
+std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const
+{
+    std::vector<ArtInfo> art (notes.size());
+    const auto prof = soundProfileFor (soundTarget);
+    if (articulation <= 0 || (prof.slideChance <= 0.0f && prof.vibChance <= 0.0f)) return art;
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < notes.size(); ++i) if (notes[i].channel == 3) idx.push_back (i);
+    std::stable_sort (idx.begin(), idx.end(), [&] (size_t a, size_t b) { return notes[a].step < notes[b].step; });
+    for (size_t k = 0; k < idx.size(); ++k)
+    {
+        const auto& cur = notes[idx[k]];
+        const uint32_t hsh = hash32 (generationSeed ^ (uint32_t) (cur.step * 131 + cur.note * 17 + 5));
+        if (k + 1 < idx.size())
+        {
+            const auto& nx = notes[idx[k + 1]];
+            const int gap = nx.step - cur.step;
+            const int iv = std::abs (nx.note - cur.note);
+            // legato slide: the note runs on into the next one (touching notes, different pitch, no big leap)
+            if (gap > 0 && gap - cur.length <= 1 && iv >= 1 && iv <= 7
+                && (float) (hsh % 1000u) / 1000.0f < prof.slideChance)
+            {
+                art[idx[k]].slide = true;
+                art[idx[k]].slideToStep = nx.step;
+            }
+        }
+        if (articulation >= 2 && cur.length >= 4
+            && (float) (hash32 (hsh ^ 0x51ed270bu) % 1000u) / 1000.0f < prof.vibChance)
+            art[idx[k]].vib = true;
+    }
+    return art;
+}
+
+void MidiForgeAudioProcessor::addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
+                                               double onTick, double& offTick, double ticksPerStep) const
+{
+    if (a.slide && a.slideToStep >= 0)
+        offTick = juce::jmax (offTick, (double) (a.slideToStep + 1) * ticksPerStep);   // overlap the next note by one step
+    if (a.vib)
+    {
+        // delayed vibrato on the mod wheel (CC1): 0 -> 45 -> 85 -> 0
+        const double dur = offTick - onTick;
+        track.addEvent (juce::MidiMessage::controllerEvent (channel, 1, 0), onTick);
+        track.addEvent (juce::MidiMessage::controllerEvent (channel, 1, 45), onTick + 0.35 * dur);
+        track.addEvent (juce::MidiMessage::controllerEvent (channel, 1, 85), onTick + 0.60 * dur);
+        track.addEvent (juce::MidiMessage::controllerEvent (channel, 1, 0), offTick);
+    }
+}
+
 juce::MidiFile MidiForgeAudioProcessor::buildMidiFile (int channelFilter) const
 {
 juce::MidiFile midiFile;
@@ -2488,16 +2559,19 @@ const juce::ScopedLock sl (variationsLock);
 pattern = mergedSelectedSong();
 }
 static const char* trackNames[5] = { "", "Chords", "Bass", "Melody", "Arp" };
+const auto art = articulationFor (pattern.notes);
 for (int channel = 1; channel <= 4; ++channel)
 {
 if (channelFilter != 0 && channel != channelFilter) continue;
 juce::MidiMessageSequence track;
 track.addEvent (juce::MidiMessage::textMetaEvent (3, trackNames[channel]), 0.0);
-for (const auto& n : pattern.notes)
+for (size_t ni = 0; ni < pattern.notes.size(); ++ni)
 {
+const auto& n = pattern.notes[ni];
 if (n.channel != channel) continue;
 const double onTick  = n.step * (double) ticksPerStep;
-const double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+addArticulation (track, art[ni], channel, onTick, offTick, (double) ticksPerStep);
 auto on = juce::MidiMessage::noteOn (channel, n.note, (juce::uint8) juce::jlimit (1, 127, n.velocity));
 auto off = juce::MidiMessage::noteOff (channel, n.note);
 track.addEvent (on, onTick);
@@ -2659,5 +2733,12 @@ void MidiForgeAudioProcessor::quantizeVisibleNotes (int gridSteps)
     syncEditedNotesToSelectedVariation (snapshot);
 }
 
-juce::AudioProcessorEditor* MidiForgeAudioProcessor::createEditor(){return new MidiForgeAudioProcessorEditor(*this);}
+juce::AudioProcessorEditor* MidiForgeAudioProcessor::createEditor()
+{
+#ifdef MIDIFORGE_HEADLESS
+    return nullptr;
+#else
+    return new MidiForgeAudioProcessorEditor(*this);
+#endif
+}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter(){return new MidiForgeAudioProcessor();}

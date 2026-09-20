@@ -19,7 +19,7 @@ void refreshTaste();
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel, variationInfoLabel;
- juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox;
+ juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
@@ -33,6 +33,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
  juce::TextButton likeBtn, dislikeBtn;
  juce::Label tasteLabel;
  juce::TextButton resetTasteBtn;
+ juce::ToggleButton autoNextBtn;
  juce::ToggleButton tasteToggleBtn;
  // --- Экспорт MIDI ---
  juce::TextButton exportButton { "Export MIDI..." };
