@@ -2029,11 +2029,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // soft layer on top of the existing judge: it rewards coherence without
         // forcing every candidate into the same melodic shape.
         {
-            const int barsN = juce::jmax(1, sec.bars);
+            const int barsN = juce::jmax(1, flat.bars);
             std::vector<std::vector<int>> chordPcs((size_t) barsN);
             std::vector<std::vector<const NoteEvent*>> melodyBars((size_t) barsN);
 
-            for (const auto& n : sec.notes)
+            for (const auto& n : flat.notes)
             {
                 const int b = juce::jlimit(0, barsN - 1, n.step / 16);
                 if (n.channel == 1)
