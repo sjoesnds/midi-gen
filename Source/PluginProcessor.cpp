@@ -4,6 +4,7 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <unordered_set>
 
 namespace
@@ -2019,6 +2020,145 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality += 0.10f * chordComplete + 0.05f * bassAnchor;
             quality += 0.10f * (1.0f - juce::jlimit(0.0f, 1.0f, std::abs(hookRepeat - 0.55f) / 0.55f));
             quality -= 0.20f * sparsePenalty;
+        }
+
+
+        // 0.43 Musical Quality Judge 1.0:
+        // Score the musical relationship of the whole loop instead of treating
+        // melody features as mostly independent statistics.  This remains a
+        // soft layer on top of the existing judge: it rewards coherence without
+        // forcing every candidate into the same melodic shape.
+        {
+            const int barsN = juce::jmax(1, sec.bars);
+            std::vector<std::vector<int>> chordPcs((size_t) barsN);
+            std::vector<std::vector<const NoteEvent*>> melodyBars((size_t) barsN);
+
+            for (const auto& n : sec.notes)
+            {
+                const int b = juce::jlimit(0, barsN - 1, n.step / 16);
+                if (n.channel == 1)
+                {
+                    const int pc = (n.note % 12 + 12) % 12;
+                    if (std::find(chordPcs[(size_t) b].begin(),
+                                  chordPcs[(size_t) b].end(), pc) == chordPcs[(size_t) b].end())
+                        chordPcs[(size_t) b].push_back(pc);
+                }
+                else if (n.channel == 3)
+                {
+                    melodyBars[(size_t) b].push_back(&n);
+                }
+            }
+
+            // Harmony fit: notes should usually land on a chord tone, while
+            // leaving room for passing/approach tones. Long notes are weighted
+            // slightly more because they define the perceived harmony.
+            float harmonySum = 0.0f;
+            float harmonyWeight = 0.0f;
+            for (int b = 0; b < barsN; ++b)
+            {
+                const auto& cp = chordPcs[(size_t) b];
+                if (cp.empty()) continue;
+                for (const auto* n : melodyBars[(size_t) b])
+                {
+                    const int pc = (n->note % 12 + 12) % 12;
+                    const bool chordTone = std::find(cp.begin(), cp.end(), pc) != cp.end();
+                    const float weight = 0.75f + 0.25f * juce::jlimit(0.0f, 1.0f,
+                        (float) juce::jmax(1, n->length) / 8.0f);
+                    harmonySum += (chordTone ? 1.0f : 0.35f) * weight;
+                    harmonyWeight += weight;
+                }
+            }
+            const float harmonyFit = harmonyWeight > 0.0f
+                ? harmonySum / harmonyWeight : 0.55f;
+
+            // Leap recovery: a large jump feels more intentional when the next
+            // movement answers it in the opposite direction and is smaller.
+            int largeLeaps = 0;
+            int recoveredLeaps = 0;
+            for (const auto& bar : melodyBars)
+            {
+                for (size_t i = 1; i + 1 < bar.size(); ++i)
+                {
+                    const int a = bar[i]->note - bar[i - 1]->note;
+                    const int b = bar[i + 1]->note - bar[i]->note;
+                    if (std::abs(a) >= 7)
+                    {
+                        ++largeLeaps;
+                        if ((a > 0 && b < 0) || (a < 0 && b > 0))
+                            if (std::abs(b) <= 5)
+                                ++recoveredLeaps;
+                    }
+                }
+            }
+            const float leapRecovery = largeLeaps > 0
+                ? (float) recoveredLeaps / (float) largeLeaps : 0.65f;
+
+            // Cadence: the final melodic event should feel like a landing.
+            // Chord-tone endings are preferred, but a nearby scale tone is
+            // still acceptable so the judge does not over-constrain phrasing.
+            float cadence = 0.55f;
+            const auto& lastBar = melodyBars.back();
+            if (!lastBar.empty())
+            {
+                const auto* last = lastBar.back();
+                const int lastPc = (last->note % 12 + 12) % 12;
+                const bool chordTone = !chordPcs.back().empty()
+                    && std::find(chordPcs.back().begin(), chordPcs.back().end(), lastPc)
+                       != chordPcs.back().end();
+
+                float approach = 0.0f;
+                if (lastBar.size() >= 2)
+                {
+                    const int d = last->note - lastBar[lastBar.size() - 2]->note;
+                    approach = (std::abs(d) <= 2) ? 0.20f : 0.0f;
+                }
+                cadence = chordTone ? 0.80f + approach : 0.35f + approach;
+                cadence = juce::jlimit(0.0f, 1.0f, cadence);
+            }
+
+            // Phrase balance: reward variation between bars, but penalise a
+            // completely empty/overloaded bar. This complements, rather than
+            // replaces, the existing density and phrase-memory scores.
+            float balance = 0.70f;
+            if (barsN >= 2)
+            {
+                std::vector<float> counts;
+                counts.reserve((size_t) barsN);
+                for (const auto& mb : melodyBars)
+                    counts.push_back((float) mb.size());
+
+                const float mean = std::accumulate(counts.begin(), counts.end(), 0.0f)
+                    / (float) barsN;
+                if (mean > 0.0f)
+                {
+                    float variance = 0.0f;
+                    for (const auto c : counts)
+                    {
+                        const float d = c - mean;
+                        variance += d * d;
+                    }
+                    variance /= (float) barsN;
+                    const float cv = std::sqrt(variance) / juce::jmax(1.0f, mean);
+                    balance = 1.0f - juce::jlimit(0.0f, 1.0f, std::abs(cv - 0.45f) / 0.75f);
+
+                    int emptyBars = 0;
+                    for (const auto c : counts) if (c <= 0.0f) ++emptyBars;
+                    if (emptyBars > 0 && !sparseTypeAllowed)
+                        balance -= 0.20f * juce::jlimit(0, 2, emptyBars);
+                    balance = juce::jlimit(0.0f, 1.0f, balance);
+                }
+            }
+
+            // The combined score is deliberately capped in influence. Existing
+            // DNA, genre, phrase and diversity systems remain the main search
+            // drivers; this layer only helps the Judge reject technically valid
+            // but musically disconnected candidates.
+            const float musicalCoherence =
+                0.40f * harmonyFit
+                + 0.22f * leapRecovery
+                + 0.23f * cadence
+                + 0.15f * balance;
+            quality += 0.16f * musicalCoherence;
         }
 
         // 0.40 Taste ML: the features of the whole loop are collected here; the
