@@ -200,7 +200,7 @@ double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
-int articulation = 1;
+int articulation = 0;   // Off by default: overlapping notes sound like dyads on a polyphonic patch
 bool autoNextOnDislike = true;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
 uint32_t generationNonce = 0;
@@ -269,6 +269,7 @@ void buildSection(Section& section, int sectionIndex, const std::vector<int>& pr
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
 void addChords(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void addBass(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
+void add808(Section&, int barOffset, float localEnergy, juce::Random&, int variationSalt);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
                const std::vector<NoteEvent>* inheritedMotif, int variationSalt = 0);
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);

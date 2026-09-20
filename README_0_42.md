@@ -5,7 +5,7 @@
   the separate bass layer is switched off (the melody is the bass voice).
 - **Guitar**: E2..E5 range, medium-short notes, picking dynamics, half-bar chord strums, occasional slides.
 
-## Articulation (new dropdown: Off / Slides / Slides + Vibrato)
+## Articulation (new dropdown: Off / Slides / Slides + Vibrato; default Off)
 Works for Synth Lead and 808 (Guitar: slides). Decided from the melody line when a MIDI file is written (drag / export),
 so it survives piano-roll edits.
 - **Slide** = the note runs one step into the next one (legato overlap). Turn the synth to mono / legato with portamento

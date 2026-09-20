@@ -43,20 +43,21 @@ namespace
         float slideChance;    // 0.42: chance of a legato slide into the next note (Articulation)
         float vibChance;      // 0.42: chance of vibrato on a long note (Articulation = Slides + Vibrato)
         bool  bassOff;        // the melody IS the bass voice (808): no separate bass layer
+        bool  soloLine;       // 0.43.2: the loop is ONE line (808): no chord / bass / arp layers, real 808 generator
     };
     static SoundProfile soundProfileFor (int id)
     {
         switch (id)
         {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false }; // Pluck
-            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false }; // Brass
-            case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true  }; // 808 / Sub Lead
-            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false }; // Guitar
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false }; // Piano (neutral)
+            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
+            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
+            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
+            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
+            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
+            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
+            case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true, true }; // 808 / Sub Lead
+            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
+            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
         }
     }
 }
@@ -250,6 +251,7 @@ void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
         default:                                                              // melody
         {
             const auto prof = soundProfileFor (soundTarget);
+            if (prof.soloLine) { lo = 28; hi = 50; break; }   // 808: E1..D3
             lo = 62 + shift + prof.laneShift;
             hi = juce::jmin (86 + shift + prof.laneShift, prof.laneCap);
             lo = juce::jmin (lo, hi - 14);
@@ -665,6 +667,84 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
     // only when it stays above the audible floor.
     if((genre==Trap||genre==Cinematic) && e>0.5f && r.nextFloat()<0.35f && root-12>=lo)
         s.notes.push_back({barOffset*16,8,root-12,100,2,false});
+}
+void MidiForgeAudioProcessor::add808(Section& s,int barOffset,float e,juce::Random&,int variationSalt)
+{
+    // 0.43.2 - a real 808 line.  The 808 profile used to run the melody generator in a low
+    // register: several long, overlapping, scale-wandering notes that read like held chords.
+    // An 808 is ONE voice that plays the roots of the progression in a kick-locked rhythm:
+    //  - strictly monophonic (one note at a time, no overlaps)
+    //  - E1..D3, beat 1 of every bar is the chord root
+    //  - other hits: mostly root, sometimes the fifth or the octave
+    //  - phrase ends may step into the next chord root
+    //  - the rhythm cell repeats (A A' B A'') so it becomes a pattern, not a random line
+    int lo=28, hi=50;
+    registerLane(2,lo,hi);
+    const auto prog=progressionDegrees();
+    const int degree=prog[(size_t)(barOffset%(int)prog.size())];
+    const int nextDeg=prog[(size_t)((barOffset+1)%(int)prog.size())];
+    const int loopBar=barOffset%juce::jmax(1,bars);
+    const int cycle=loopBar%4;
+
+    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00808808u);
+    const uint32_t idSeed=(cycle==2) ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset/4)*0x27d4eb2du) : loopSeed;
+
+    // Octave placement follows the previous note (a bass line moves in small steps between roots).
+    int prevNote=-1;
+    for(auto it=s.notes.rbegin(); it!=s.notes.rend(); ++it)
+        if(it->channel==3 && it->step<barOffset*16) { prevNote=it->note; break; }
+    auto nearestPlacement=[&](int pitchAny,int ref)
+    {
+        int best=foldIntoLane(pitchAny,lo,hi);
+        for(int k=-3;k<=3;++k)
+        {
+            const int cand=pitchAny+12*k;
+            if(cand<lo||cand>hi) continue;
+            if(std::abs(cand-ref)<std::abs(best-ref)) best=cand;
+        }
+        return best;
+    };
+    const int root=nearestPlacement(degreeToPitch(degree,2), prevNote>=0 ? prevNote : 38);
+    const int fifth=(root+7<=hi) ? root+7 : root-5;
+    const int nextRoot=nearestPlacement(degreeToPitch(nextDeg,2),root);
+    int octaveNote=root+12; if(octaveNote>hi) octaveNote=root-12; if(octaveNote<lo) octaveNote=root;
+
+    // rhythm cells, sorted from sparse to busy (Melody Density and energy pick the busier ones)
+    using Cell=std::vector<int>;
+    std::vector<Cell> fam;
+    if(genre==Trap||genre==Drill)                     fam={{0},{0,10},{0,6,10},{0,7,10},{0,6,8,14},{0,3,8,11},{0,3,6,10,14}};
+    else if(genre==House||genre==Techno||genre==DnB)  fam={{0,8},{0,4,10},{0,6,8,14},{0,4,8,12}};
+    else if(genre==Jersey||genre==Afro)               fam={{0,10},{0,3,6,10},{0,6,10},{0,3,8,11,14}};
+    else if(genre==RnB||genre==Lofi||genre==BoomBap||genre==Ambient||genre==Cinematic)
+                                                      fam={{0},{0,10},{0,8},{0,6,12}};
+    else                                              fam={{0},{0,10},{0,8},{0,6,10},{0,4,8,12}};
+    std::stable_sort(fam.begin(),fam.end(),[](const Cell& a,const Cell& b){ return a.size()<b.size(); });
+    const float uRnd=(float)(hash32(idSeed ^ 0x808u)%1000u)/1000.0f;
+    const float uDens=juce::jlimit(0.0f,0.999f,0.45f*uRnd+0.55f*melodyDensity+0.10f*(e-0.5f));
+    const Cell& pat=fam[(size_t)((int)(uDens*(float)fam.size()))];
+
+    const bool phraseEnd=(cycle==3)||(barOffset==bars-1);
+    for(size_t k=0;k<pat.size();++k)
+    {
+        const int x=pat[k];
+        const uint32_t hk=hash32(idSeed ^ (uint32_t)(k*197+31));
+        const unsigned pr=hk%100u;
+        int pitch=root;
+        if(k>0)
+        {
+            if(pr<12) pitch=fifth;
+            else if(pr<20) pitch=octaveNote;
+        }
+        const bool lastHit=(k+1==pat.size());
+        if(lastHit && phraseEnd && k>0 && (hash32(idSeed ^ 0x51ed270bu ^ (uint32_t)(barOffset/4))%100u)<60u)
+            pitch=foldIntoLane(snapToScale(nextRoot + (nextRoot>=root ? -2 : 2)),lo,hi);   // step into the next root
+        const int nextX=lastHit ? 16 : pat[k+1];
+        const int gap=nextX-x;
+        int len=(gap<=3) ? gap : gap-1;                       // small breath before the next hit, never an overlap
+        len=juce::jlimit(1,juce::jmax(1,16-x),len);
+        const int vel=juce::jlimit(70,118,(x==0 ? 108 : 98)+(int)(hk%9u)-4);
+        s.notes.push_back({barOffset*16+x,len,juce::jlimit(lo,hi,pitch),vel,3,false});
+    }
 }
 void MidiForgeAudioProcessor::addMelody(
 Section& s, int barOffset, float e, juce::Random& r,
@@ -1441,13 +1521,17 @@ section.energy=targetEnergy;
 section.densityMultiplier=0.55f+0.65f*targetEnergy;
 for(int bar=0;bar<bars;++bar){
 int deg=prog[(size_t)((bar+sectionIndex)%prog.size())];
-if(chordsEnabled)
+const bool solo=soundProfileFor(soundTarget).soloLine;
+if(chordsEnabled && !solo)
 addChords(section,bar,deg,targetEnergy,r);
 if(bassEnabled && !soundProfileFor(soundTarget).bassOff)
 addBass(section,bar,deg,targetEnergy,r);
 if(melodyEnabled)
-addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
-if(arpEnabled)
+{
+    if(solo) add808(section,bar,targetEnergy,r,variationSalt);
+    else addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
+}
+if(arpEnabled && !solo)
 addArp(section,bar,deg,targetEnergy,r);
 }
 }
@@ -1798,7 +1882,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 // Candidate-level mutations are intentionally structural, not
                 // just octave changes: entrance, note deletion and phrase
                 // displacement produce genuinely different loop identities.
-                if(n.channel==3)
+                if(n.channel==3 && !soundProfileFor(soundTarget).soloLine)
                 {
                     const uint32_t h=hash32(generationSeed ^ (uint32_t)(candidateIndex*977 + n.step*31));
                     const unsigned mode = h % 100u;
@@ -2000,7 +2084,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 if (hasAnchor[(size_t) b]) ++bassOk;
                 std::sort(sig[(size_t) b].begin(), sig[(size_t) b].end());
             }
-            const float chordComplete = chordsEnabled ? (float) chordOk / (float) barsN : 1.0f;
+            const float chordComplete = (chordsEnabled && ! judgeProf.soloLine) ? (float) chordOk / (float) barsN : 1.0f;
             const float bassAnchor = (bassEnabled && ! judgeProf.bassOff) ? (float) bassOk / (float) barsN : 1.0f;
             float hookRepeat = 0.55f;
             if (barsN >= 2)

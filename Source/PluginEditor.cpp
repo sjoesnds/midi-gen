@@ -89,7 +89,7 @@ melodyTypeBox.addItemList({"Hook","Vocal-like","Riff","Ostinato","Arp","Counter"
 melodyTypeBox.setSelectedId(p.getMelodyType()+1); melodyTypeBox.onChange=[this]{processor.setMelodyType(melodyTypeBox.getSelectedId()-1);}; addAndMakeVisible(melodyTypeBox);
 eraBox.addItemList({"70s","80s","90s","00s","10s","20s"},1);
 eraBox.setSelectedId(p.getEra()+1); eraBox.onChange=[this]{processor.setEra(eraBox.getSelectedId()-1);}; addAndMakeVisible(eraBox);
-soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: Bell / Mallet","Sound: Pad / Strings","Sound: Brass","Sound: 808 / Sub Lead","Sound: Guitar"},1);
+soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: Bell / Mallet","Sound: Pad / Strings","Sound: Brass","Sound: 808 (one bass line)","Sound: Guitar"},1);
 soundBox.setSelectedId(p.getSoundTarget()+1); soundBox.onChange=[this]{processor.setSoundTarget(soundBox.getSelectedId()-1);}; addAndMakeVisible(soundBox);
 articBox.addItemList({"Artic: Off","Artic: Slides","Artic: Slides + Vibrato"},1);
 articBox.setSelectedId(p.getArticulation()+1); articBox.onChange=[this]{processor.setArticulation(articBox.getSelectedId()-1);}; addAndMakeVisible(articBox);

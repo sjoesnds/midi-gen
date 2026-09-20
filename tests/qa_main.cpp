@@ -290,6 +290,26 @@ int main()
         report ("Guitar lives in guitar range", st[7].medianPitch >= 52 && st[7].medianPitch <= 76, fmt ("median pitch %.0f", st[7].medianPitch));
     }
 
+    // ------------------------------------------------------------------ 3b. 808 is ONE bass line
+    {
+        p.setSoundTarget (6); p.setArticulation (0);
+        int otherLayers = 0, outOfLane = 0, bars = 0, beat1 = 0, intervals = 0, bigIntervals = 0;
+        std::vector<int> pitches;
+        for (auto& l : makeLoops (p, 60))
+        {
+            auto line = layer (l, 3);
+            for (auto& n : l.notes) if (n.channel != 3) ++otherLayers;
+            for (auto& n : line) { pitches.push_back (n.note); if (n.note < 28 || n.note > 50) ++outOfLane; }
+            for (int b = 0; b < l.bars; ++b) { ++bars; for (auto& n : line) if (n.step == b * 16) { ++beat1; break; } }
+            for (size_t i = 1; i < line.size(); ++i) { ++intervals; if (std::abs (line[i].note - line[i - 1].note) > 12) ++bigIntervals; }
+        }
+        const double bigShare = intervals ? (double) bigIntervals / intervals : 0;
+        report ("808 is a single line (no chord / bass / arp notes)", otherLayers == 0, fmt ("%.0f notes on other layers", otherLayers));
+        report ("808 stays in E1..D3", outOfLane == 0 && median (pitches) >= 30 && median (pitches) <= 46, fmt ("%.0f notes out of range, median pitch %.0f", outOfLane, median (pitches)));
+        report ("808 plays on beat 1 of every bar", beat1 == bars, fmt ("%.0f of %.0f bars", beat1, bars));
+        report ("808 moves like a bass line (few jumps above an octave)", bigShare <= 0.15, fmt ("share %.3f <= 0.15", bigShare));
+    }
+
     // ------------------------------------------------------------------ 4. articulation
     {
         auto exportAndRead = [&] (int sound, int art, int loops)
@@ -352,7 +372,7 @@ int main()
         report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext(),
                fmt ("sound %.0f, articulation %.0f", b.getSoundTarget(), b.getArticulation()));
         MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 8);   // project saved by 0.40 / 0.41
-        report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 1, "defaults applied");
+        report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 0, "defaults applied");
         MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 12); // project saved by 0.38 / 0.39
         report ("older project (no sound field) loads", d.getSoundTarget() == 0, "defaults applied");
     }
