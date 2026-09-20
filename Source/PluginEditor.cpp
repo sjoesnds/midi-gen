@@ -44,6 +44,7 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
         activeDragFile = juce::File();
         return;
     }
+    owner.processor.registerImplicitLike();   // dragged into the DAW = weak like
 
     // The actual button is the OLE source. Using the editor itself can make the
     // VST3 wrapper become the source window inside FL Studio.
@@ -182,6 +183,7 @@ const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
 const bool ok = safeThis->processor.exportMidi(result);
+if (ok) safeThis->processor.registerImplicitLike();
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
@@ -226,8 +228,20 @@ refreshTaste();
 addAndMakeVisible(likeBtn);addAndMakeVisible(dislikeBtn);
 tasteLabel.setText("TASTE: 0 like / 0 dislike",juce::dontSendNotification);
 tasteLabel.setColour(juce::Label::textColourId,juce::Colours::white.withAlpha(0.8f));
-tasteLabel.setFont(juce::Font(12.0f));
+tasteLabel.setFont(juce::Font(11.0f));
+tasteLabel.setMinimumHorizontalScale(0.7f);
 addAndMakeVisible(tasteLabel);
+resetTasteBtn.setButtonText("RESET");
+resetTasteBtn.onClick=[this]{
+juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon,"Reset taste",
+"Forget everything MIDI Forge learned from your LIKE / DISLIKE?",{},{},nullptr,
+juce::ModalCallbackFunction::create([this](int r){ if(r==1){ processor.resetTaste(); refreshTaste(); } }));
+};
+addAndMakeVisible(resetTasteBtn);
+tasteToggleBtn.setButtonText("TASTE ML");
+tasteToggleBtn.setToggleState(processor.getTasteEnabled(), juce::dontSendNotification);
+tasteToggleBtn.onClick=[this]{ processor.setTasteEnabled(tasteToggleBtn.getToggleState()); };
+addAndMakeVisible(tasteToggleBtn);
 // --- Экспорт MIDI ---
 exportButton.onClick = [this]
 {
@@ -240,7 +254,7 @@ juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOver
 if (safeThis == nullptr) return;
 auto file = fc.getResult();
 if (file != juce::File())
-safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid"));
+{ safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid")); safeThis->processor.registerImplicitLike(); }
 });
 };
 addAndMakeVisible (exportButton);
@@ -266,10 +280,11 @@ startTimerHz (10);
 void MidiForgeAudioProcessorEditor::refreshTaste()
 {
 const int sel = processor.getSelectedVariation();
-juce::String t = "TASTE: " + juce::String(processor.getTasteLikes()) + " like / "
-+ juce::String(processor.getTasteDislikes()) + " dislike   |   VAR "
-+ juce::String(sel + 1) + " score: "
-+ juce::String(processor.getVariationScore(sel));
+juce::String t = "TASTE +" + juce::String(processor.getTasteLikes()) + " / -"
++ juce::String(processor.getTasteDislikes()) + "   ML "
++ juce::String((int) std::round(processor.getTasteConfidence() * 100.0f)) + "%   VAR "
++ juce::String(sel + 1) + " (" + juce::String(processor.getVariationScore(sel)) + ")\n"
++ processor.getTasteSummary();
 if (t != lastTasteText)
 {
 lastTasteText = t;
@@ -367,7 +382,6 @@ likeBtn.setBounds(654,687,70,32);
 dislikeBtn.setBounds(730,687,82,32);
 mutateButton.setBounds(818,687,76,32);
 evolveButton.setBounds(900,687,76,32);
-tasteLabel.setBounds(530,764,350,28);
 
 exportButton.setBounds(20,733,122,28);
 undoBtn.setBounds(150,733,66,28);
@@ -385,7 +399,9 @@ dragChords.setBounds(20,764,118,28);
 dragBass.setBounds(146,764,118,28);
 dragMelody.setBounds(272,764,118,28);
 dragArp.setBounds(398,764,118,28);
-tasteLabel.setBounds(530,764,84,28);
+tasteLabel.setBounds(760,758,150,36);
+resetTasteBtn.setBounds(916,764,58,26);
+tasteToggleBtn.setBounds(884,733,92,24);
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {

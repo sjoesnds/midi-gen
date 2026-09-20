@@ -32,6 +32,8 @@ juce::Label title, sectionLabel, variationInfoLabel;
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
  juce::TextButton likeBtn, dislikeBtn;
  juce::Label tasteLabel;
+ juce::TextButton resetTasteBtn;
+ juce::ToggleButton tasteToggleBtn;
  // --- Экспорт MIDI ---
  juce::TextButton exportButton { "Export MIDI..." };
  // --- P2: edit history -------------------------------------------------
@@ -74,6 +76,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
+         owner.processor.registerImplicitLike();   // dragged into the DAW = weak like
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }

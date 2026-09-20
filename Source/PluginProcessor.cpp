@@ -386,6 +386,7 @@ void MidiForgeAudioProcessor::likeVariation(int vi)
         likedFeatures[(size_t)i] = (likedFeatures[(size_t)i] * (float)(likedFeatureN) + f[(size_t)i])
                                    / (float)(likedFeatureN + 1);
     ++likedFeatureN;
+    trainTaste(vi, 1.0f, 1.0f);
     savePreferences();
     applyLearnedWeights();
 }
@@ -404,8 +405,59 @@ void MidiForgeAudioProcessor::dislikeVariation(int vi)
         dislikedFeatures[(size_t)i] = (dislikedFeatures[(size_t)i] * (float)(dislikedFeatureN) + f[(size_t)i])
                                       / (float)(dislikedFeatureN + 1);
     ++dislikedFeatureN;
+    trainTaste(vi, 0.0f, 1.0f);
     savePreferences();
     applyLearnedWeights();
+}
+
+void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
+{
+    std::vector<NoteEvent> notes;
+    int barsN = 1;
+    {
+        juce::ScopedLock sl(variationsLock);
+        if (vi < 0 || vi >= (int) variations.size()) return;
+        notes = variations[(size_t) vi].notes;
+        barsN = variations[(size_t) vi].bars;
+    }
+    const auto x = taste::extractFeatures(notes, barsN);
+    taste::Vec z;
+    for (size_t i = 0; i < (size_t) taste::kDim; ++i)
+        z[i] = juce::jlimit(-3.0f, 3.0f, (x[i] - tasteMean[i]) / tasteStd[i]);
+    tasteModel.update(z, soundTarget, genre, likeTarget, weight);
+}
+
+void MidiForgeAudioProcessor::registerImplicitLike()
+{
+    // Dragging / exporting a loop means it was good enough to keep: count it once per loop.
+    const unsigned long long key = ((unsigned long long) generationNonce << 4) | (unsigned long long) (selectedVariation & 15);
+    if (key == lastImplicitKey) return;
+    lastImplicitKey = key;
+    trainTaste(selectedVariation, 1.0f, 0.5f);
+    savePreferences();
+}
+
+void MidiForgeAudioProcessor::resetTaste()
+{
+    tasteModel.reset();
+    likedD = likedE = likedC = 0; likedN = 0;
+    disD = disE = disC = 0; disN = 0;
+    likeCounts.fill(0); dislikeCounts.fill(0);
+    likedFeatures.fill(0.0f); dislikedFeatures.fill(0.0f);
+    likedFeatureN = dislikedFeatureN = 0;
+    lastImplicitKey = ~0ull;
+    savePreferences();
+}
+
+juce::String MidiForgeAudioProcessor::getTasteSummary() const
+{
+    if (tasteModel.samples() < 2.0f) return "learning: rate a few loops";
+    int likeIdx, avoidIdx;
+    tasteModel.topPreferences(likeIdx, avoidIdx);
+    juce::String t;
+    if (likeIdx >= 0) t << "likes " << taste::featureName(likeIdx);
+    if (avoidIdx >= 0) t << (t.isEmpty() ? "" : " | ") << "avoids " << taste::featureName(avoidIdx);
+    return t.isEmpty() ? juce::String("no clear taste yet") : t;
 }
 
 int MidiForgeAudioProcessor::getLikeCount(int vi) const { return (vi >= 0 && vi < 8) ? likeCounts[(size_t)vi] : 0; }
@@ -441,6 +493,7 @@ void MidiForgeAudioProcessor::savePreferences()
         lf.add((double)likedFeatures[(size_t)i]); df.add((double)dislikedFeatures[(size_t)i]);
     }
     o->setProperty("likes", lk); o->setProperty("dislikes", dk);
+    o->setProperty("tasteML", tasteModel.toVar());
     o->setProperty("likedFeatures", lf); o->setProperty("dislikedFeatures", df);
     preferencesFile.getParentDirectory().createDirectory();
     preferencesFile.replaceWithText(juce::JSON::toString(juce::var(o)));
@@ -455,6 +508,7 @@ void MidiForgeAudioProcessor::loadPreferences()
         likedN = (int)o->getProperty("likedN"); disN = (int)o->getProperty("disN");
         likedD = (float)o->getProperty("likedD"); likedE = (float)o->getProperty("likedE"); likedC = (float)o->getProperty("likedC");
         disD = (float)o->getProperty("disD"); disE = (float)o->getProperty("disE"); disC = (float)o->getProperty("disC");
+        tasteModel.fromVar(o->getProperty("tasteML"));
         likedFeatureN = (int)o->getProperty("likedFeatureN");
         dislikedFeatureN = (int)o->getProperty("dislikedFeatureN");
         if (auto* la = o->getProperty("likes").getArray())
@@ -1752,8 +1806,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
     const bool sparseTypeAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     const auto judgeProf = soundProfileFor(soundTarget);
     std::vector<Candidate> candidates;
+    std::vector<taste::Vec> tasteFeatures;
     constexpr int candidateCount=1000;
     candidates.reserve(candidateCount);
+    tasteFeatures.reserve(candidateCount);
 
     for(int c=0;c<candidateCount;++c)
     {
@@ -1920,16 +1976,43 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality -= 0.20f * sparsePenalty;
         }
 
-        // Taste profile nudges the search without collapsing it into one style.
-        if(likedN>0) quality += 0.10f*(1.0f-std::abs(f.density-likedD));
-        if(disN>0) quality -= 0.08f*(1.0f-std::abs(f.density-disD));
-
-        // Taste Learning 2.0: use a broader musical fingerprint. The effect is
-        // deliberately capped so the learned profile guides rather than dictates.
-        applyTasteToCandidate(quality, f.density, f.velocity, f.leap, f.rhythmIdentity,
-                              f.repetition, f.variety, f.registerScore, f.noteLength);
+        // 0.40 Taste ML: the features of the whole loop are collected here; the
+        // model scores every candidate after the pool statistics are known (below).
+        tasteFeatures.push_back(taste::extractFeatures(flat.notes, flat.bars));
 
         candidates.push_back({std::move(flat),quality,identity});
+    }
+
+    // Standardise against this search pool (kept for training the ratings of the
+    // loops that come out of it), then let the model re-rank the pool.
+    {
+        const size_t cn = candidates.size();
+        for (size_t i = 0; i < (size_t) taste::kDim; ++i)
+        {
+            double sum = 0.0, sum2 = 0.0;
+            for (size_t c = 0; c < cn; ++c) { const double v = tasteFeatures[c][i]; sum += v; sum2 += v * v; }
+            const double mean = cn ? sum / (double) cn : 0.0;
+            const double var = cn ? std::max(0.0, sum2 / (double) cn - mean * mean) : 0.0;
+            tasteMean[i] = (float) mean;
+            tasteStd[i] = std::max(0.03f, (float) std::sqrt(var));
+        }
+        const float conf = tasteModel.confidence();
+        if (tasteEnabled && conf > 0.01f && cn > 8)
+        {
+            double qs = 0.0, qs2 = 0.0;
+            for (const auto& c : candidates) { qs += c.quality; qs2 += (double) c.quality * c.quality; }
+            const double qm = qs / (double) cn;
+            const float qstd = (float) std::sqrt(std::max(1.0e-6, qs2 / (double) cn - qm * qm));
+            const float gain = 0.7f * qstd * conf;     // at full confidence: +-0.7 sigma of the judge's own spread
+            for (size_t c = 0; c < cn; ++c)
+            {
+                taste::Vec z;
+                for (size_t i = 0; i < (size_t) taste::kDim; ++i)
+                    z[i] = juce::jlimit(-3.0f, 3.0f, (tasteFeatures[c][i] - tasteMean[i]) / tasteStd[i]);
+                const float p = tasteModel.predict(z, soundTarget, genre);
+                candidates[c].quality += gain * (2.0f * p - 1.0f);
+            }
+        }
     }
 
     std::vector<Candidate> selected;

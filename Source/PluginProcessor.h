@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "TasteModel.h"
 #include <array>
 #include <vector>
 #include <atomic>
@@ -131,6 +132,14 @@ int getDislikeCount(int varIndex) const;
 int getVariationScore(int varIndex) const;
 int getTasteLikes() const { return likedN; }
 int getTasteDislikes() const { return disN; }
+// 0.40 Taste ML (online logistic regression, see TasteModel.h)
+float getTasteConfidence() const { return tasteModel.confidence(); }
+juce::String getTasteSummary() const;
+bool getTasteEnabled() const { return tasteEnabled; }
+void setTasteEnabled (bool on) { tasteEnabled = on; }
+void resetTaste();
+void registerImplicitLike();   // the loop was dragged / exported: a weak "like"
+void trainTaste (int varIndex, float likeTarget, float weight);
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
 juce::MidiFile buildMidiFile (int channelFilter = 0) const;
@@ -222,6 +231,11 @@ std::array<float,8> likedFeatures {};
 std::array<float,8> dislikedFeatures {};
 int likedFeatureN = 0, dislikedFeatureN = 0;
 juce::File preferencesFile;
+taste::Model tasteModel;
+taste::Vec tasteMean {};
+taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();
+bool tasteEnabled = true;
+unsigned long long lastImplicitKey = ~0ull;
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();
