@@ -232,6 +232,7 @@ void applyTasteToCandidate(float& quality, float density, float velocity, float 
                            float registerScore, float noteLength) const;
 std::vector<int> scaleSemitones() const;
 std::vector<int> progressionDegrees() const;
+std::vector<int> progressionDegreesRaw() const;
 int degreeToPitch(int degree, int baseOctave) const;
 int snapToScale(int midi) const;
 // 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).

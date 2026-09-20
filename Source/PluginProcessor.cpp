@@ -121,6 +121,30 @@ default:return{0,2,4,7,9};
 }
 std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
 {
+    // 0.39.1: stacking thirds on Harmonic/Melodic Minor, Dorian and Phrygian gives
+    // augmented and diminished triads on several degrees (up to a third of all bars
+    // in Melodic Minor).  Those chords sound "wrong" in a loop, so such a degree is
+    // replaced by the closest degree that forms a plain major/minor triad.
+    auto degrees = progressionDegreesRaw();
+    const auto sc = scaleSemitones();
+    const int n = (int) sc.size();
+    if (n < 7) return degrees;
+    auto pitchAt = [&](int k) { const int idx = ((k % n) + n) % n; return sc[(size_t) idx] + 12 * ((k - idx) / n); };
+    auto plainTriad = [&](int d) { const int a = pitchAt(d + 2) - pitchAt(d), b = pitchAt(d + 4) - pitchAt(d);
+                                   return (a == 3 || a == 4) && b == 7; };
+    for (auto& d : degrees)
+    {
+        if (plainTriad(d)) continue;
+        for (int alt : { 2, -2, 4, -4 })
+        {
+            const int c = (((d + alt) % n) + n) % n;
+            if (plainTriad(c)) { d = c; break; }
+        }
+    }
+    return degrees;
+}
+std::vector<int> MidiForgeAudioProcessor::progressionDegreesRaw() const
+{
 if(progression==Pop)return{0,4,5,3};
 if(progression==Dark)return{0,5,2,6};
 if(progression==Emotional)return{5,3,0,4};
@@ -165,6 +189,31 @@ static void removeDuplicateNotes (std::vector<T>& v)
     }
     v.swap (out);
 }
+// The melody is one line: no two melody notes on the same step and no melody note
+// running into the next one.  (Candidate mutations used to create accidental dyads.)
+template <typename T>
+static void cleanMelodyLine (std::vector<T>& v)
+{
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < v.size(); ++i) if (v[i].channel == 3) idx.push_back (i);
+    std::stable_sort (idx.begin(), idx.end(), [&] (size_t a, size_t b) { return v[a].step < v[b].step; });
+    std::vector<bool> drop (v.size(), false);
+    long long prev = -1;
+    for (size_t i : idx)
+    {
+        if (prev >= 0 && v[(size_t) prev].step == v[i].step) { drop[i] = true; continue; }
+        if (prev >= 0)
+        {
+            auto& a = v[(size_t) prev];
+            a.length = std::max (1, std::min (a.length, v[i].step - a.step));
+        }
+        prev = (long long) i;
+    }
+    std::vector<T> out;
+    out.reserve (v.size());
+    for (size_t i = 0; i < v.size(); ++i) if (! drop[i]) out.push_back (v[i]);
+    v.swap (out);
+}
 static int foldIntoLane (int note, int lo, int hi)
 {
     if (hi - lo < 11) return juce::jlimit (lo, hi, note);
@@ -174,7 +223,7 @@ static int foldIntoLane (int note, int lo, int hi)
 }
 void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
 {
-    const int shift = juce::jlimit (-1, 1, octave - 4) * 12;
+    const int shift = juce::jlimit (-12, 12, (octave - 4) * 6);   // Octave 3/4/5/6 = -6/0/+6/+12
     switch (part)
     {
         case 0:  lo = 48 + shift; hi = juce::jmin (72 + shift, 84); break;   // chords
@@ -479,6 +528,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
             for(int p : v){ if(p<lo) cost+=2.0f*(float)(lo-p); if(p>hi) cost+=2.0f*(float)(p-hi); }
             cost += 0.8f*(float)juce::jmax(0,span-14);
             cost += 0.3f*(float)inv;
+            for(size_t q=0;q+1<v.size();++q){ const int gapSt=v[q+1]-v[q]; if(gapSt==1) cost+=6.0f; else if(gapSt==2) cost+=1.0f; }
             cost += 2.0f*(float)(hash32(generationSeed ^ (uint32_t)(barOffset*97+inv*31+(shift+12)))%100u)/100.0f;
             if(cost<bestCost){ bestCost=cost; best=v; }
         }
@@ -515,7 +565,12 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     if(!prof.chordTwoHits && (genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
         s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree,3),lo+12,hi+12)),63,1,false});
     if(!prof.chordTwoHits && chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
-        s.notes.push_back({barOffset*16+8,8,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree+8,3),lo+12,hi+12)),60,1,false});
+    {
+        const int accent=juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree+8,3),lo+12,hi+12));
+        bool clash=false;
+        for(int p : best) if(std::abs(p-accent)<=1) clash=true;
+        if(!clash) s.notes.push_back({barOffset*16+8,8,accent,60,1,false});
+    }
 }
 void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
@@ -725,16 +780,40 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {0, 6, 10, 15, -1,-1,-1,-1,-1,-1},
         {0, 4, 9, 12, -1,-1,-1,-1,-1,-1},
         {0, 2, 8, 10, 14, -1,-1,-1,-1,-1},
-        {1, 6, 8, 13, -1,-1,-1,-1,-1,-1}
+        {1, 6, 8, 13, -1,-1,-1,-1,-1,-1},
+        // 0.39.1 additional grooves (on the 8th/16th grid): pickups, late starts, long-short shapes
+        {2, 4, 8, 10, 14, -1,-1,-1,-1,-1},
+        {0, 2, 6, 10, 12, 14, -1,-1,-1,-1},
+        {2, 6, 8, 10, 12, -1,-1,-1,-1,-1},
+        {0, 4, 8, 10, 12, 14, -1,-1,-1,-1},
+        {2, 4, 6, 10, 12, 14, -1,-1,-1,-1},
+        {0, 2, 4, 8, 12, 14, -1,-1,-1,-1},
+        {0, 6, 8, 10, 12, 14, -1,-1,-1,-1},
+        {4, 6, 8, 12, 14, -1,-1,-1,-1,-1},
+        {0, 2, 8, 12, 14, -1,-1,-1,-1,-1},
+        {2, 4, 8, 12, 14, -1,-1,-1,-1,-1},
+        {0, 4, 6, 10, 14, -1,-1,-1,-1,-1},
+        {2, 6, 10, 12, 14, -1,-1,-1,-1,-1},
+        {0, 2, 4, 6, 10, 14, -1,-1,-1,-1},
+        {4, 8, 10, 12, 14, -1,-1,-1,-1,-1},
+        {0, 4, 8, 10, 14, -1,-1,-1,-1,-1},
+        {2, 4, 6, 8, 14, -1,-1,-1,-1,-1}
     };
 
-    int rhythmType = (int)(hash32(identitySeed ^ 0x51ed270bu) % 24u);
-    // Genre DNA nudges the rhythmic family without hard-locking it.
-    rhythmType = (rhythmType + dnaRhythmBias + (int)(dnaSync * 3.0f)) % 24;
     // Melodic loops need enough onsets to be heard as a line, not as scattered notes.
+    // The groove is picked uniformly among the patterns that qualify (0.38 used to
+    // slide to "the next pattern with enough hits", which made one groove
+    // - {0,2,8,10,14} - about a quarter of all bars).
+    constexpr int kRhythmCount = (int)(sizeof(rhythms) / sizeof(rhythms[0]));
     auto hitCount = [&](int t) { int c = 0; for (int k = 0; k < 10; ++k) if (rhythms[t][k] >= 0) ++c; return c; };
-    for (int k = 0; k < 24 && hitCount(rhythmType) < minHits; ++k)
-        rhythmType = (rhythmType + 1) % 24;
+    std::vector<int> eligible;
+    for (int t = 0; t < kRhythmCount; ++t)
+        if (hitCount(t) >= minHits) eligible.push_back(t);
+    if (eligible.empty()) eligible.push_back(0);
+    const int eligibleN = (int)eligible.size();
+    // Genre DNA nudges the rhythmic family without hard-locking it.
+    int rhythmType = eligible[(size_t)((((int)(hash32(identitySeed ^ 0x51ed270bu) % (uint32_t)eligibleN)
+                                          + dnaRhythmBias + (int)(dnaSync * 3.0f)) % eligibleN + eligibleN) % eligibleN)];
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -1218,7 +1297,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         velocity = juce::jlimit(48, 112, velocity);
         // Synth-like sounds ignore velocity; keep their dynamics flat and consistent.
         velocity = prof.velCenter + (int) std::round((float) (velocity - prof.velCenter) * prof.velSpread);
-        velocity = juce::jlimit(40, 118, velocity);
+        velocity = juce::jlimit(40, 118, velocity + (int)(hash32(seed ^ (uint32_t)(i * 13 + 5)) % 5u) - 2);
 
         // Melody Length: how much of the gap to the next note is sustained.
         // (This slider used to be stored but never applied.)
@@ -1666,6 +1745,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         }
         juce::ignoreUnused(local);
         removeDuplicateNotes(flat.notes);
+        cleanMelodyLine(flat.notes);
         return flat;
     };
 
@@ -1995,7 +2075,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     rhythm = pick(4);
     static constexpr int barChoices[] = {1,2,4,8,16};
     bars = barChoices[pick(5)];
-    octave = 3 + pick(4);
+    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
     era = pick(6);
 
     swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
@@ -2088,6 +2168,7 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
             n.velocity=juce::jlimit(38,118,n.velocity+(int)((h>>22)%11u)-5);
     }
     removeDuplicateNotes(notes);
+    cleanMelodyLine(notes);
     replaceVisibleNotes(notes);
 }
 void MidiForgeAudioProcessor::evolveSelected()
