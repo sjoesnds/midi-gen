@@ -44,7 +44,6 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
         activeDragFile = juce::File();
         return;
     }
-    owner.processor.registerImplicitLike();   // dragged into the DAW = weak like
 
     // The actual button is the OLE source. Using the editor itself can make the
     // VST3 wrapper become the source window inside FL Studio.
@@ -183,7 +182,6 @@ const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
 const bool ok = safeThis->processor.exportMidi(result);
-if (ok) safeThis->processor.registerImplicitLike();
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
@@ -254,7 +252,7 @@ juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOver
 if (safeThis == nullptr) return;
 auto file = fc.getResult();
 if (file != juce::File())
-{ safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid")); safeThis->processor.registerImplicitLike(); }
+safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid"));
 });
 };
 addAndMakeVisible (exportButton);

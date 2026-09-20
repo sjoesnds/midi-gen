@@ -76,7 +76,6 @@ juce::Label title, sectionLabel, variationInfoLabel;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.processor.registerImplicitLike();   // dragged into the DAW = weak like
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }

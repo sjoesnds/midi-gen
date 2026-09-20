@@ -138,7 +138,6 @@ juce::String getTasteSummary() const;
 bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
-void registerImplicitLike();   // the loop was dragged / exported: a weak "like"
 void trainTaste (int varIndex, float likeTarget, float weight);
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
@@ -235,7 +234,6 @@ taste::Model tasteModel;
 taste::Vec tasteMean {};
 taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();
 bool tasteEnabled = true;
-unsigned long long lastImplicitKey = ~0ull;
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();

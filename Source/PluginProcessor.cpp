@@ -427,16 +427,6 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
     tasteModel.update(z, soundTarget, genre, likeTarget, weight);
 }
 
-void MidiForgeAudioProcessor::registerImplicitLike()
-{
-    // Dragging / exporting a loop means it was good enough to keep: count it once per loop.
-    const unsigned long long key = ((unsigned long long) generationNonce << 4) | (unsigned long long) (selectedVariation & 15);
-    if (key == lastImplicitKey) return;
-    lastImplicitKey = key;
-    trainTaste(selectedVariation, 1.0f, 0.5f);
-    savePreferences();
-}
-
 void MidiForgeAudioProcessor::resetTaste()
 {
     tasteModel.reset();
@@ -445,7 +435,6 @@ void MidiForgeAudioProcessor::resetTaste()
     likeCounts.fill(0); dislikeCounts.fill(0);
     likedFeatures.fill(0.0f); dislikedFeatures.fill(0.0f);
     likedFeatureN = dislikedFeatureN = 0;
-    lastImplicitKey = ~0ull;
     savePreferences();
 }
 
