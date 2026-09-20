@@ -19,11 +19,11 @@ void refreshTaste();
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel, variationInfoLabel;
- juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox;
+ juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
- juce::ToggleButton chords,bass,melody,arp,extensions,inversions,hookModeButton,soundCloudButton;
+ juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
  juce::ComboBox pianoGridBox;
@@ -89,6 +89,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
  LayerDragHandle dragBass   { *this, 2, "Drag Bass" };
  LayerDragHandle dragMelody { *this, 3, "Drag Melody" };
  LayerDragHandle dragArp    { *this, 4, "Drag Arp" };
+ LayerDragHandle dragDrums  { *this, 5, "Drag Drums" };
  // Мини пиано-ролл: показывает текущий выбранный вариант и бегущую полоску
  // воспроизведения. Цвет ноты = канал (аккорды/бас/мелодия/арпеджио).
  struct PianoRoll : public juce::Component, private juce::Timer
@@ -155,8 +156,8 @@ juce::Label title, sectionLabel, variationInfoLabel;
              g.fillRect (contentX, y + pitchRowHeight (noteSpan) - 0.5f, contentW, 1.0f);
          }
 
-         static const juce::uint32 channelColours[5] =
-             { 0xff888888, 0xff4a90d9, 0xffe0a23c, 0xff5cc78e, 0xffb279e0 };
+         static const juce::uint32 channelColours[6] =
+             { 0xff888888, 0xff4a90d9, 0xffe0a23c, 0xff5cc78e, 0xffb279e0, 0xffd9645c };
 
          // Notes. The hovered/selected note gets a bright outline.
          for (int i = 0; i < (int) notes.size(); ++i)
@@ -168,7 +169,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
              if (x + noteW < contentX || x > contentX + contentW)
                  continue;
 
-             const auto base = juce::Colour (channelColours[juce::jlimit (0, 4, n.channel)]);
+             const auto base = juce::Colour (channelColours[juce::jlimit (0, 5, n.channel)]);
              const float alpha = 0.55f + 0.45f * ((float) n.velocity / 127.0f);
              g.setColour (base.withAlpha (alpha));
              g.fillRoundedRectangle (x, y, noteW, juce::jmax (3.0f, pitchRowHeight (noteSpan) - 2.0f), 2.0f);
@@ -391,8 +392,8 @@ juce::Label title, sectionLabel, variationInfoLabel;
 
      static juce::String channelName (int channel)
      {
-         static const char* names[5] = { "", "CHORDS", "BASS", "MELODY", "ARP" };
-         return names[juce::jlimit (1, 4, channel)];
+         static const char* names[6] = { "", "CHORDS", "BASS", "MELODY", "ARP", "DRUMS" };
+         return names[juce::jlimit (1, 5, channel)];
      }
 
      float pitchRowHeight (int span) const

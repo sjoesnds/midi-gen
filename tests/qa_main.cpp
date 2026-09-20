@@ -102,7 +102,9 @@ namespace
                 for (int b = 0; b < l.bars; ++b)
                 {
                     std::set<int> pcs; std::vector<int> ps;
-                    for (auto& n : ch) if (n.step == b * 16) { pcs.insert (n.note % 12); ps.push_back (n.note); }
+                    int first = 1 << 30;
+                    for (auto& n : ch) if (n.step / 16 == b) first = std::min (first, n.step);
+                    for (auto& n : ch) if (n.step == first) { pcs.insert (n.note % 12); ps.push_back (n.note); }
                     if (pcs.size() < 3) continue;
                     bool ok = false;
                     for (int r : pcs) if ((pcs.count ((r + 4) % 12) || pcs.count ((r + 3) % 12)) && pcs.count ((r + 7) % 12)) ok = true;
@@ -152,7 +154,7 @@ namespace
         }
     }
 
-    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0; bool ok = false; };
+    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0; bool ok = false; };
     MidiInfo readMidi (const juce::File& f)
     {
         MidiInfo info;
@@ -170,6 +172,8 @@ namespace
             {
                 auto* ev = seq.getEventPointer (i);
                 if (ev->message.isController() && ev->message.getControllerNumber() == 1) ++info.cc1;
+                if (ev->message.isNoteOn() && ev->message.getChannel() == 10) ++info.drumNotesCh10;
+                if (ev->message.isNoteOn() && ev->message.getChannel() == 5) ++info.notesCh5;
                 if (ev->message.isNoteOn() && ev->message.getChannel() == 3 && ev->noteOffObject != nullptr)
                     mel.push_back ({ ev->message.getTimeStamp(), ev->noteOffObject->message.getTimeStamp() });
             }
@@ -242,7 +246,7 @@ int main()
                 if (! ch.empty())
                     for (int b = 0; b < l.bars; ++b)
                     {
-                        std::set<int> pcs; for (auto& n : ch) if (n.step == b * 16) pcs.insert (n.note % 12);
+                        std::set<int> pcs; for (auto& n : ch) if (n.step / 16 == b) pcs.insert (n.note % 12);
                         if (pcs.size() < 3) problem ("bar without a full triad");
                     }
                 if (! ba.empty() && sound != 6)
@@ -310,6 +314,87 @@ int main()
         report ("808 moves like a bass line (few jumps above an octave)", bigShare <= 0.15, fmt ("share %.3f <= 0.15", bigShare));
     }
 
+    // ------------------------------------------------------------------ 3c. chord comping
+    {
+        auto chordStarts = [&] (int style, int loops)
+        {
+            p.setSoundTarget (0); p.setChordStyle (style);
+            double total = 0; int bars = 0;
+            for (auto& l : makeLoops (p, loops))
+            {
+                auto ch = layer (l, 1);
+                for (int b = 0; b < l.bars; ++b)
+                {
+                    std::set<int> starts; for (auto& n : ch) if (n.step / 16 == b) starts.insert (n.step);
+                    if (! starts.empty()) { total += (double) starts.size(); ++bars; }
+                }
+            }
+            return bars ? total / bars : 0.0;
+        };
+        const double held = chordStarts (1, 40), comp = chordStarts (2, 40);
+        p.setChordStyle (0);
+        report ("Chords = Held plays (almost) one hit per bar", held <= 1.6, fmt ("%.2f chord hits per bar", held));
+        report ("Chords = Comping plays a rhythm",             comp >= 2.3, fmt ("%.2f chord hits per bar", comp));
+    }
+
+    // ------------------------------------------------------------------ 3d. drums layer
+    {
+        const std::set<int> gm { 36, 38, 39, 42, 43, 45, 46, 47, 49, 50, 70 };
+        p.setSoundTarget (0); p.setDrumsEnabled (false);
+        int drumsWhenOff = 0;
+        for (auto& l : makeLoops (p, 20)) for (auto& n : l.notes) if (n.channel == 5) ++drumsWhenOff;
+        p.setDrumsEnabled (true);
+        int bars = 0, kickOnOne = 0, badPitch = 0, drumNotes = 0, hats = 0, otherLayerDrums = 0;
+        for (auto& l : makeLoops (p, 60))
+        {
+            for (int b = 0; b < l.bars; ++b)
+            {
+                ++bars;
+                for (auto& n : l.notes) if (n.channel == 5 && n.step == b * 16 && n.note == 36) { ++kickOnOne; break; }
+            }
+            for (auto& n : l.notes)
+            {
+                if (n.channel == 5) { ++drumNotes; if (! gm.count (n.note)) ++badPitch; if (n.note == 42 || n.note == 46) ++hats; }
+                else if (gm.count (n.note) && n.note < 47 && n.channel == 4) { /* arp may legitimately use these pitches */ }
+            }
+        }
+        report ("Drums off: no drum notes", drumsWhenOff == 0, fmt ("%.0f drum notes", drumsWhenOff));
+        report ("Drums on: kick on beat 1 of every bar", kickOnOne == bars && drumNotes > 0, fmt ("%.0f of %.0f bars, %.0f drum notes", kickOnOne, bars, drumNotes));
+        report ("Drums use General MIDI pitches only", badPitch == 0, fmt ("%.0f wrong pitches", badPitch));
+        (void) hats; (void) otherLayerDrums;
+
+        // exported file: drums are on General MIDI channel 10 (never on 5)
+        MidiInfo total;
+        for (int i = 0; i < 15; ++i)
+        {
+            p.magicRandomize();
+            auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_drums.mid");
+            p.exportMidiFileTo (f);
+            auto m = readMidi (f); total.drumNotesCh10 += m.drumNotesCh10; total.notesCh5 += m.notesCh5; f.deleteFile();
+        }
+        report ("Drums are written to MIDI channel 10", total.drumNotesCh10 > 0 && total.notesCh5 == 0, fmt ("channel 10: %.0f notes, channel 5: %.0f", total.drumNotesCh10, total.notesCh5));
+
+        // the 808 plays where the kick plays
+        p.setSoundTarget (6);
+        int hits808 = 0, locked = 0;
+        for (auto& l : makeLoops (p, 40))
+            for (auto& n : l.notes)
+                if (n.channel == 3)
+                {
+                    ++hits808; bool onKick = false;
+                    for (auto& k : l.notes) if (k.channel == 5 && k.note == 36 && k.step == n.step) { onKick = true; break; }
+                    if (onKick) ++locked;
+                }
+        report ("808 locks to the kick when drums are on", hits808 > 0 && locked == hits808, fmt ("%.0f of %.0f hits on a kick", locked, hits808));
+        // MUTATE / EVOLVE must not move the drum hits
+        p.setSoundTarget (0); p.magicRandomize();
+        auto drumSteps = [&] { std::multiset<std::pair<int,int>> v; for (auto& n : p.getVisibleNotes()) if (n.channel == 5) v.insert ({ n.step, n.note }); return v; };
+        const auto before = drumSteps();
+        p.mutateSelected (0.9f); p.evolveSelected();
+        report ("MUTATE / EVOLVE keep the drum groove", drumSteps() == before && ! before.empty(), fmt ("%.0f drum hits", (double) before.size()));
+        p.setDrumsEnabled (false); p.setSoundTarget (0);
+    }
+
     // ------------------------------------------------------------------ 4. articulation
     {
         auto exportAndRead = [&] (int sound, int art, int loops)
@@ -366,14 +451,16 @@ int main()
 
     // ------------------------------------------------------------------ 6. state and AUTO-NEXT
     {
-        MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false);
+        MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
         juce::MemoryBlock mb; a.getStateInformation (mb);
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
-        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext(),
-               fmt ("sound %.0f, articulation %.0f", b.getSoundTarget(), b.getArticulation()));
-        MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 8);   // project saved by 0.40 / 0.41
+        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled(),
+               fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
+        MidiForgeAudioProcessor c0; c0.setStateInformation (mb.getData(), (int) mb.getSize() - 8);   // project saved by 0.42 / 0.43
+        report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
+        MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 16);   // project saved by 0.40 / 0.41
         report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 0, "defaults applied");
-        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 12); // project saved by 0.38 / 0.39
+        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 20);   // project saved by 0.38 / 0.39
         report ("older project (no sound field) loads", d.getSoundTarget() == 0, "defaults applied");
     }
     {

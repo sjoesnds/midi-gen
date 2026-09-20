@@ -48,19 +48,28 @@ namespace taste
         const int barsN = std::max (1, bars);
 
         std::vector<const NoteT*> mel;
-        int chordHits = 0, bassNotes = 0;
+        int bassNotes = 0;
         std::vector<std::vector<int>> chordPcs ((size_t) barsN);
+        std::vector<int> firstChordStep ((size_t) barsN, 1 << 30);
         for (const auto& n : notes)
         {
             if (n.channel == 3) mel.push_back (&n);
             else if (n.channel == 2) ++bassNotes;
-            else if (n.channel == 1 && n.step % 16 == 0)
+            else if (n.channel == 1)
             {
-                ++chordHits;
+                // comping patterns do not always start on step 0: use the bar's first chord hit
                 const int b = std::min (barsN - 1, std::max (0, n.step / 16));
                 chordPcs[(size_t) b].push_back (((n.note % 12) + 12) % 12);
+                firstChordStep[(size_t) b] = std::min (firstChordStep[(size_t) b], n.step);
             }
         }
+        int chordHits = 0;
+        for (const auto& n : notes)
+            if (n.channel == 1)
+            {
+                const int b = std::min (barsN - 1, std::max (0, n.step / 16));
+                if (n.step == firstChordStep[(size_t) b]) ++chordHits;
+            }
         std::stable_sort (mel.begin(), mel.end(), [] (const NoteT* a, const NoteT* b) { return a->step < b->step; });
 
         if (! mel.empty())

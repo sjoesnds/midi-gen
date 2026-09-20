@@ -93,6 +93,8 @@ soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: 
 soundBox.setSelectedId(p.getSoundTarget()+1); soundBox.onChange=[this]{processor.setSoundTarget(soundBox.getSelectedId()-1);}; addAndMakeVisible(soundBox);
 articBox.addItemList({"Artic: Off","Artic: Slides","Artic: Slides + Vibrato"},1);
 articBox.setSelectedId(p.getArticulation()+1); articBox.onChange=[this]{processor.setArticulation(articBox.getSelectedId()-1);}; addAndMakeVisible(articBox);
+chordBox.addItemList({"Chords: Auto","Chords: Held","Chords: Comping"},1);
+chordBox.setSelectedId(p.getChordStyle()+1); chordBox.onChange=[this]{processor.setChordStyle(chordBox.getSelectedId()-1);}; addAndMakeVisible(chordBox);
 autoNextBtn.setButtonText("AUTO-NEXT");
 autoNextBtn.setToggleState(p.getAutoNext(), juce::dontSendNotification);
 autoNextBtn.onClick=[this]{ processor.setAutoNext(autoNextBtn.getToggleState()); };
@@ -136,13 +138,14 @@ ghostChance.onValueChange=[this]{processor.setGhostChance((float)ghostChance.get
 swing.onValueChange=[this]{processor.setSwing((float)swing.getValue());};
 humanize.onValueChange=[this]{processor.setHumanize((float)humanize.getValue());};
 complexity.onValueChange=[this]{processor.setComplexity((float)complexity.getValue());};
-chords.setButtonText("CHORDS");bass.setButtonText("BASS");melody.setButtonText("MELODY");arp.setButtonText("ARP");
+chords.setButtonText("CHORDS");bass.setButtonText("BASS");melody.setButtonText("MELODY");arp.setButtonText("ARP");drums.setButtonText("DRUMS");
 extensions.setButtonText("7/9 EXT");inversions.setButtonText("INV");hookModeButton.setButtonText("HOOK");
 soundCloudButton.setButtonText("SOUNDCLOUD");
 chords.setToggleState(p.isChordsEnabled(),juce::dontSendNotification);
 bass.setToggleState(p.isBassEnabled(),juce::dontSendNotification);
 melody.setToggleState(p.isMelodyEnabled(),juce::dontSendNotification);
 arp.setToggleState(p.isArpEnabled(),juce::dontSendNotification);
+drums.setToggleState(p.isDrumsEnabled(),juce::dontSendNotification);
 extensions.setToggleState(p.getChordExtensions(),juce::dontSendNotification);
 inversions.setToggleState(p.getInversions(),juce::dontSendNotification);
 hookModeButton.setToggleState(p.getHookMode(),juce::dontSendNotification);
@@ -151,11 +154,12 @@ chords.onClick=[this]{processor.setChordsEnabled(chords.getToggleState());};
 bass.onClick=[this]{processor.setBassEnabled(bass.getToggleState());};
 melody.onClick=[this]{processor.setMelodyEnabled(melody.getToggleState());};
 arp.onClick=[this]{processor.setArpEnabled(arp.getToggleState());};
+drums.onClick=[this]{processor.setDrumsEnabled(drums.getToggleState());};
 extensions.onClick=[this]{processor.setChordExtensions(extensions.getToggleState());};
 inversions.onClick=[this]{processor.setInversions(inversions.getToggleState());};
 hookModeButton.onClick=[this]{processor.setHookMode(hookModeButton.getToggleState());};
 soundCloudButton.onClick=[this]{processor.setLeadStyleSoundCloud(soundCloudButton.getToggleState());};
-addAndMakeVisible(chords);addAndMakeVisible(bass);addAndMakeVisible(melody);addAndMakeVisible(arp);
+addAndMakeVisible(chords);addAndMakeVisible(bass);addAndMakeVisible(melody);addAndMakeVisible(arp);addAndMakeVisible(drums);
 addAndMakeVisible(extensions);addAndMakeVisible(inversions);addAndMakeVisible(hookModeButton);
 addAndMakeVisible(soundCloudButton);
 variationBox.addItemList({"VAR 1","VAR 2","VAR 3","VAR 4","VAR 5","VAR 6","VAR 7","VAR 8"},1);
@@ -278,7 +282,7 @@ addAndMakeVisible(lockChordsBtn);addAndMakeVisible(lockBassBtn);
 addAndMakeVisible(lockMelodyBtn);addAndMakeVisible(lockArpBtn);
 // --- Раздельный drag-and-drop по партиям ---
 addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
-addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);
+addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
 startTimerHz (10);
 }
@@ -337,6 +341,7 @@ chords.setBounds(20,112,82,22);
 bass.setBounds(106,112,76,22);
 melody.setBounds(186,112,90,22);
 arp.setBounds(280,112,70,22);
+drums.setBounds(766,112,80,22);
 extensions.setBounds(354,112,82,22);
 inversions.setBounds(440,112,68,22);
 arpRate.setBounds(512,112,58,22);
@@ -347,6 +352,7 @@ melodyTypeBox.setBounds(133,136,112,24);
 eraBox.setBounds(252,136,70,24);
 soundBox.setBounds(329,136,168,24);
 articBox.setBounds(503,136,176,24);
+chordBox.setBounds(685,136,150,24);
 autoNextBtn.setBounds(818,690,78,26);
 
 // Two-column compact control layout.
@@ -406,6 +412,7 @@ dragChords.setBounds(20,764,118,28);
 dragBass.setBounds(146,764,118,28);
 dragMelody.setBounds(272,764,118,28);
 dragArp.setBounds(398,764,118,28);
+dragDrums.setBounds(522,764,92,28);
 tasteLabel.setBounds(760,758,150,36);
 resetTasteBtn.setBounds(916,764,58,26);
 tasteToggleBtn.setBounds(884,733,92,24);
@@ -420,5 +427,7 @@ if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.
 if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
+if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
+if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
 refreshTaste();
 }

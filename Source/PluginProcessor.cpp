@@ -86,6 +86,8 @@ void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
 void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7,v);regenerate();}
 void MidiForgeAudioProcessor::setArticulation(int v){articulation=juce::jlimit(0,2,v);}
+void MidiForgeAudioProcessor::setChordStyle(int v){chordStyle=juce::jlimit(0,2,v);regenerate();}
+void MidiForgeAudioProcessor::setDrumsEnabled(bool on){drumsEnabled=on;regenerate();}
 void MidiForgeAudioProcessor::dislikeAndAdvance()
 {
     const int vi = selectedVariation;
@@ -569,9 +571,13 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     float prevCentre=-1.0f;
     if(barOffset>0)
     {
+        // first chord hit of the previous bar (comping patterns do not always start on step 0)
+        int firstStep=1000000;
+        for(const auto& ev : s.notes)
+            if(ev.channel==1 && ev.step>=(barOffset-1)*16 && ev.step<barOffset*16) firstStep=std::min(firstStep,ev.step);
         float sum=0.0f; int cnt=0;
         for(const auto& ev : s.notes)
-            if(ev.channel==1 && ev.step==(barOffset-1)*16) { sum+=(float)ev.note; ++cnt; }
+            if(ev.channel==1 && ev.step==firstStep) { sum+=(float)ev.note; ++cnt; }
         if(cnt>0) prevCentre=sum/(float)cnt;
     }
     const float laneCentre=0.5f*(float)(lo+hi);
@@ -617,18 +623,61 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     }
 
     const auto prof=soundProfileFor(soundTarget);
-    for(int i=0;i<(int)best.size();++i)
+
+    // 0.44 Chord comping.  Chords used to be one held block per bar.  Now they are played as
+    // a rhythm: each genre has its own comping cells (offbeat house stabs, boom-bap
+    // long-short-long, afro 3-3-2 ...).  The cell repeats (A A' B A'') like the melody, so the
+    // chords form a pattern.  Sound profiles that already stab (Pluck / Brass / Guitar) keep
+    // their own two hits; Chords = Held keeps the old sustained block.
+    struct Hit { int step, len, dv; };
+    std::vector<Hit> hits;
+    bool comping=false;
+    if(prof.chordTwoHits)
+        hits={{0,prof.chordLen,0},{8,prof.chordLen,-6}};
+    else
     {
-        const int vel=juce::jlimit(45,90,76-i*4+(i==0?5:0));
-        s.notes.push_back({barOffset*16,prof.chordLen,juce::jlimit(24,108,best[(size_t)i]),vel,1,false});
-        if(prof.chordTwoHits)
-            s.notes.push_back({barOffset*16+8,prof.chordLen,juce::jlimit(24,108,best[(size_t)i]),juce::jmax(1,vel-6),1,false});
+        const bool rhythmicGenre = genre==House||genre==Techno||genre==DnB||genre==Trap||genre==Drill||genre==Jersey
+                                   ||genre==Afro||genre==BoomBap||genre==RnB||genre==Lofi||genre==Hyperpop;
+        comping = (chordStyle==2) || (chordStyle==0 && rhythmicGenre);
+        if(!comping) hits={{0,prof.chordLen,0}};
+        else
+        {
+            std::vector<std::vector<Hit>> cells;
+            if(genre==House||genre==Techno)
+                cells={{{2,2,0},{6,2,-4},{10,2,0},{14,2,-4}},{{0,2,0},{6,2,-4},{10,3,0}},{{0,3,0},{4,2,-6},{8,3,-2},{12,2,-6}}};
+            else if(genre==DnB)
+                cells={{{0,3,0},{6,2,-6},{10,4,-2}},{{0,4,0},{8,3,-4},{12,2,-6}}};
+            else if(genre==Trap||genre==Drill)
+                cells={{{0,10,0},{10,6,-8}},{{0,12,0},{12,4,-8}},{{0,6,0},{8,8,-6}}};
+            else if(genre==Jersey)
+                cells={{{0,3,0},{6,3,-4},{10,3,-4},{14,2,-6}},{{0,2,0},{6,2,-4},{8,3,-2},{12,3,-4}}};
+            else if(genre==Afro)
+                cells={{{0,3,0},{3,3,-6},{6,4,-4},{10,3,-4},{12,4,-6}},{{0,4,0},{6,3,-4},{10,3,-4}}};
+            else if(genre==BoomBap)
+                cells={{{0,6,0},{6,3,-6},{10,6,-4}},{{0,5,0},{6,4,-6},{10,6,-2}}};
+            else if(genre==RnB||genre==Lofi)
+                cells={{{0,6,0},{6,4,-6},{10,6,-4}},{{0,8,0},{10,6,-6}},{{0,4,0},{4,3,-6},{8,6,-4},{12,4,-6}}};
+            else
+                cells={{{0,4,0},{4,4,-4},{8,4,-2},{12,4,-4}},{{0,6,0},{6,2,-6},{8,8,-4}}};
+            const int cyc=(barOffset%juce::jmax(1,bars))%4;
+            const uint32_t cSeed=hash32(generationSeed ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00C0FFEEu ^ (cyc==2 ? 0xB2B2B2B2u : 0u));
+            hits=cells[(size_t)(cSeed%(uint32_t)cells.size())];
+        }
+    }
+    for(size_t hi2=0;hi2<hits.size();++hi2)
+    {
+        const auto& ht=hits[hi2];
+        for(int i=0;i<(int)best.size();++i)
+        {
+            const int vel=juce::jlimit(40,96,76-i*4+(i==0?5:0)+ht.dv+(int)(hash32(generationSeed ^ (uint32_t)(barOffset*61+ht.step*7+i))%5u)-2);
+            s.notes.push_back({barOffset*16+ht.step,juce::jmax(1,ht.len),juce::jlimit(24,108,best[(size_t)i]),vel,1,false});
+        }
     }
 
     // Genre-aware rhythmic chord punctuation, still scale-safe.
-    if(!prof.chordTwoHits && (genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
+    if(!comping && !prof.chordTwoHits && (genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
         s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree,3),lo+12,hi+12)),63,1,false});
-    if(!prof.chordTwoHits && chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
+    if(!comping && !prof.chordTwoHits && chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
     {
         const int accent=juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree+8,3),lo+12,hi+12));
         bool clash=false;
@@ -667,6 +716,93 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
     // only when it stays above the audible floor.
     if((genre==Trap||genre==Cinematic) && e>0.5f && r.nextFloat()<0.35f && root-12>=lo)
         s.notes.push_back({barOffset*16,8,root-12,100,2,false});
+}
+void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Random&,int variationSalt)
+{
+    // 0.44 Drums - an optional layer (DRUMS button, off by default).  Internal channel 5,
+    // written to the MIDI file as General-MIDI channel 10 (kick 36, snare 38, clap 39,
+    // closed hat 42, open hat 46, crash 49, toms 45/47/50, shaker 70).
+    // Genre grooves; the kick cell repeats (A A' B A''); the last bar of a phrase may get a
+    // fill (Fill Amount); the 808 line locks to the kick when drums are on.
+    enum { Kick=36, Snare=38, Clap=39, HatC=42, HatO=46, Crash=49, Shaker=70 };
+    const int loopBar=barOffset%juce::jmax(1,bars);
+    const int cycle=loopBar%4;
+    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00D20005u);
+    const uint32_t idSeed=(cycle==2) ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset/4)*0x27d4eb2du) : loopSeed;
+
+    using Cell=std::vector<int>;
+    std::vector<Cell> kicks; Cell snares;
+    int hatMode=1;                 // 0 none, 1 eighths, 2 sixteenths (with drop-outs), 3 open off-beats + light closed
+    bool clap=false, both=false, shaker=false;
+    switch(genre)
+    {
+        case Trap:     kicks={{0,10},{0,7,10},{0,6,10},{0,3,7,10}}; snares={8}; hatMode=2; clap=true; both=true; break;
+        case Drill:    kicks={{0,10},{0,3,10},{0,6,11}};            snares={8}; hatMode=1; clap=true; both=true; break;
+        case House:    kicks={{0,4,8,12}};                          snares={4,12}; hatMode=3; clap=true; break;
+        case Techno:   kicks={{0,4,8,12}};                          snares={12};   hatMode=2; clap=true; break;
+        case DnB:      kicks={{0,10},{0,6,10}};                     snares={4,12}; hatMode=1; break;
+        case BoomBap:  kicks={{0,10},{0,7,10},{0,2,10}};            snares={4,12}; hatMode=1; break;
+        case RnB:
+        case Lofi:     kicks={{0,10},{0,7,10}};                     snares={4,12}; hatMode=1; break;
+        case Afro:     kicks={{0,6,10},{0,3,6,10}};                 snares={4,12}; hatMode=0; shaker=true; break;
+        case Jersey:   kicks={{0,3,6,10},{0,3,7,10}};               snares={4,12}; hatMode=1; clap=true; break;
+        case Ambient:
+        case Cinematic: kicks={{0},{0,8}};                          snares={};    hatMode=0; break;
+        default:       kicks={{0,8},{0,6,8},{0,8,10}};              snares={4,12}; hatMode=1; break;
+    }
+    const Cell& kick=kicks[(size_t)(hash32(idSeed ^ 0x11u)%(uint32_t)kicks.size())];
+
+    const bool phraseEnd=(cycle==3)||(barOffset==bars-1);
+    const float fillChance=juce::jlimit(0.0f,0.95f,fillAmount*2.2f);
+    const bool fill=phraseEnd && snares.size()>0 &&
+        (float)(hash32(idSeed ^ 0xF111u ^ (uint32_t)(barOffset/4)*0x9e3779b9u)%1000u)/1000.0f < fillChance;
+    const int fillStart=fill ? 12 : 16;
+    const bool tomFill=fill && (hash32(idSeed ^ 0x70Du)%2u)==0u;
+
+    auto jitter=[&](int x,int spread){ return (int)(hash32(idSeed ^ (uint32_t)(barOffset*131+x*17+3))%(uint32_t)(2*spread+1))-spread; };
+    auto put=[&](int x,int len,int note,int vel){ s.notes.push_back({barOffset*16+x,len,note,juce::jlimit(1,127,vel),5,false}); };
+
+    for(int x:kick) if(x<fillStart) put(x,1,Kick,(x==0 ? 118 : 108)+jitter(x,4));
+    for(int x:snares)
+        if(x<fillStart)
+        {
+            put(x,1,clap ? Clap : Snare,108+jitter(x,4));
+            if(both) put(x,1,Snare,82+jitter(x+1,4));
+        }
+    if((genre==BoomBap||genre==RnB||genre==Lofi) && (float)(hash32(idSeed ^ 0x6057u)%1000u)/1000.0f < ghostChance*2.0f)
+        put(11,1,Snare,40+jitter(11,3));                                  // ghost snare
+
+    for(int x=0;x<16;++x)
+    {
+        if(x>=fillStart) break;
+        const bool downbeat=(x%4==0), eighth=(x%2==0);
+        if(hatMode==1 && eighth)                       put(x,1,HatC,(downbeat ? 84 : 66)+jitter(x,5));
+        else if(hatMode==2)
+        {
+            if(!eighth && (hash32(idSeed ^ (uint32_t)(barOffset*29+x*13))%100u) < 14u) continue;      // drop-outs
+            if(x==14 && (hash32(idSeed ^ 0x0FEu)%100u) < 40u) { put(14,2,HatO,80); ++x; continue; }  // open hat
+            put(x,1,HatC,(downbeat ? 84 : eighth ? 68 : 56)+jitter(x,5));
+        }
+        else if(hatMode==3)
+        {
+            if(x%4==2)                                  put(x,2,HatO,78+jitter(x,3));
+            else if(!eighth && (hash32(idSeed ^ (uint32_t)(barOffset*17+x))%100u) < 55u) put(x,1,HatC,48+jitter(x,4));
+        }
+        if(shaker) put(x,1,Shaker,(x%4==2 ? 56 : 42)+jitter(x,4));
+    }
+    if(fill)
+    {
+        if(tomFill)
+        {
+            static const int toms[4]={50,47,45,43};
+            for(int i=0;i<4;++i) put(12+i,1,toms[i],84+6*i+jitter(i,3));
+        }
+        else
+            for(int x=12;x<16;++x) put(x,1,Snare,68+11*(x-12)+jitter(x,3));         // snare roll, rising
+    }
+    if(barOffset==0 && (genre==House||genre==Techno||genre==GenrePop||genre==Hyperpop||genre==Universal)
+       && (hash32(idSeed ^ 0xC2A5u)%100u)<30u)
+        put(0,4,Crash,96);
 }
 void MidiForgeAudioProcessor::add808(Section& s,int barOffset,float e,juce::Random&,int variationSalt)
 {
@@ -721,7 +857,18 @@ void MidiForgeAudioProcessor::add808(Section& s,int barOffset,float e,juce::Rand
     std::stable_sort(fam.begin(),fam.end(),[](const Cell& a,const Cell& b){ return a.size()<b.size(); });
     const float uRnd=(float)(hash32(idSeed ^ 0x808u)%1000u)/1000.0f;
     const float uDens=juce::jlimit(0.0f,0.999f,0.45f*uRnd+0.55f*melodyDensity+0.10f*(e-0.5f));
-    const Cell& pat=fam[(size_t)((int)(uDens*(float)fam.size()))];
+    Cell pat=fam[(size_t)((int)(uDens*(float)fam.size()))];
+    if(drumsEnabled)
+    {
+        // lock to the kick drum: the 808 plays where the kick plays (0.44)
+        Cell kp;
+        for(const auto& ev : s.notes)
+            if(ev.channel==5 && ev.note==36 && ev.step>=barOffset*16 && ev.step<barOffset*16+16) kp.push_back(ev.step-barOffset*16);
+        std::sort(kp.begin(),kp.end());
+        kp.erase(std::unique(kp.begin(),kp.end()),kp.end());
+        while(kp.size()>5) kp.erase(kp.begin()+1+(long)(hash32(idSeed ^ (uint32_t)kp.size())%(uint32_t)(kp.size()-1)));
+        if(!kp.empty()) pat=kp;
+    }
 
     const bool phraseEnd=(cycle==3)||(barOffset==bars-1);
     for(size_t k=0;k<pat.size();++k)
@@ -1522,6 +1669,8 @@ section.densityMultiplier=0.55f+0.65f*targetEnergy;
 for(int bar=0;bar<bars;++bar){
 int deg=prog[(size_t)((bar+sectionIndex)%prog.size())];
 const bool solo=soundProfileFor(soundTarget).soloLine;
+if(drumsEnabled)
+addDrums(section,bar,targetEnergy,r,variationSalt);
 if(chordsEnabled && !solo)
 addChords(section,bar,deg,targetEnergy,r);
 if(bassEnabled && !soundProfileFor(soundTarget).bassOff)
@@ -2071,7 +2220,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             for (const auto& n : flat.notes)
             {
                 const int b = juce::jlimit(0, barsN - 1, n.step / 16);
-                if (n.channel == 1 && n.step % 16 == 0) pcs[(size_t) b].push_back(((n.note % 12) + 12) % 12);
+                if (n.channel == 1) pcs[(size_t) b].push_back(((n.note % 12) + 12) % 12);
                 if (n.channel == 2 && n.step % 16 == 0) hasAnchor[(size_t) b] = true;
                 if (n.channel == 3) { sig[(size_t) b].push_back(n.step % 16); ++melNotes; }
             }
@@ -2477,6 +2626,12 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
         const bool locked=(n.channel==1&&lockChordsLayer)||(n.channel==2&&lockBassLayer)||
                            (n.channel==3&&lockMelodyLayer)||(n.channel==4&&lockArpLayer);
         if(locked) continue;
+        if(n.channel==5)
+        {
+            // Drums keep their groove: MUTATE / EVOLVE only touches their velocity (0.44).
+            if((h%100u)>62u) n.velocity=juce::jlimit(30,120,n.velocity+(int)((h>>22)%13u)-6);
+            continue;
+        }
 
         const float chance=0.10f+0.48f*amount;
         if(roll<chance)
@@ -2574,11 +2729,12 @@ int sampleOffset,int velocityBias)
 {
 if(e.step<0)return;
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
-midi.addEvent(juce::MidiMessage::noteOn(e.channel,e.note,(juce::uint8)velocity),sampleOffset);
+const int midiCh=(e.channel==5)?10:e.channel;      // drums = GM channel 10
+midi.addEvent(juce::MidiMessage::noteOn(midiCh,e.note,(juce::uint8)velocity),sampleOffset);
 const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
 const juce::int64 offGlobal = samplePosition + sampleOffset
 + (juce::int64) juce::jmax (1.0, e.length * stepSamples);
-pendingOffs.push_back ({ offGlobal, e.channel, e.note });
+pendingOffs.push_back ({ offGlobal, midiCh, e.note });
 }
 bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
 {
@@ -2599,8 +2755,10 @@ const double endTick = (double) totalSteps * ticksPerStep;
 const auto songArt = articulationFor (song.notes);
 conductor.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
 file.addTrack(conductor);
-for (int channel = 1; channel <= 4; ++channel)
+for (int channel = 1; channel <= 5; ++channel)
 {
+const int midiCh = (channel == 5) ? 10 : channel;
+if (channel == 5 && std::none_of (song.notes.begin(), song.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
 juce::MidiMessageSequence track;
 for (size_t ei = 0; ei < song.notes.size(); ++ei)
 {
@@ -2609,10 +2767,10 @@ if (e.channel != channel)
 continue;
 const double onTick = (double) e.step * ticksPerStep;
 double offTick = onTick + (double) juce::jmax(1, e.length) * ticksPerStep;
-addArticulation (track, songArt[ei], channel, onTick, offTick, (double) ticksPerStep);
+addArticulation (track, songArt[ei], midiCh, onTick, offTick, (double) ticksPerStep);
 const int velocity = juce::jlimit(1, 127, e.velocity);
-track.addEvent(juce::MidiMessage::noteOn(channel, e.note, (juce::uint8) velocity), onTick);
-track.addEvent(juce::MidiMessage::noteOff(channel, e.note), offTick);
+track.addEvent(juce::MidiMessage::noteOn(midiCh, e.note, (juce::uint8) velocity), onTick);
+track.addEvent(juce::MidiMessage::noteOff(midiCh, e.note), offTick);
 }
 track.updateMatchedPairs();
 track.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
@@ -2702,6 +2860,7 @@ o.writeInt(selectedVariation);
 o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
 o.writeInt(soundTarget);
 o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
+o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -2719,6 +2878,7 @@ int savedSelection=i.readInt();
 if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
 if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
 if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
+if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
 regenerate();
 chooseVariation (savedSelection);
 }
@@ -2782,11 +2942,13 @@ Section pattern;
 const juce::ScopedLock sl (variationsLock);
 pattern = mergedSelectedSong();
 }
-static const char* trackNames[5] = { "", "Chords", "Bass", "Melody", "Arp" };
+static const char* trackNames[6] = { "", "Chords", "Bass", "Melody", "Arp", "Drums" };
 const auto art = articulationFor (pattern.notes);
-for (int channel = 1; channel <= 4; ++channel)
+for (int channel = 1; channel <= 5; ++channel)
 {
 if (channelFilter != 0 && channel != channelFilter) continue;
+const int midiCh = (channel == 5) ? 10 : channel;      // drums = General MIDI channel 10
+if (channel == 5 && std::none_of (pattern.notes.begin(), pattern.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
 juce::MidiMessageSequence track;
 track.addEvent (juce::MidiMessage::textMetaEvent (3, trackNames[channel]), 0.0);
 for (size_t ni = 0; ni < pattern.notes.size(); ++ni)
@@ -2795,9 +2957,9 @@ const auto& n = pattern.notes[ni];
 if (n.channel != channel) continue;
 const double onTick  = n.step * (double) ticksPerStep;
 double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
-addArticulation (track, art[ni], channel, onTick, offTick, (double) ticksPerStep);
-auto on = juce::MidiMessage::noteOn (channel, n.note, (juce::uint8) juce::jlimit (1, 127, n.velocity));
-auto off = juce::MidiMessage::noteOff (channel, n.note);
+addArticulation (track, art[ni], midiCh, onTick, offTick, (double) ticksPerStep);
+auto on = juce::MidiMessage::noteOn (midiCh, n.note, (juce::uint8) juce::jlimit (1, 127, n.velocity));
+auto off = juce::MidiMessage::noteOff (midiCh, n.note);
 track.addEvent (on, onTick);
 track.addEvent (off, offTick);
 }
@@ -2829,9 +2991,9 @@ return file;
 }
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForChannel (int channel) const
 {
-static const char* names[5] = { "All", "Chords", "Bass", "Melody", "Arp" };
+static const char* names[6] = { "All", "Chords", "Bass", "Melody", "Arp", "Drums" };
 auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-.getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 4, channel)])
+.getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 5, channel)])
 + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
 exportMidiFileToChannel (file, channel);
 return file;
@@ -2868,7 +3030,7 @@ bool MidiForgeAudioProcessor::addVisibleNote (int step, int note, int length, in
 {
     VisibleNote created { juce::jmax (0, step), juce::jmax (1, length),
                           juce::jlimit (0, 127, note), juce::jlimit (1, 127, velocity),
-                          juce::jlimit (1, 4, channel) };
+                          juce::jlimit (1, 5, channel) };
     std::vector<VisibleNote> snapshot;
     {
         const juce::ScopedLock sl (activeNotesLock);
@@ -2933,7 +3095,7 @@ void MidiForgeAudioProcessor::replaceVisibleNotes (const std::vector<VisibleNote
             const auto length = juce::jmax (1, n.length);
             const auto note = juce::jlimit (0, 127, n.note);
             const auto velocity = juce::jlimit (1, 127, n.velocity);
-            const auto channel = juce::jlimit (1, 4, n.channel);
+            const auto channel = juce::jlimit (1, 5, n.channel);
             activeNotes.push_back ({ step, length, note, velocity, channel, false });
             cleaned.push_back ({ step, length, note, velocity, channel });
         }
