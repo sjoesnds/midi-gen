@@ -1356,6 +1356,44 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         }
         s.notes.push_back({ barOffset * 16 + x, len, note, velocity, 3, false });
     }
+
+    // 0.41 Fill Amount (this slider used to be stored but never applied).
+    // At the end of a phrase (4th bar of the cycle, and the last bar of the loop, which
+    // leads back to bar 1) a short scale run of 1-3 sixteenth notes leads into the next
+    // bar's chord.  Amount = how often it happens and how long the run is.  Bells and pads
+    // keep their long notes and never get fills.
+    if ((cycle == 3 || barOffset == bars - 1) && prof.minLen < 3 && fillAmount > 0.02f && !chosen.empty())
+    {
+        const float chance = juce::jlimit(0.0f, 0.95f, fillAmount * 2.2f);
+        const bool doFill = (float)(hash32(identitySeed ^ 0x0F111A5Eu ^ (uint32_t)(barOffset / 4) * 0x9e3779b9u) % 1000u) / 1000.0f < chance;
+        int nFill = 1 + (fillAmount > 0.30f ? 1 : 0) + (fillAmount > 0.60f ? 1 : 0);
+        const int lastStep = chosen.back();
+        while (nFill > 0 && lastStep > 16 - nFill - 1) --nFill;   // the last regular note keeps at least 1 step
+        if (doFill && nFill > 0)
+        {
+            const int nextDeg = prog[(size_t)((barOffset + 1) % (int)prog.size())];
+            int target = pitchForDegree(nextDeg, octave);
+            int nearest = target;
+            for (int k = -3; k <= 3; ++k)
+            {
+                const int cand = target + 12 * k;
+                if (cand < melLo || cand > melHi) continue;
+                if (nearest < melLo || nearest > melHi || std::abs(cand - previous) < std::abs(nearest - previous)) nearest = cand;
+            }
+            target = juce::jlimit(melLo, melHi, nearest);
+            const int dir = (previous <= target) ? 1 : -1;
+            const int firstFill = 16 - nFill;
+            for (auto it = s.notes.rbegin(); it != s.notes.rend(); ++it)
+                if (it->channel == 3 && it->step == barOffset * 16 + lastStep)
+                { it->length = juce::jmax(1, juce::jmin(it->length, firstFill - lastStep)); break; }
+            for (int i = 0; i < nFill; ++i)
+            {
+                const int pitch = juce::jlimit(melLo, melHi, snapToScale(target - dir * 2 * (nFill - i)));
+                const int vel = juce::jlimit(48, 100, 60 + 6 * i + (int)(hash32(seed ^ (uint32_t)(i * 31 + 7)) % 5u));
+                s.notes.push_back({ barOffset * 16 + firstFill + i, 1, pitch, vel, 3, false });
+            }
+        }
+    }
 }
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
