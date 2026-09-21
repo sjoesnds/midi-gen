@@ -88,6 +88,56 @@ void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7
 void MidiForgeAudioProcessor::setArticulation(int v){articulation=juce::jlimit(0,2,v);}
 void MidiForgeAudioProcessor::setChordStyle(int v){chordStyle=juce::jlimit(0,2,v);regenerate();}
 void MidiForgeAudioProcessor::setDrumsEnabled(bool on){drumsEnabled=on;regenerate();}
+const char* MidiForgeAudioProcessor::drumRowName(int row)
+{
+    static const char* names[kDrumRows]={"Kick","Snare","Clap","Hat","Open Hat","Toms","Crash","Shaker"};
+    return names[juce::jlimit(0,kDrumRows-1,row)];
+}
+int MidiForgeAudioProcessor::drumRowForNote(int gm)
+{
+    switch(gm)
+    {
+        case 36: return 0;
+        case 37: case 38: return 1;
+        case 39: return 2;
+        case 42: return 3;
+        case 46: return 4;
+        case 43: case 45: case 47: case 50: return 5;
+        case 49: return 6;
+        case 70: return 7;
+        default: return -1;
+    }
+}
+int MidiForgeAudioProcessor::drumRowNote(int row)
+{
+    static const int pitches[kDrumRows]={36,38,39,42,46,45,49,70};
+    return pitches[juce::jlimit(0,kDrumRows-1,row)];
+}
+int MidiForgeAudioProcessor::drumOutPitch(int row,int gm) const
+{
+    if(drumPitchMode==1) return gm;                       // General MIDI kit
+    return 60 + (row==5 ? gm-45 : 0);                     // one sample per channel: C5 (toms keep their relative pitches)
+}
+bool MidiForgeAudioProcessor::toggleDrumHit(int step,int row)
+{
+    row=juce::jlimit(0,kDrumRows-1,row);
+    const auto notes=getVisibleNotes();
+    for(int i=0;i<(int)notes.size();++i)
+        if(notes[(size_t)i].channel==5 && notes[(size_t)i].step==step && drumRowForNote(notes[(size_t)i].note)==row)
+        { deleteVisibleNote(i); return false; }
+    static const int velocities[kDrumRows]={110,105,100,75,78,90,96,55};
+    addVisibleNote(step,drumRowNote(row),row==4 ? 2 : 1,velocities[row],5);
+    return true;
+}
+juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForDrumRow(int row) const
+{
+    auto file=juce::File::getSpecialLocation(juce::File::tempDirectory)
+        .getChildFile("MidiForge_"+juce::String(row<0 ? "Drums" : drumRowName(row))+"_"
+                      +juce::String(juce::Random::getSystemRandom().nextInt())+".mid");
+    auto midiFile=buildMidiFile(5,row);
+    if(auto stream=file.createOutputStream()) midiFile.writeTo(*stream);
+    return file;
+}
 void MidiForgeAudioProcessor::dislikeAndAdvance()
 {
     const int vi = selectedVariation;
@@ -2728,6 +2778,7 @@ void MidiForgeAudioProcessor::emitNote(const NoteEvent& e,juce::MidiBuffer& midi
 int sampleOffset,int velocityBias)
 {
 if(e.step<0)return;
+if(e.channel==5){ const int drow=drumRowForNote(e.note); if(drow>=0 && (drumMuteMask&(1<<drow))!=0) return; }
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 const int midiCh=(e.channel==5)?10:e.channel;      // drums = GM channel 10
 midi.addEvent(juce::MidiMessage::noteOn(midiCh,e.note,(juce::uint8)velocity),sampleOffset);
@@ -2759,6 +2810,28 @@ for (int channel = 1; channel <= 5; ++channel)
 {
 const int midiCh = (channel == 5) ? 10 : channel;
 if (channel == 5 && std::none_of (song.notes.begin(), song.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
+if (channel == 5)
+{
+    for (int row = 0; row < kDrumRows; ++row)
+    {
+        if ((drumMuteMask & (1 << row)) != 0) continue;
+        juce::MidiMessageSequence dtrack;
+        dtrack.addEvent (juce::MidiMessage::textMetaEvent (3, drumRowName (row)), 0.0);
+        bool any = false;
+        for (const auto& n : song.notes)
+        {
+            if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
+            any = true;
+            const double onTick = (double) n.step * ticksPerStep;
+            const double offTick = onTick + (double) juce::jmax (1, n.length) * ticksPerStep;
+            const int pitch = drumOutPitch (row, n.note);
+            dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
+            dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
+        }
+        if (any) { dtrack.updateMatchedPairs(); dtrack.addEvent (juce::MidiMessage::endOfTrack(), endTick + ppq); file.addTrack (dtrack); }
+    }
+    continue;
+}
 juce::MidiMessageSequence track;
 for (size_t ei = 0; ei < song.notes.size(); ++ei)
 {
@@ -2861,6 +2934,7 @@ o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
 o.writeInt(soundTarget);
 o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
 o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
+o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -2879,6 +2953,7 @@ if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); 
 if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
 if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
+if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
 regenerate();
 chooseVariation (savedSelection);
 }
@@ -2931,7 +3006,7 @@ void MidiForgeAudioProcessor::addArticulation (juce::MidiMessageSequence& track,
     }
 }
 
-juce::MidiFile MidiForgeAudioProcessor::buildMidiFile (int channelFilter) const
+juce::MidiFile MidiForgeAudioProcessor::buildMidiFile (int channelFilter, int drumRow) const
 {
 juce::MidiFile midiFile;
 constexpr int ticksPerQuarter = 960;
@@ -2949,6 +3024,30 @@ for (int channel = 1; channel <= 5; ++channel)
 if (channelFilter != 0 && channel != channelFilter) continue;
 const int midiCh = (channel == 5) ? 10 : channel;      // drums = General MIDI channel 10
 if (channel == 5 && std::none_of (pattern.notes.begin(), pattern.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
+if (channel == 5)
+{
+    // one track per drum instrument (kick / snare / hat ...), so each can go to its own sampler
+    for (int row = 0; row < kDrumRows; ++row)
+    {
+        if (drumRow >= 0 && row != drumRow) continue;
+        if (drumRow < 0 && (drumMuteMask & (1 << row)) != 0) continue;
+        juce::MidiMessageSequence dtrack;
+        dtrack.addEvent (juce::MidiMessage::textMetaEvent (3, drumRowName (row)), 0.0);
+        bool any = false;
+        for (const auto& n : pattern.notes)
+        {
+            if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
+            any = true;
+            const double onTick = n.step * (double) ticksPerStep;
+            const double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+            const int pitch = drumOutPitch (row, n.note);
+            dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
+            dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
+        }
+        if (any) { dtrack.updateMatchedPairs(); midiFile.addTrack (dtrack); }
+    }
+    continue;
+}
 juce::MidiMessageSequence track;
 track.addEvent (juce::MidiMessage::textMetaEvent (3, trackNames[channel]), 0.0);
 for (size_t ni = 0; ni < pattern.notes.size(); ++ni)

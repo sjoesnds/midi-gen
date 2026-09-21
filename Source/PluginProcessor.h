@@ -102,6 +102,17 @@ int getArticulation() const { return articulation; }
 int getChordStyle() const { return chordStyle; }
 void setChordStyle (int v);
 bool isDrumsEnabled() const { return drumsEnabled; }
+// 0.45 Drum section: every instrument is its own row (own track, own drag, own mute)
+static constexpr int kDrumRows = 8;                       // Kick, Snare, Clap, Hat, Open Hat, Toms, Crash, Shaker
+static const char* drumRowName (int row);
+static int drumRowForNote (int gmNote);                   // -1 if not a drum pitch
+static int drumRowNote (int row);                         // GM pitch used when a hit is added by hand
+int getDrumMuteMask() const { return drumMuteMask; }
+void setDrumMuteMask (int m) { drumMuteMask = m & 0xFF; }
+int getDrumPitchMode() const { return drumPitchMode; }    // 0 = every hit on C5 (one sample per channel), 1 = General MIDI pitches
+void setDrumPitchMode (int m) { drumPitchMode = juce::jlimit (0, 1, m); }
+bool toggleDrumHit (int step, int row);                   // true = the hit is now on
+juce::File writeTemporaryMidiFileForDrumRow (int row) const;   // row -1 = all drums, one track per instrument
 void setDrumsEnabled (bool on);
 void setArticulation (int v);
 bool getAutoNext() const { return autoNextOnDislike; }
@@ -152,7 +163,8 @@ void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
-juce::MidiFile buildMidiFile (int channelFilter = 0) const;
+juce::MidiFile buildMidiFile (int channelFilter = 0, int drumRow = -1) const;
+int drumOutPitch (int row, int gmNote) const;
 bool exportMidiFileTo (const juce::File& file) const;
 bool exportMidiFileToChannel (const juce::File& file, int channel) const;
 // Пишет во временную папку — используется для drag-and-drop прямо в FL Studio
@@ -207,6 +219,8 @@ int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
 int chordStyle = 0;
 bool drumsEnabled = false;
+int drumMuteMask = 0;
+int drumPitchMode = 0;
 int articulation = 0;   // Off by default: overlapping notes sound like dyads on a polyphonic patch
 bool autoNextOnDislike = true;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;

@@ -154,7 +154,8 @@ namespace
         }
     }
 
-    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0; bool ok = false; };
+    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0; bool ok = false;
+                      std::map<std::string, std::set<int>> drumTracks; };   // track name -> pitches used on channel 10
     MidiInfo readMidi (const juce::File& f)
     {
         MidiInfo info;
@@ -168,11 +169,14 @@ namespace
         {
             juce::MidiMessageSequence seq (*mf.getTrack (t));
             seq.updateMatchedPairs();
+            std::string trackName;
+            for (int i = 0; i < seq.getNumEvents(); ++i)
+                if (seq.getEventPointer (i)->message.isTrackNameEvent()) trackName = seq.getEventPointer (i)->message.getTextFromTextMetaEvent().toStdString();
             for (int i = 0; i < seq.getNumEvents(); ++i)
             {
                 auto* ev = seq.getEventPointer (i);
                 if (ev->message.isController() && ev->message.getControllerNumber() == 1) ++info.cc1;
-                if (ev->message.isNoteOn() && ev->message.getChannel() == 10) ++info.drumNotesCh10;
+                if (ev->message.isNoteOn() && ev->message.getChannel() == 10) { ++info.drumNotesCh10; info.drumTracks[trackName].insert (ev->message.getNoteNumber()); }
                 if (ev->message.isNoteOn() && ev->message.getChannel() == 5) ++info.notesCh5;
                 if (ev->message.isNoteOn() && ev->message.getChannel() == 3 && ev->noteOffObject != nullptr)
                     mel.push_back ({ ev->message.getTimeStamp(), ev->noteOffObject->message.getTimeStamp() });
@@ -395,6 +399,71 @@ int main()
         p.setDrumsEnabled (false); p.setSoundTarget (0);
     }
 
+    // ------------------------------------------------------------------ 3e. drum section: one instrument per row
+    {
+        p.setSoundTarget (0); p.setDrumsEnabled (true); p.setDrumMuteMask (0); p.setDrumPitchMode (0);
+        const std::set<std::string> rowNames { "Kick", "Snare", "Clap", "Hat", "Open Hat", "Toms", "Crash", "Shaker" };
+        bool namesOk = true, oneInstrumentPerTrack = true, sampler = true; size_t maxTracks = 0;
+        for (int i = 0; i < 20; ++i)
+        {
+            p.magicRandomize();
+            p.setGenre (i % 2 ? 2 : 1);                      // House / Trap: many instruments
+            auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_rows.mid");
+            p.exportMidiFileTo (f);
+            auto m = readMidi (f); f.deleteFile();
+            maxTracks = std::max (maxTracks, m.drumTracks.size());
+            for (auto& kv : m.drumTracks)
+            {
+                if (! rowNames.count (kv.first)) namesOk = false;
+                for (int pitch : kv.second) if (MidiForgeAudioProcessor::drumRowForNote (pitch) >= 0 && kv.first != "Toms" && pitch != 60) sampler = false;
+            }
+            for (auto& kv : m.drumTracks) if (kv.first != "Toms" && kv.second.size() != 1) oneInstrumentPerTrack = false;
+        }
+        report ("drums are split into one named track per instrument", namesOk && maxTracks >= 4, fmt ("up to %.0f separate drum tracks", (double) maxTracks));
+        report ("each drum track holds a single pitch (C5) in sampler mode", oneInstrumentPerTrack && sampler, "kick / snare / hats all on C5");
+
+        // General MIDI mode keeps kit pitches
+        p.setDrumPitchMode (1);
+        p.magicRandomize();
+        { auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_gm.mid");
+          p.exportMidiFileTo (f); auto m = readMidi (f); f.deleteFile();
+          bool kickIsGm = m.drumTracks.count ("Kick") && m.drumTracks["Kick"].count (36);
+          report ("GM pitch mode writes kit pitches", kickIsGm, "kick = 36"); }
+        p.setDrumPitchMode (0);
+
+        // dragging a single instrument writes only that instrument
+        p.magicRandomize();
+        auto kickFile = p.writeTemporaryMidiFileForDrumRow (0);
+        auto kickInfo = readMidi (kickFile); kickFile.deleteFile();
+        report ("Drag Kick writes only the kick", kickInfo.drumTracks.size() == 1 && kickInfo.drumTracks.count ("Kick") == 1, fmt ("%.0f drum track(s)", (double) kickInfo.drumTracks.size()));
+
+        // mute: the instrument disappears from the full file but can still be dragged alone
+        p.setDrumMuteMask (1 << 0);
+        auto f2 = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_mute.mid");
+        p.exportMidiFileTo (f2); auto muted = readMidi (f2); f2.deleteFile();
+        auto kickAlone = p.writeTemporaryMidiFileForDrumRow (0); auto kickAloneInfo = readMidi (kickAlone); kickAlone.deleteFile();
+        report ("muted instrument is left out of the full file, still draggable alone",
+               muted.drumTracks.count ("Kick") == 0 && kickAloneInfo.drumTracks.count ("Kick") == 1, "Kick muted");
+        p.setDrumMuteMask (0);
+
+        // step-grid editing
+        p.magicRandomize();
+        int freeStep = -1;
+        auto before = p.getVisibleNotes();
+        for (int st = 1; st < p.getVisibleBars() * 16 && freeStep < 0; ++st)
+        {
+            bool taken = false; for (auto& n : before) if (n.channel == 5 && n.step == st && MidiForgeAudioProcessor::drumRowForNote (n.note) == 3) taken = true;
+            if (! taken) freeStep = st;
+        }
+        const bool on = p.toggleDrumHit (freeStep, 3);
+        auto afterOn = p.getVisibleNotes();
+        const bool off = ! p.toggleDrumHit (freeStep, 3);
+        auto afterOff = p.getVisibleNotes();
+        report ("clicking a step adds / removes a hat hit", on && off && afterOn.size() == before.size() + 1 && afterOff.size() == before.size(),
+               fmt ("%.0f -> %.0f -> %.0f notes", (double) before.size(), (double) afterOn.size(), (double) afterOff.size()));
+        p.setDrumsEnabled (false);
+    }
+
     // ------------------------------------------------------------------ 4. articulation
     {
         auto exportAndRead = [&] (int sound, int art, int loops)
@@ -452,15 +521,19 @@ int main()
     // ------------------------------------------------------------------ 6. state and AUTO-NEXT
     {
         MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
+        a.setDrumMuteMask (0x0A); a.setDrumPitchMode (1);
         juce::MemoryBlock mb; a.getStateInformation (mb);
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
-        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled(),
+        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
+               && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
-        MidiForgeAudioProcessor c0; c0.setStateInformation (mb.getData(), (int) mb.getSize() - 8);   // project saved by 0.42 / 0.43
+        MidiForgeAudioProcessor c1; c1.setStateInformation (mb.getData(), (int) mb.getSize() - 8);    // project saved by 0.44
+        report ("0.44 project (no drum mute / pitch fields) loads", c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "defaults applied");
+        MidiForgeAudioProcessor c0; c0.setStateInformation (mb.getData(), (int) mb.getSize() - 16);   // project saved by 0.42 / 0.43
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
-        MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 16);   // project saved by 0.40 / 0.41
+        MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 24);    // project saved by 0.40 / 0.41
         report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 0, "defaults applied");
-        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 20);   // project saved by 0.38 / 0.39
+        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 28);    // project saved by 0.38 / 0.39
         report ("older project (no sound field) loads", d.getSoundTarget() == 0, "defaults applied");
     }
     {

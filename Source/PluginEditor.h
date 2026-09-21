@@ -3,6 +3,7 @@
 #include <memory>
 #include <utility>
 #include <optional>
+#include <array>
 #include "PluginProcessor.h"
 class MidiForgeAudioProcessorEditor : public juce::AudioProcessorEditor,
 public juce::DragAndDropContainer,
@@ -90,6 +91,35 @@ juce::Label title, sectionLabel, variationInfoLabel;
  LayerDragHandle dragMelody { *this, 3, "Drag Melody" };
  LayerDragHandle dragArp    { *this, 4, "Drag Arp" };
  LayerDragHandle dragDrums  { *this, 5, "Drag Drums" };
+ // 0.45 Drum section: one instrument (row 0-7) or all drums as separate tracks (row -1)
+ struct DrumRowDragHandle : public juce::Component
+ {
+     DrumRowDragHandle (MidiForgeAudioProcessorEditor& o, int r, juce::String lbl)
+         : owner (o), row (r), label (std::move (lbl)) {}
+     void paint (juce::Graphics& g) override
+     {
+         g.setColour (juce::Colour (0xff3a3a3a));
+         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+         g.setColour (juce::Colours::white);
+         g.setFont (10.0f);
+         g.drawFittedText (label, getLocalBounds(), juce::Justification::centred, 1);
+     }
+     void mouseDown (const juce::MouseEvent&) override { dragStarted = false; }
+     void mouseDrag (const juce::MouseEvent& e) override
+     {
+         if (dragStarted) return;
+         if (e.getDistanceFromDragStart() < 6) return;
+         dragStarted = true;
+         auto file = owner.processor.writeTemporaryMidiFileForDrumRow (row);
+         if (!file.existsAsFile()) { dragStarted = false; return; }
+         owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
+     }
+     void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
+     MidiForgeAudioProcessorEditor& owner;
+     int row;
+     juce::String label;
+     bool dragStarted = false;
+ };
  // Мини пиано-ролл: показывает текущий выбранный вариант и бегущую полоску
  // воспроизведения. Цвет ноты = канал (аккорды/бас/мелодия/арпеджио).
  struct PianoRoll : public juce::Component, private juce::Timer
@@ -163,6 +193,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
          for (int i = 0; i < (int) notes.size(); ++i)
          {
              const auto& n = notes[(size_t) i];
+             if (n.channel == 5) continue;            // drums have their own section (DRUM VIEW)
              const float x = contentX + (float) (n.step - startStep) * stepW + 1.0f;
              const float noteW = juce::jmax (4.0f, (float) n.length * stepW - 2.0f);
              const float y = pitchToY (n.note, minVisibleNote, noteSpan) + 1.0f;
@@ -443,6 +474,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
          for (int i = (int) notes.size() - 1; i >= 0; --i)
          {
              const auto& n = notes[(size_t) i];
+             if (n.channel == 5) continue;            // drums are edited in the drum grid
              const float x = contentX + (float) (n.step - viewStartStep) * stepW;
              const float w = juce::jmax (4.0f, (float) n.length * stepW - 2.0f);
              const float y = pitchToY (n.note, viewLowNote, noteSpan);
@@ -639,5 +671,159 @@ juce::Label title, sectionLabel, variationInfoLabel;
      void timerCallback() override { repaint(); }
  };
  PianoRoll pianoRoll { processor, undoBtn, redoBtn, historyLabel };
+
+ // Drum section: a step grid with one labelled row per instrument (KICK, SNARE, CLAP, HAT ...),
+ // click a step to add / remove a hit, M = mute the instrument, DRAG = only this instrument.
+ struct DrumGrid : public juce::Component, private juce::Timer
+ {
+     explicit DrumGrid (MidiForgeAudioProcessorEditor& o) : owner (o), processor (o.processor), dragAll (o, -1, "DRAG ALL")
+     {
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+         {
+             muteBtn[(size_t) r].setButtonText ("M");
+             muteBtn[(size_t) r].setClickingTogglesState (true);
+             muteBtn[(size_t) r].setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffb03a3a));
+             muteBtn[(size_t) r].onClick = [this, r]
+             {
+                 int m = processor.getDrumMuteMask();
+                 if (muteBtn[(size_t) r].getToggleState()) m |= (1 << r); else m &= ~(1 << r);
+                 processor.setDrumMuteMask (m);
+                 repaint();
+             };
+             addAndMakeVisible (muteBtn[(size_t) r]);
+             dragRow[(size_t) r] = std::make_unique<DrumRowDragHandle> (o, r, "DRAG");
+             addAndMakeVisible (*dragRow[(size_t) r]);
+         }
+         prevBtn.setButtonText ("<");  nextBtn.setButtonText (">");
+         prevBtn.onClick = [this] { page = juce::jmax (0, page - 1); repaint(); };
+         nextBtn.onClick = [this] { page = juce::jmin (pageCount() - 1, page + 1); repaint(); };
+         addAndMakeVisible (prevBtn); addAndMakeVisible (nextBtn);
+         pitchBox.addItemList ({ "Pitch: all on C5 (one sample per channel)", "Pitch: General MIDI (drum kit)" }, 1);
+         pitchBox.setSelectedId (processor.getDrumPitchMode() + 1, juce::dontSendNotification);
+         pitchBox.onChange = [this] { processor.setDrumPitchMode (pitchBox.getSelectedId() - 1); };
+         addAndMakeVisible (pitchBox);
+         addAndMakeVisible (dragAll);
+         startTimerHz (15);
+     }
+     void resized() override
+     {
+         const int w = getWidth();
+         prevBtn.setBounds (4, 2, 24, headerH - 4);
+         nextBtn.setBounds (98, 2, 24, headerH - 4);
+         dragAll.setBounds (w - 84, 2, 80, headerH - 4);
+         pitchBox.setBounds (w - 84 - 6 - 250, 2, 250, headerH - 4);
+         const int rowH = rowHeight();
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+         {
+             const int y = headerH + r * rowH;
+             muteBtn[(size_t) r].setBounds (66, y + 1, 26, rowH - 2);
+             dragRow[(size_t) r]->setBounds (96, y + 1, 54, rowH - 2);
+         }
+     }
+     void paint (juce::Graphics& g) override
+     {
+         g.fillAll (juce::Colour (0xff15181e));
+         const int rows = MidiForgeAudioProcessor::kDrumRows;
+         const int rowH = rowHeight();
+         const int total = juce::jmax (1, processor.getVisibleBars() * 16);
+         const int first = page * stepsPerPage;
+         const int visible = juce::jmin (stepsPerPage, total - first);
+         const float cellW = (float) (getWidth() - gridX - 6) / (float) stepsPerPage;
+
+         g.setColour (juce::Colours::white.withAlpha (0.85f));
+         g.setFont (12.0f);
+         g.drawText ("BARS " + juce::String (first / 16 + 1) + "-" + juce::String (juce::jmin (processor.getVisibleBars(), (first + stepsPerPage) / 16)),
+                     30, 2, 66, headerH - 4, juce::Justification::centred);
+
+         const auto notes = processor.getVisibleNotes();
+         const int mask = processor.getDrumMuteMask();
+         for (int r = 0; r < rows; ++r)
+         {
+             const int y = headerH + r * rowH;
+             const bool muted = (mask & (1 << r)) != 0;
+             g.setColour ((r % 2) ? juce::Colour (0xff1b1f27) : juce::Colour (0xff181c23));
+             g.fillRect (0, y, getWidth(), rowH);
+             g.setColour (rowColour (r).withAlpha (muted ? 0.35f : 1.0f));
+             g.setFont (juce::Font (12.0f, juce::Font::bold));
+             g.drawText (MidiForgeAudioProcessor::drumRowName (r), 6, y, 60, rowH, juce::Justification::centredLeft);
+             for (int i = 0; i < stepsPerPage; ++i)
+             {
+                 const float x = (float) gridX + (float) i * cellW;
+                 g.setColour ((i % 4 == 0) ? juce::Colour (0xff2c333f) : juce::Colour (0xff222832));
+                 g.fillRect (x, (float) y + 1.0f, cellW - 1.0f, (float) rowH - 2.0f);
+                 if (i >= visible) { g.setColour (juce::Colour (0xff15181e)); g.fillRect (x, (float) y + 1.0f, cellW - 1.0f, (float) rowH - 2.0f); }
+             }
+         }
+         for (const auto& n : notes)
+         {
+             if (n.channel != 5) continue;
+             const int r = MidiForgeAudioProcessor::drumRowForNote (n.note);
+             if (r < 0 || n.step < first || n.step >= first + visible) continue;
+             const bool muted = (mask & (1 << r)) != 0;
+             const float x = (float) gridX + (float) (n.step - first) * cellW;
+             const int y = headerH + r * rowH;
+             const float w = juce::jmax (cellW - 1.0f, (float) juce::jmin (n.length, 4) * cellW - 1.0f);
+             g.setColour (rowColour (r).withAlpha ((0.45f + 0.55f * (float) n.velocity / 127.0f) * (muted ? 0.30f : 1.0f)));
+             g.fillRoundedRectangle (x, (float) y + 2.0f, w, (float) rowH - 4.0f, 2.0f);
+         }
+         const int playStep = processor.getVisiblePlayheadStep();
+         if (playStep >= first && playStep < first + visible)
+         {
+             g.setColour (juce::Colours::white.withAlpha (0.75f));
+             g.fillRect ((float) gridX + (float) (playStep - first) * cellW, (float) headerH, 1.5f, (float) (rows * rowH));
+         }
+     }
+     void mouseDown (const juce::MouseEvent& e) override
+     {
+         const int rowH = rowHeight();
+         if (e.y < headerH || e.x < gridX) return;
+         const int r = (e.y - headerH) / rowH;
+         if (r < 0 || r >= MidiForgeAudioProcessor::kDrumRows) return;
+         const float cellW = (float) (getWidth() - gridX - 6) / (float) stepsPerPage;
+         const int step = page * stepsPerPage + (int) ((float) (e.x - gridX) / cellW);
+         if (step < 0 || step >= processor.getVisibleBars() * 16) return;
+         processor.toggleDrumHit (step, r);
+         repaint();
+     }
+     static juce::Colour rowColour (int r)
+     {
+         static const juce::uint32 c[MidiForgeAudioProcessor::kDrumRows] =
+             { 0xffe05a4f, 0xfff0a640, 0xffe8d24a, 0xff5cc78e, 0xff4fb8c9, 0xff5a8de0, 0xffb279e0, 0xffd879b5 };
+         return juce::Colour (c[juce::jlimit (0, MidiForgeAudioProcessor::kDrumRows - 1, r)]);
+     }
+     int rowHeight() const { return juce::jmax (12, (getHeight() - headerH) / MidiForgeAudioProcessor::kDrumRows); }
+     int pageCount() const { return juce::jmax (1, (processor.getVisibleBars() * 16 + stepsPerPage - 1) / stepsPerPage); }
+     void timerCallback() override
+     {
+         page = juce::jlimit (0, pageCount() - 1, page);
+         const int m = processor.getDrumMuteMask();
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+             if (muteBtn[(size_t) r].getToggleState() != ((m & (1 << r)) != 0))
+                 muteBtn[(size_t) r].setToggleState ((m & (1 << r)) != 0, juce::dontSendNotification);
+         if (pitchBox.getSelectedId() != processor.getDrumPitchMode() + 1)
+             pitchBox.setSelectedId (processor.getDrumPitchMode() + 1, juce::dontSendNotification);
+         if (isVisible()) repaint();
+     }
+     MidiForgeAudioProcessorEditor& owner;
+     MidiForgeAudioProcessor& processor;
+     std::array<juce::TextButton, MidiForgeAudioProcessor::kDrumRows> muteBtn;
+     std::array<std::unique_ptr<DrumRowDragHandle>, MidiForgeAudioProcessor::kDrumRows> dragRow;
+     DrumRowDragHandle dragAll;
+     juce::TextButton prevBtn, nextBtn;
+     juce::ComboBox pitchBox;
+     static constexpr int headerH = 24, gridX = 158, stepsPerPage = 32;
+     int page = 0;
+ };
+ DrumGrid drumGrid { *this };
+ bool drumView = false;
+ juce::TextButton drumViewBtn { "DRUM VIEW" };
+ void setDrumView (bool on)
+ {
+     drumView = on;
+     pianoRoll.setVisible (! on);
+     drumGrid.setVisible (on);
+     drumViewBtn.setButtonText (on ? "PIANO ROLL" : "DRUM VIEW");
+     repaint();
+ }
  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessorEditor)
 };

@@ -154,7 +154,7 @@ chords.onClick=[this]{processor.setChordsEnabled(chords.getToggleState());};
 bass.onClick=[this]{processor.setBassEnabled(bass.getToggleState());};
 melody.onClick=[this]{processor.setMelodyEnabled(melody.getToggleState());};
 arp.onClick=[this]{processor.setArpEnabled(arp.getToggleState());};
-drums.onClick=[this]{processor.setDrumsEnabled(drums.getToggleState());};
+drums.onClick=[this]{ processor.setDrumsEnabled(drums.getToggleState()); if(drums.getToggleState()) setDrumView(true); else if(drumView) setDrumView(false); };
 extensions.onClick=[this]{processor.setChordExtensions(extensions.getToggleState());};
 inversions.onClick=[this]{processor.setInversions(inversions.getToggleState());};
 hookModeButton.onClick=[this]{processor.setHookMode(hookModeButton.getToggleState());};
@@ -269,6 +269,9 @@ safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid"));
 addAndMakeVisible (exportButton);
 addAndMakeVisible (dragHandle);
 addAndMakeVisible (pianoRoll);
+addChildComponent (drumGrid);
+drumViewBtn.onClick=[this]{ setDrumView(! drumView); };
+addAndMakeVisible (drumViewBtn);
 // --- Smart Lock: заморозка партии при GENERATE 8 ---
 lockChordsBtn.setToggleState(p.getLockChords(), juce::dontSendNotification);
 lockBassBtn.setToggleState(p.getLockBass(), juce::dontSendNotification);
@@ -312,7 +315,7 @@ g.drawFittedText("PART DENSITY / MUSICAL DNA",20,146,860,18,juce::Justification:
 g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
 g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
 g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
-g.drawFittedText("PIANO ROLL",20,452,860,18,juce::Justification::left,1);
+g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "PIANO ROLL",20,452,860,18,juce::Justification::left,1);
 g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left,1);
 }
 void MidiForgeAudioProcessorEditor::resized()
@@ -383,6 +386,8 @@ complexity.setBounds(x1 + 2 * ((contentW - 16) / 3) + 16,428,(contentW - 16) / 3
 // Piano roll is kept large enough to remain usable, but no longer pushes the
 // action controls below the host window.
 pianoRoll.setBounds(left,472,contentW,190);
+drumGrid.setBounds(left,472,contentW,190);
+drumViewBtn.setBounds(850,112,120,22);
 
 // Bottom action rows — always visible in the default 800px editor.
 variationBox.setBounds(20,690,74,28);
