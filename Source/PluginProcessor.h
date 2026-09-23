@@ -1,61 +1,86 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TasteModel.h"
+#include "Modules/MusicTheory.h"
+#include "Modules/MidiTypes.h"
+#include "Modules/Generators.h"
+#include "Modules/PresetManager.h"
 #include <array>
 #include <vector>
 #include <atomic>
 #include <memory>
+
+//==============================================================================
+/** MIDI Forge Audio Processor - Main plugin class
+ * 
+ * This processor generates musical MIDI patterns using procedural generation
+ * with ML-driven taste preferences. The architecture is being refactored into
+ * modular components for better maintainability.
+ */
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
-enum Genre {
-    Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic,
-    RnB, GenrePop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental, Lofi
-};
-enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
-enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
-enum Rhythm { Straight, Syncopated, Broken, Euclidean };
-enum SectionMode { Loop, SongMode, SongExtended };
-enum Mood { NeutralMood, DarkMood, MelancholicMood, EuphoricMood, AggressiveMood, DreamyMood, NostalgicMood, MysteriousMood, EnergeticMood };
-enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMelody, CounterMelody, SparseLeadMelody, PhraseMelody };
-MidiForgeAudioProcessor();
-~MidiForgeAudioProcessor() override = default;
-void prepareToPlay(double, int) override;
-void releaseResources() override
-{
-    const juce::ScopedLock sl (activeNotesLock);
-    activeNotes.clear();
-    activeBars = 4;
-    pendingOffs.clear();
-    samplePosition = 0;
-    lastGlobalStep.store (-1);
-    uiCurrentStep.store (-1);
-}
-bool isBusesLayoutSupported(const BusesLayout&) const override;
-void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-juce::AudioProcessorEditor* createEditor() override;
-bool hasEditor() const override { return true; }
-const juce::String getName() const override { return "MIDI Forge"; }
-bool acceptsMidi() const override { return true; }
-bool producesMidi() const override { return true; }
-bool isMidiEffect() const override { return false; }
-double getTailLengthSeconds() const override { return 0.0; }
-int getNumPrograms() override { return 1; }
-int getCurrentProgram() override { return 0; }
-void setCurrentProgram(int) override {}
-const juce::String getProgramName(int) override { return {}; }
-void changeProgramName(int, const juce::String&) override {}
-void getStateInformation(juce::MemoryBlock&) override;
-void setStateInformation(const void*, int) override;
-void regenerate();
-void regenerateVariations();
-// Magic Overhaul: explore the whole musical state coherently.
-void magicRandomize();
-void rerollSameDNA();
-void mutateSelected(float amount = 0.45f);
-void evolveSelected();
-void chooseVariation(int index);
-bool exportMidi(const juce::File& targetFile) const;
+    // Use module enums for type safety
+    using ScaleType = music::ScaleType;
+    using ProgressionType = music::ProgressionType;
+    using RhythmPattern = music::RhythmPattern;
+    using GenreType = music::Genre;
+    
+    // Legacy enum aliases for backward compatibility during refactoring
+    enum Genre {
+        Universal = 0, Trap = 1, House = 2, Techno = 3, BoomBap = 4, Ambient = 5, Cinematic = 6,
+        RnB = 7, GenrePop = 8, Drill = 9, DnB = 10, Jersey = 11, Afro = 12, Hyperpop = 13, Experimental = 14, Lofi = 15
+    };
+    enum ScaleTypeLegacy { Major = 0, Minor = 1, Dorian = 2, Phrygian = 3, HarmonicMinor = 4, MelodicMinor = 5, Pentatonic = 6 };
+    enum Progression { AutoProg = 0, Pop = 1, Dark = 2, Emotional = 3, CinematicProg = 4, JazzLike = 5, Looping = 6 };
+    enum Rhythm { Straight = 0, Syncopated = 1, Broken = 2, Euclidean = 3 };
+    enum SectionMode { Loop = 0, SongMode = 1, SongExtended = 2 };
+    enum Mood { NeutralMood, DarkMood, MelancholicMood, EuphoricMood, AggressiveMood, DreamyMood, NostalgicMood, MysteriousMood, EnergeticMood };
+    enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMelody, CounterMelody, SparseLeadMelody, PhraseMelody };
+    
+    MidiForgeAudioProcessor();
+    ~MidiForgeAudioProcessor() override = default;
+    void prepareToPlay(double, int) override;
+    void releaseResources() override
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        activeNotes.clear();
+        activeBars = 4;
+        pendingOffs.clear();
+        samplePosition = 0;
+        lastGlobalStep.store (-1);
+        uiCurrentStep.store (-1);
+    }
+    bool isBusesLayoutSupported(const BusesLayout&) const override;
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
+    
+    // AudioProcessor info
+    const juce::String getName() const override { return "MIDI Forge"; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return true; }
+    bool isMidiEffect() const override { return false; }
+    double getTailLengthSeconds() const override { return 0.0; }
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
+    
+    // State persistence
+    void getStateInformation(juce::MemoryBlock&) override;
+    void setStateInformation(const void*, int) override;
+    
+    // Generation controls
+    void regenerate();
+    void regenerateVariations();
+    void magicRandomize();
+    void rerollSameDNA();
+    void mutateSelected(float amount = 0.45f);
+    void evolveSelected();
+    void chooseVariation(int index);
+    bool exportMidi(const juce::File& targetFile) const;
 // Main controls
 void setRoot(int); void setGenre(int); void setScale(int);
 void setMood(int); void setMelodyType(int); void setEra(int);
@@ -84,6 +109,24 @@ bool getLockChords() const { return lockChordsLayer; }
 bool getLockBass() const   { return lockBassLayer; }
 bool getLockMelody() const { return lockMelodyLayer; }
 bool getLockArp() const    { return lockArpLayer; }
+
+// --- DNA Parameters ---
+void setDnaMelody(float v)   { dnaMelody = juce::jlimit(0.f, 1.f, v); }
+void setDnaRhythm(float v)   { dnaRhythm = juce::jlimit(0.f, 1.f, v); }
+void setDnaHarmony(float v)  { dnaHarmony = juce::jlimit(0.f, 1.f, v); }
+void setDnaMotif(float v)    { dnaMotif = juce::jlimit(0.f, 1.f, v); }
+void setDnaRegister(float v) { dnaRegister = juce::jlimit(0.f, 1.f, v); }
+void setDnaGroove(float v)   { dnaGroove = juce::jlimit(0.f, 1.f, v); }
+void setDnaEnergy(float v)   { dnaEnergy = juce::jlimit(0.f, 1.f, v); }
+void setDnaSurprise(float v) { dnaSurprise = juce::jlimit(0.f, 1.f, v); }
+float getDnaMelody() const   { return dnaMelody; }
+float getDnaRhythm() const   { return dnaRhythm; }
+float getDnaHarmony() const  { return dnaHarmony; }
+float getDnaMotif() const    { return dnaMotif; }
+float getDnaRegister() const { return dnaRegister; }
+float getDnaGroove() const   { return dnaGroove; }
+float getDnaEnergy() const   { return dnaEnergy; }
+float getDnaSurprise() const { return dnaSurprise; }
 int getRoot() const { return rootPc; }
 int getGenre() const { return genre; }
 int getScale() const { return scale; }
@@ -182,11 +225,19 @@ void replaceVisibleNotes (const std::vector<VisibleNote>& notes);
 void quantizeVisibleNotes (int gridSteps);
 // Текущий шаг воспроизведения внутри паттерна (0..bars*16-1), -1 если не играет.
 int getVisiblePlayheadStep() const { return uiCurrentStep.load(); }
+
+// Preset management integration
+void loadPreset(const presets::PresetData& preset);
+presets::PresetData getCurrentPreset() const;
+void saveCurrentSettingsAsPreset(const juce::String& name);
+
 private:
-struct NoteEvent {
-int step, length, note, velocity, channel;
-bool ghost = false;
-};
+// Use module types internally
+using NoteEvent = midi::NoteEvent;
+using VisibleNoteInternal = midi::VisibleNote;
+using SoundProfile = generators::SoundProfile;
+using MagicDNA = generators::MagicDNA;
+
 struct Section {
     juce::String name;
     int bars = 4;

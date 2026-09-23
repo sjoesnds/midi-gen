@@ -283,6 +283,14 @@ lockMelodyBtn.onClick=[this]{processor.setLockMelody(lockMelodyBtn.getToggleStat
 lockArpBtn.onClick=[this]{processor.setLockArp(lockArpBtn.getToggleState());};
 addAndMakeVisible(lockChordsBtn);addAndMakeVisible(lockBassBtn);
 addAndMakeVisible(lockMelodyBtn);addAndMakeVisible(lockArpBtn);
+// --- Preset browser: factory presets + user presets from Modules/PresetManager ---
+refreshPresetList();
+presetBox.onChange = [this] { applySelectedPreset(); };
+savePresetBtn.onClick = [this] { saveCurrentAsPreset(); };
+deletePresetBtn.onClick = [this] { deleteSelectedPreset(); };
+addAndMakeVisible(presetBox);
+addAndMakeVisible(savePresetBtn);
+addAndMakeVisible(deletePresetBtn);
 // --- Раздельный drag-and-drop по партиям ---
 addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
@@ -421,6 +429,156 @@ dragDrums.setBounds(522,764,92,28);
 tasteLabel.setBounds(760,758,150,36);
 resetTasteBtn.setBounds(916,764,58,26);
 tasteToggleBtn.setBounds(884,733,92,24);
+
+// Preset row: browser + save/delete (right of the export/undo cluster).
+presetBox.setBounds(20,796,180,26);
+savePresetBtn.setBounds(206,796,102,26);
+deletePresetBtn.setBounds(314,796,44,26);
+}
+//------------------------------------------------------------------------------
+// Preset browser implementation (Modules/PresetManager)
+void MidiForgeAudioProcessorEditor::refreshPresetList()
+{
+const int previousId = presetBox.getSelectedId();
+presetBox.clear(juce::dontSendNotification);
+presetNames.clear();
+
+auto names = presetManager.listPresets();
+int id = presetNameIdStart;
+for (const auto& n : names)
+{
+presetBox.addItem(n, id);
+presetNames.add(n);
+++id;
+}
+
+// Restore the previous selection when it still exists, otherwise show the first item.
+if (previousId >= presetNameIdStart && previousId < presetNameIdStart + names.size())
+presetBox.setSelectedId(previousId, juce::dontSendNotification);
+else if (!names.isEmpty())
+presetBox.setSelectedId(presetNameIdStart, juce::dontSendNotification);
+
+deletePresetBtn.setEnabled(false); // nothing user-saved is selected yet
+}
+
+void MidiForgeAudioProcessorEditor::applySelectedPreset()
+{
+const int idx = presetBox.getSelectedId() - presetNameIdStart;
+if (idx < 0 || idx >= presetNames.size())
+return;
+
+const auto name = presetNames[idx];
+
+// Factory presets live inside PresetManager; user presets are loaded from disk.
+if (const auto* factory = presetManager.getFactoryPreset(name))
+{
+processor.loadPreset(*factory);
+deletePresetBtn.setEnabled(false);   // factory presets are read-only
+return;
+}
+
+if (auto data = presetManager.loadPreset(name))
+{
+processor.loadPreset(*data);
+deletePresetBtn.setEnabled(true);    // user presets can be deleted
+}
+}
+
+void MidiForgeAudioProcessorEditor::saveCurrentAsPreset()
+{
+auto box = std::make_shared<juce::AlertWindow>("Save preset",
+"Enter a name for the current configuration:",
+juce::MessageBoxIconType::QuestionIcon);
+box->addTextEditor("name", {}, "Preset name");
+
+auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
+
+// Enter in the text editor acts like pressing OK. JUCE 8's AlertWindow has no
+// "enterKeyReturnsTrue" field, so we install a KeyListener on the TextEditor.
+// The listener holds a SafePointer to the dialog and unregisters itself from
+// the editor when the listener is destroyed (the component that owns the
+// KeyListener list deletes its listeners, so cleanup happens with the box).
+struct EnterClicksOk : public juce::KeyListener
+{
+    juce::Component::SafePointer<juce::AlertWindow> box;
+    juce::TextEditor* editor = nullptr;
+
+    EnterClicksOk (juce::AlertWindow* b, juce::TextEditor* te) : box (b), editor (te) {}
+
+    ~EnterClicksOk() override
+    {
+        if (editor != nullptr)
+            editor->removeKeyListener (this);
+    }
+
+    bool keyPressed (const juce::KeyPress& key, juce::Component*) override
+    {
+        if (! key.isKeyCode (juce::KeyPress::returnKey))
+            return false;
+        if (auto* b = box.getComponent())
+        {
+            if (auto* ok = b->getButton ("OK"))
+                ok->triggerClick();
+            else
+                b->exitModalState (1); // safety net: no named button found
+        }
+        return true;
+    }
+};
+
+if (auto* te = box->getTextEditor ("name"))
+    te->addKeyListener (new EnterClicksOk (box.get(), te)); // ownership: Component::KeyListenerList deletes it
+
+// Apply/save logic runs when the modal loop exits: result 1 == OK button
+// (our Enter handler routes Enter through the OK button, so both paths agree).
+box->enterModalState (true,
+    juce::ModalCallbackFunction::create ([safeThis, box] (int result)
+    {
+        if (result != 1 || safeThis == nullptr)
+            return; // Cancel / closed
+
+        const auto name = box->getTextEditorContents ("name").trim();
+        if (name.isEmpty())
+            return;
+
+        // Save through the processor so all state is captured in one place.
+        safeThis->processor.saveCurrentSettingsAsPreset (name);
+        safeThis->refreshPresetList();
+        // Select the freshly saved preset without triggering a reload.
+        const int i = safeThis->presetNames.indexOf (name);
+        if (i >= 0)
+            safeThis->presetBox.setSelectedId (safeThis->presetNameIdStart + i,
+                                               juce::dontSendNotification);
+    }), true);
+}
+
+void MidiForgeAudioProcessorEditor::deleteSelectedPreset()
+{
+const int idx = presetBox.getSelectedId() - presetNameIdStart;
+if (idx < 0 || idx >= presetNames.size())
+return;
+
+const auto name = presetNames[idx];
+if (presetManager.getFactoryPreset(name) != nullptr)
+return; // factory presets cannot be deleted
+
+auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
+auto callback = [safeThis, name] (int result)
+{
+if (auto* self = safeThis.getComponent())
+{
+if (result != 0)
+{
+self->presetManager.deletePreset(name);
+self->refreshPresetList();
+}
+}
+};
+juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
+"Delete preset",
+"Delete user preset \"" + name + "\"?",
+{}, {}, nullptr,
+juce::ModalCallbackFunction::create(callback));
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {

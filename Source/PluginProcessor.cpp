@@ -7,58 +7,30 @@
 #include <numeric>
 #include <unordered_set>
 
+// Modular includes
+#include "Modules/MusicTheory.h"
+#include "Modules/MidiTypes.h"
+#include "Modules/Generators.h"
+#include "Modules/PresetManager.h"
+
 namespace
 {
-    // Shared deterministic hash used by generation and mutation paths.
-    // Kept at file scope so helper methods can use the same seed logic as addMelody().
-    static uint32_t hash32(uint32_t x)
-    {
-        x ^= x >> 16;
-        x *= 0x7feb352du;
-        x ^= x >> 15;
-        x *= 0x846ca68bu;
-        x ^= x >> 16;
-        return x;
-    }
+    // Use module hash function instead of local implementation
+    // This ensures consistent hashing across the codebase
+    using generators::hash32;
 }
+
 namespace
 {
     // 0.39 Sound Profiles: the melody is written for a *type of sound*, not only
     // for a piano.  A piano tolerates sparse, staccato, velocity-driven notes;
     // a lead needs legato, a pluck needs short consistent hits, a pad needs long
     // stepwise notes, a bell needs high register and ringing notes.
-    struct SoundProfile
-    {
-        int   laneShift;      // semitones added to the melody register lane
-        int   laneCap;        // absolute upper limit of the melody lane
-        float legato;         // fraction of the gap to the next note that is sustained (<0: use Melody Length slider)
-        int   minLen, maxLen; // note length clamp in steps
-        int   velCenter;      // velocity compression centre
-        float velSpread;      // 1 = unchanged, lower = flatter dynamics
-        int   minNotes, minHits; // playable density floor (notes per bar / pattern size)
-        float densityMul;     // scales melody density and the judge density targets
-        int   maxLeap;        // max interval to the previous note in semitones (0 = unlimited)
-        int   chordLen;       // chord hit length in steps (16 = sustained)
-        bool  chordTwoHits;   // second chord hit on beat 3 (stab styles)
-        float slideChance;    // 0.42: chance of a legato slide into the next note (Articulation)
-        float vibChance;      // 0.42: chance of vibrato on a long note (Articulation = Slides + Vibrato)
-        bool  bassOff;        // the melody IS the bass voice (808): no separate bass layer
-        bool  soloLine;       // 0.43.2: the loop is ONE line (808): no chord / bass / arp layers, real 808 generator
-    };
+    // Use module SoundProfile instead of local definition
+    using SoundProfile = generators::SoundProfile;
     static SoundProfile soundProfileFor (int id)
     {
-        switch (id)
-        {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
-            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
-            case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true, true }; // 808 / Sub Lead
-            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
-        }
+        return generators::getSoundProfile(id);
     }
 }
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
@@ -179,18 +151,14 @@ void MidiForgeAudioProcessor::setBassEnabled(bool v){bassEnabled=v;}
 void MidiForgeAudioProcessor::setMelodyEnabled(bool v){melodyEnabled=v;}
 void MidiForgeAudioProcessor::setArpEnabled(bool v){arpEnabled=v;}
 void MidiForgeAudioProcessor::setHookMode(bool v){hookMode=v;regenerate();}
+
+// Refactored: use music::getScaleSemitones instead of local implementation
 std::vector<int> MidiForgeAudioProcessor::scaleSemitones() const
 {
-switch(scale){
-case Major:return{0,2,4,5,7,9,11};
-case Minor:return{0,2,3,5,7,8,10};
-case Dorian:return{0,2,3,5,7,9,10};
-case Phrygian:return{0,1,3,5,7,8,10};
-case HarmonicMinor:return{0,2,3,5,7,8,11};
-case MelodicMinor:return{0,2,3,5,7,9,11};
-default:return{0,2,4,7,9};
+    return music::getScaleSemitones(static_cast<music::ScaleType>(scale));
 }
-}
+
+// Refactored: use music::getProgressionDegrees with scale validation
 std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
 {
     // 0.39.1: stacking thirds on Harmonic/Melodic Minor, Dorian and Phrygian gives
@@ -215,24 +183,32 @@ std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
     }
     return degrees;
 }
+
 std::vector<int> MidiForgeAudioProcessor::progressionDegreesRaw() const
 {
-if(progression==Pop)return{0,4,5,3};
-if(progression==Dark)return{0,5,2,6};
-if(progression==Emotional)return{5,3,0,4};
-if(progression==CinematicProg)return{0,3,4,5};
-if(progression==JazzLike)return{1,4,0,3};
-if(progression==Looping)return{0,5,3,4};
-switch(genre){
-case Trap:return{0,5,2,6};
-case House:return{0,4,5,3};
-case Techno:return{0,5,3,4};
-case BoomBap:return{0,5,3,4};
-case Ambient:return{0,3,5,4};
-case Cinematic:return{0,3,4,5};
-case RnB:return{1,4,0,5};
-case GenrePop:return{0,4,5,3};
-case Drill:return{0,5,3,6};
+    // Use module progression types
+    switch(static_cast<music::ProgressionType>(progression))
+    {
+        case music::ProgressionType::Pop:       return {0, 4, 5, 3};
+        case music::ProgressionType::Dark:      return {0, 5, 2, 6};
+        case music::ProgressionType::Emotional: return {5, 3, 0, 4};
+        case music::ProgressionType::Cinematic: return {0, 3, 4, 5};
+        case music::ProgressionType::JazzLike:  return {1, 4, 0, 3};
+        case music::ProgressionType::Looping:   return {0, 5, 3, 4};
+        default: break;
+    }
+    
+    // Auto-progression based on genre
+    switch(genre){
+    case Trap:return{0,5,2,6};
+    case House:return{0,4,5,3};
+    case Techno:return{0,5,3,4};
+    case BoomBap:return{0,5,3,4};
+    case Ambient:return{0,3,5,4};
+    case Cinematic:return{0,3,4,5};
+    case RnB:return{1,4,0,5};
+    case GenrePop:return{0,4,5,3};
+    case Drill:return{0,5,3,6};
 case DnB:return{0,5,3,4};
 case Jersey:return{0,5,3,4};
 case Afro:return{0,3,4,5};
@@ -321,20 +297,14 @@ return 12*(baseOctave+oct)+rootPc+s[(size_t)idx];
 }
 int MidiForgeAudioProcessor::snapToScale(int midi) const
 {
-int best=midi,bestDist=999;
-for(int o=1;o<=9;++o)for(int p:scaleSemitones()){
-int n=12*o+rootPc+p,d=std::abs(n-midi);
-if(d<bestDist){bestDist=d;best=n;}
+    // Refactored: use music::snapToScale from module
+    return music::snapToScale(midi, rootPc, static_cast<music::ScaleType>(scale));
 }
-return juce::jlimit(0,127,best);
-}
+
 bool MidiForgeAudioProcessor::rhythmHit(int x) const
 {
-x=((x%16)+16)%16;
-if(rhythm==Straight)return true;
-if(rhythm==Syncopated)return(x%4==0)||(x%4==3)||(x==6)||(x==14);
-if(rhythm==Broken)return(x%8==0)||x==3||x==6||x==10||x==13;
-return((x*7)%16)<7;
+    // Refactored: use music::shouldRhythmHit from module
+    return music::shouldRhythmHit(x, static_cast<music::RhythmPattern>(rhythm), 16);
 }
 // --- Learning -----------------------------------------------------------
 void MidiForgeAudioProcessor::sampleVariationFeatures(int vi,float& d,float& e,float& c) const
@@ -582,6 +552,142 @@ void MidiForgeAudioProcessor::loadPreferences()
         if (auto* da = o->getProperty("dislikedFeatures").getArray())
             for (int i = 0; i < 8 && i < da->size(); ++i) dislikedFeatures[(size_t)i] = (float)(*da)[i];
     }
+}
+
+// --- Preset Management ---------------------------------------------------
+// Captures the current processor state as a PresetData snapshot.
+// Used by saveCurrentSettingsAsPreset() and by the UI preset browser.
+presets::PresetData MidiForgeAudioProcessor::getCurrentPreset() const
+{
+    presets::PresetData preset;
+
+    preset.root = rootPc;
+    preset.genre = genre;
+    preset.scale = scale;
+    preset.progression = progression;
+    preset.rhythm = rhythm;
+    preset.mood = mood;
+    preset.melodyType = melodyType;
+    preset.soundTarget = soundTarget;
+
+    preset.chordDensity = chordDensity;
+    preset.bassDensity = bassDensity;
+    preset.melodyDensity = melodyDensity;
+    preset.arpDensity = arpDensity;
+
+    preset.swing = swing;
+    preset.humanize = humanize;
+    preset.complexity = complexity;
+
+    preset.melodyLength = melodyLength;
+    preset.pauseChance = pauseChance;
+    preset.leapChance = leapChance;
+    preset.ghostChance = ghostChance;
+
+    preset.voicingWidth = voicingWidth;
+    preset.motifStrength = motifStrength;
+    preset.variationAmount = variationAmount;
+    preset.fillAmount = fillAmount;
+    preset.energy = energy;
+
+    preset.arpRate = arpRate;
+    preset.chordExtensions = chordExtensions;
+    preset.inversions = inversions;
+    preset.chordsEnabled = chordsEnabled;
+    preset.bassEnabled = bassEnabled;
+    preset.melodyEnabled = melodyEnabled;
+    preset.arpEnabled = arpEnabled;
+    preset.hookMode = hookMode;
+    preset.drumsEnabled = drumsEnabled;
+    preset.articulation = articulation;
+
+    preset.dnaMelody = dnaMelody;
+    preset.dnaRhythm = dnaRhythm;
+    preset.dnaHarmony = dnaHarmony;
+    preset.dnaMotif = dnaMotif;
+    preset.dnaRegister = dnaRegister;
+    preset.dnaGroove = dnaGroove;
+    preset.dnaEnergy = dnaEnergy;
+    preset.dnaSurprise = dnaSurprise;
+
+    preset.lockChords = lockChordsLayer;
+    preset.lockBass = lockBassLayer;
+    preset.lockMelody = lockMelodyLayer;
+    preset.lockArp = lockArpLayer;
+
+    return preset;
+}
+
+// Applies a preset in one shot: fields are assigned directly (clamped the same
+// way the setters do), so the pattern is regenerated exactly once instead of
+// once per setter call (~40 regenerations saved on every preset load).
+void MidiForgeAudioProcessor::loadPreset(const presets::PresetData& preset)
+{
+    rootPc       = juce::jlimit(0, 11, preset.root);
+    genre        = juce::jlimit(0, 15, preset.genre);
+    scale        = juce::jlimit(0, 6, preset.scale);
+    progression  = juce::jlimit(0, 6, preset.progression);
+    rhythm       = juce::jlimit(0, 3, preset.rhythm);
+    mood         = juce::jlimit(0, 8, preset.mood);
+    melodyType   = juce::jlimit(0, 7, preset.melodyType);
+    soundTarget  = juce::jlimit(0, 7, preset.soundTarget);
+
+    chordDensity  = juce::jlimit(0.f, 1.f, preset.chordDensity);
+    bassDensity   = juce::jlimit(0.f, 1.f, preset.bassDensity);
+    melodyDensity = juce::jlimit(0.f, 1.f, preset.melodyDensity);
+    arpDensity    = juce::jlimit(0.f, 1.f, preset.arpDensity);
+
+    swing      = juce::jlimit(0.f, .75f, preset.swing);
+    humanize   = juce::jlimit(0.f, 1.f, preset.humanize);
+    complexity = juce::jlimit(0.f, 1.f, preset.complexity);
+
+    melodyLength = juce::jlimit(0.f, 1.f, preset.melodyLength);
+    pauseChance  = juce::jlimit(0.f, 1.f, preset.pauseChance);
+    leapChance   = juce::jlimit(0.f, 1.f, preset.leapChance);
+    ghostChance  = juce::jlimit(0.f, 1.f, preset.ghostChance);
+
+    voicingWidth    = juce::jlimit(0.f, 1.f, preset.voicingWidth);
+    motifStrength   = juce::jlimit(0.f, 1.f, preset.motifStrength);
+    variationAmount = juce::jlimit(0.f, 1.f, preset.variationAmount);
+    fillAmount      = juce::jlimit(0.f, 1.f, preset.fillAmount);
+    energy          = juce::jlimit(0.f, 1.f, preset.energy);
+
+    arpRate         = juce::jlimit(1, 8, preset.arpRate);
+    chordExtensions = preset.chordExtensions;
+    inversions      = preset.inversions;
+    chordsEnabled   = preset.chordsEnabled;
+    bassEnabled     = preset.bassEnabled;
+    melodyEnabled   = preset.melodyEnabled;
+    arpEnabled      = preset.arpEnabled;
+    hookMode        = preset.hookMode;
+    drumsEnabled    = preset.drumsEnabled;
+    articulation    = juce::jlimit(0, 2, preset.articulation);
+
+    dnaMelody   = juce::jlimit(0.f, 1.f, preset.dnaMelody);
+    dnaRhythm   = juce::jlimit(0.f, 1.f, preset.dnaRhythm);
+    dnaHarmony  = juce::jlimit(0.f, 1.f, preset.dnaHarmony);
+    dnaMotif    = juce::jlimit(0.f, 1.f, preset.dnaMotif);
+    dnaRegister = juce::jlimit(0.f, 1.f, preset.dnaRegister);
+    dnaGroove   = juce::jlimit(0.f, 1.f, preset.dnaGroove);
+    dnaEnergy   = juce::jlimit(0.f, 1.f, preset.dnaEnergy);
+    dnaSurprise = juce::jlimit(0.f, 1.f, preset.dnaSurprise);
+
+    lockChordsLayer = preset.lockChords;
+    lockBassLayer   = preset.lockBass;
+    lockMelodyLayer = preset.lockMelody;
+    lockArpLayer    = preset.lockArp;
+
+    regenerate();
+}
+
+void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& name)
+{
+    auto preset = getCurrentPreset();
+    preset.name = name;
+
+    // Save to file using PresetManager
+    static presets::PresetManager manager;
+    manager.savePreset(preset);
 }
 
 // --- Generation ---------------------------------------------------------
@@ -2558,31 +2664,29 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
 void MidiForgeAudioProcessor::magicRandomize()
 {
-    // MAGIC 2.0: first create one coherent musical DNA, then derive the
-    // existing controls from it. This keeps the search space expressive
-    // without introducing a second parallel generation engine.
-    auto magicHash32 = [](uint32_t x)
-    {
-        x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
-        x *= 0x846ca68bu; x ^= x >> 16; return x;
-    };
-
+    // MAGIC 2.0: use generators::MagicDNA for coherent DNA generation
+    generators::MagicDNA dna;
+    
     const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
-    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
-    juce::Random r((juce::int64) magicDnaSeed);
-    auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
+    uint32_t seed = generators::combineSeeds(generationSeed, timeSeed, 0x51A7D00Du);
+    juce::Random r((juce::int64) seed);
+    
+    // Generate coherent DNA using module function
+    dna.randomize(r);
+    
+    // Store DNA values
+    dnaMelody   = dna.melody;
+    dnaRhythm   = dna.rhythm;
+    dnaHarmony  = dna.harmony;
+    dnaMotif    = dna.motif;
+    dnaRegister = dna.register_;
+    dnaGroove   = dna.groove;
+    dnaEnergy   = dna.energy;
+    dnaSurprise = dna.surprise;
+    magicDnaSeed = dna.seed;
+    
     auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
-
-    // DNA axes. Related axes are intentionally sampled together rather than
-    // treating every parameter as an independent dice roll.
-    dnaMelody  = rf(.15f, .90f);
-    dnaRhythm  = juce::jlimit(.0f,1.0f, dnaMelody * .35f + rf(.15f,.85f) * .65f);
-    dnaHarmony = rf(.20f, .90f);
-    dnaMotif   = juce::jlimit(.0f,1.0f, .35f + dnaMelody * .45f + rf(-.12f,.18f));
-    dnaRegister= rf(.20f, .85f);
-    dnaGroove  = juce::jlimit(.0f,1.0f, .25f + dnaRhythm * .55f + rf(-.12f,.20f));
-    dnaEnergy  = juce::jlimit(.0f,1.0f, .20f + rf(.0f,.70f));
-    dnaSurprise= juce::jlimit(.0f,1.0f, .12f + rf(.0f,.58f));
+    auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
 
     // Keep layer locks meaningful: a locked layer keeps its character controls.
     if (!lockChordsLayer)
@@ -2590,31 +2694,31 @@ void MidiForgeAudioProcessor::magicRandomize()
         rootPc = pick(12);
         scale = pick(7);
         progression = pick(7);
-        chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
-        chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
+        chordDensity = juce::jlimit(.35f,1.0f,.50f + dna.harmony*.48f);
+        chordExtensions = r.nextFloat() > (.48f - dna.harmony*.22f);
         inversions = r.nextFloat() > .28f;
-        voicingWidth = juce::jlimit(.20f,.85f,.25f + dnaHarmony*.55f);
+        voicingWidth = juce::jlimit(.20f,.85f,.25f + dna.harmony*.55f);
     }
 
     if (!lockBassLayer)
     {
-        bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
+        bassDensity = juce::jlimit(.25f,.95f,.28f + dna.rhythm*.52f);
     }
 
     if (!lockMelodyLayer)
     {
-        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
-        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
-        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
-        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
-        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
-        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
-        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
+        melodyDensity = juce::jlimit(.20f,.88f,.22f + dna.melody*.62f);
+        melodyLength = juce::jlimit(.12f,.82f,.18f + dna.melody*.48f);
+        pauseChance = juce::jlimit(.04f,.42f,.32f - dna.rhythm*.20f);
+        leapChance = juce::jlimit(.04f,.48f,.06f + dna.register_*.34f);
+        ghostChance = juce::jlimit(.01f,.24f,.03f + dna.groove*.12f);
+        motifStrength = juce::jlimit(.45f,.98f,dna.motif);
+        variationAmount = juce::jlimit(.18f,.85f,.22f + dna.surprise*.55f);
     }
 
     if (!lockArpLayer)
     {
-        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
+        arpDensity = juce::jlimit(.03f,.58f,.05f + dna.rhythm*.42f);
         static constexpr int arpChoices[] = {1,2,4,8};
         arpRate = arpChoices[pick(4)];
     }
@@ -2626,23 +2730,23 @@ void MidiForgeAudioProcessor::magicRandomize()
     rhythm = pick(4);
     static constexpr int barChoices[] = {1,2,4,8,16};
     bars = barChoices[pick(5)];
-    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
+    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
     era = pick(6);
 
-    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
-    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
-    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
-    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
-    energy = dnaEnergy;
-
+    swing = juce::jlimit(.0f,.40f, dna.groove*.34f);
+    humanize = juce::jlimit(.05f,.30f,.07f + dna.groove*.16f);
+    complexity = juce::jlimit(.20f,.92f,.25f + dna.surprise*.48f + dna.melody*.15f);
+    fillAmount = juce::jlimit(.04f,.38f,.06f + dna.energy*.25f);
+    energy = dna.energy;
+    
     // Rhythm DNA and genre still get a chance to create distinct identities.
-    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
-    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
-    hookMode = dnaMotif > .46f;
+    if (dna.rhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
+    if (dna.rhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
+    hookMode = dna.motif > .46f;
     chordsEnabled = true;
     bassEnabled = r.nextFloat() > .06f;
     melodyEnabled = true;
-    arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
+    arpEnabled = dna.rhythm > .52f || r.nextFloat() > .72f;
     leadStyleSoundCloud = false;
 
     // Seed controls the candidate search; DNA seed remains stable for
@@ -2665,11 +2769,27 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     std::vector<VisibleNote> notes = getVisibleNotes();
     if (notes.empty()) { rerollSameDNA(); return; }
 
-    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu ^ (uint32_t)(amount*1000.0f));
+    // Use module DNA mutation instead of local hash-based approach
+    generators::MagicDNA dna;
+    dna.melody = dnaMelody;
+    dna.rhythm = dnaRhythm;
+    dna.harmony = dnaHarmony;
+    dna.motif = dnaMotif;
+    dna.register_ = dnaRegister;
+    dna.groove = dnaGroove;
+    dna.energy = dnaEnergy;
+    dna.surprise = dnaSurprise;
+    dna.seed = magicDnaSeed;
+    
+    juce::Random rng((juce::int64)magicDnaSeed);
+    dna.mutate(amount, rng);
+    
+    const uint32_t base = generators::combineSeeds(magicDnaSeed, (uint32_t)(amount*1000.0f), 0xA17E5EEDu);
+    
     for(size_t i=0;i<notes.size();++i)
     {
         auto& n=notes[i];
-        const uint32_t h=hash32(base ^ (uint32_t)(i*0x9e3779b9u));
+        const uint32_t h=generators::hash32(base ^ (uint32_t)(i*0x9e3779b9u));
         const float roll=(float)(h%1000u)/1000.0f;
 
         // Each layer has its own mutation grammar. Locked layers are untouched.
