@@ -1,0 +1,45 @@
+name: Quality checks
+
+# Runs the generator headless on Linux and fails the build when the music gets worse:
+# incomplete chords, missing bass, jumpy melodies, one groove everywhere, broken profiles,
+# broken articulation, Taste ML that no longer learns, broken project state.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies (JUCE needs them even for a headless target)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-qa/_deps
+          key: ${{ runner.os }}-qa-juce-8.0.14-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Run quality checks
+        run: |
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          echo "Running $QA"
+          "$QA" | tee qa-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-report
+          path: qa-report.txt
