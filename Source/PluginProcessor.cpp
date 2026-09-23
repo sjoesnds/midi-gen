@@ -7,6 +7,12 @@
 #include <numeric>
 #include <unordered_set>
 
+// Modular includes
+#include "Modules/MusicTheory.h"
+#include "Modules/MidiTypes.h"
+#include "Modules/Generators.h"
+#include "Modules/PresetManager.h"
+
 namespace
 {
     // Use module hash function instead of local implementation
@@ -545,6 +551,132 @@ void MidiForgeAudioProcessor::loadPreferences()
         if (auto* da = o->getProperty("dislikedFeatures").getArray())
             for (int i = 0; i < 8 && i < da->size(); ++i) dislikedFeatures[(size_t)i] = (float)(*da)[i];
     }
+}
+
+// --- Preset Management ---------------------------------------------------
+void MidiForgeAudioProcessor::loadPreset(const presets::PresetData& preset)
+{
+    setRoot(preset.root);
+    setGenre(preset.genre);
+    setScale(preset.scale);
+    progression = preset.progression;
+    rhythm = preset.rhythm;
+    setMood(preset.mood);
+    setMelodyType(preset.melodyType);
+    setSoundTarget(preset.soundTarget);
+    
+    setChordDensity(preset.chordDensity);
+    setBassDensity(preset.bassDensity);
+    setMelodyDensity(preset.melodyDensity);
+    setArpDensity(preset.arpDensity);
+    
+    setSwing(preset.swing);
+    setHumanize(preset.humanize);
+    complexity = preset.complexity;
+    
+    melodyLength = preset.melodyLength;
+    pauseChance = preset.pauseChance;
+    leapChance = preset.leapChance;
+    ghostChance = preset.ghostChance;
+    
+    voicingWidth = preset.voicingWidth;
+    motifStrength = preset.motifStrength;
+    variationAmount = preset.variationAmount;
+    fillAmount = preset.fillAmount;
+    energy = preset.energy;
+    
+    arpRate = preset.arpRate;
+    chordExtensions = preset.chordExtensions;
+    inversions = preset.inversions;
+    chordsEnabled = preset.chordsEnabled;
+    bassEnabled = preset.bassEnabled;
+    melodyEnabled = preset.melodyEnabled;
+    arpEnabled = preset.arpEnabled;
+    hookMode = preset.hookMode;
+    drumsEnabled = preset.drumsEnabled;
+    articulation = preset.articulation;
+    
+    // DNA parameters
+    setDnaMelody(preset.dnaMelody);
+    setDnaRhythm(preset.dnaRhythm);
+    setDnaHarmony(preset.dnaHarmony);
+    setDnaMotif(preset.dnaMotif);
+    setDnaRegister(preset.dnaRegister);
+    setDnaGroove(preset.dnaGroove);
+    setDnaEnergy(preset.dnaEnergy);
+    setDnaSurprise(preset.dnaSurprise);
+    
+    // Layer locks
+    setLockChords(preset.lockChords);
+    setLockBass(preset.lockBass);
+    setLockMelody(preset.lockMelody);
+    setLockArp(preset.lockArp);
+    
+    regenerate();
+}
+
+void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& name)
+{
+    presets::PresetData preset;
+    preset.name = name;
+    
+    preset.root = rootPc;
+    preset.genre = genre;
+    preset.scale = scale;
+    preset.progression = progression;
+    preset.rhythm = rhythm;
+    preset.mood = mood;
+    preset.melodyType = melodyType;
+    preset.soundTarget = soundTarget;
+    
+    preset.chordDensity = chordDensity;
+    preset.bassDensity = bassDensity;
+    preset.melodyDensity = melodyDensity;
+    preset.arpDensity = arpDensity;
+    
+    preset.swing = swing;
+    preset.humanize = humanize;
+    preset.complexity = complexity;
+    
+    preset.melodyLength = melodyLength;
+    preset.pauseChance = pauseChance;
+    preset.leapChance = leapChance;
+    preset.ghostChance = ghostChance;
+    
+    preset.voicingWidth = voicingWidth;
+    preset.motifStrength = motifStrength;
+    preset.variationAmount = variationAmount;
+    preset.fillAmount = fillAmount;
+    preset.energy = energy;
+    
+    preset.arpRate = arpRate;
+    preset.chordExtensions = chordExtensions;
+    preset.inversions = inversions;
+    preset.chordsEnabled = chordsEnabled;
+    preset.bassEnabled = bassEnabled;
+    preset.melodyEnabled = melodyEnabled;
+    preset.arpEnabled = arpEnabled;
+    preset.hookMode = hookMode;
+    preset.drumsEnabled = drumsEnabled;
+    preset.articulation = articulation;
+    
+    preset.dnaMelody = dnaMelody;
+    preset.dnaRhythm = dnaRhythm;
+    preset.dnaHarmony = dnaHarmony;
+    preset.dnaMotif = dnaMotif;
+    preset.dnaRegister = dnaRegister;
+    preset.dnaGroove = dnaGroove;
+    preset.dnaEnergy = dnaEnergy;
+    preset.dnaSurprise = dnaSurprise;
+    
+    preset.lockChords = lockChordsLayer;
+    preset.lockBass = lockBassLayer;
+    preset.lockMelody = lockMelodyLayer;
+    preset.lockArp = lockArpLayer;
+    
+    // Save to file using PresetManager
+    presets::PresetManager manager;
+    manager.savePreset(preset);
 }
 
 // --- Generation ---------------------------------------------------------

@@ -109,6 +109,24 @@ bool getLockChords() const { return lockChordsLayer; }
 bool getLockBass() const   { return lockBassLayer; }
 bool getLockMelody() const { return lockMelodyLayer; }
 bool getLockArp() const    { return lockArpLayer; }
+
+// --- DNA Parameters ---
+void setDnaMelody(float v)   { dnaMelody = juce::jlimit(0.f, 1.f, v); }
+void setDnaRhythm(float v)   { dnaRhythm = juce::jlimit(0.f, 1.f, v); }
+void setDnaHarmony(float v)  { dnaHarmony = juce::jlimit(0.f, 1.f, v); }
+void setDnaMotif(float v)    { dnaMotif = juce::jlimit(0.f, 1.f, v); }
+void setDnaRegister(float v) { dnaRegister = juce::jlimit(0.f, 1.f, v); }
+void setDnaGroove(float v)   { dnaGroove = juce::jlimit(0.f, 1.f, v); }
+void setDnaEnergy(float v)   { dnaEnergy = juce::jlimit(0.f, 1.f, v); }
+void setDnaSurprise(float v) { dnaSurprise = juce::jlimit(0.f, 1.f, v); }
+float getDnaMelody() const   { return dnaMelody; }
+float getDnaRhythm() const   { return dnaRhythm; }
+float getDnaHarmony() const  { return dnaHarmony; }
+float getDnaMotif() const    { return dnaMotif; }
+float getDnaRegister() const { return dnaRegister; }
+float getDnaGroove() const   { return dnaGroove; }
+float getDnaEnergy() const   { return dnaEnergy; }
+float getDnaSurprise() const { return dnaSurprise; }
 int getRoot() const { return rootPc; }
 int getGenre() const { return genre; }
 int getScale() const { return scale; }
