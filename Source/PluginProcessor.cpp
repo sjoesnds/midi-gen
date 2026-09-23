@@ -9,56 +9,21 @@
 
 namespace
 {
-    // Shared deterministic hash used by generation and mutation paths.
-    // Kept at file scope so helper methods can use the same seed logic as addMelody().
-    static uint32_t hash32(uint32_t x)
-    {
-        x ^= x >> 16;
-        x *= 0x7feb352du;
-        x ^= x >> 15;
-        x *= 0x846ca68bu;
-        x ^= x >> 16;
-        return x;
-    }
+    // Use module hash function instead of local implementation
+    // This ensures consistent hashing across the codebase
 }
+
 namespace
 {
     // 0.39 Sound Profiles: the melody is written for a *type of sound*, not only
     // for a piano.  A piano tolerates sparse, staccato, velocity-driven notes;
     // a lead needs legato, a pluck needs short consistent hits, a pad needs long
     // stepwise notes, a bell needs high register and ringing notes.
-    struct SoundProfile
-    {
-        int   laneShift;      // semitones added to the melody register lane
-        int   laneCap;        // absolute upper limit of the melody lane
-        float legato;         // fraction of the gap to the next note that is sustained (<0: use Melody Length slider)
-        int   minLen, maxLen; // note length clamp in steps
-        int   velCenter;      // velocity compression centre
-        float velSpread;      // 1 = unchanged, lower = flatter dynamics
-        int   minNotes, minHits; // playable density floor (notes per bar / pattern size)
-        float densityMul;     // scales melody density and the judge density targets
-        int   maxLeap;        // max interval to the previous note in semitones (0 = unlimited)
-        int   chordLen;       // chord hit length in steps (16 = sustained)
-        bool  chordTwoHits;   // second chord hit on beat 3 (stab styles)
-        float slideChance;    // 0.42: chance of a legato slide into the next note (Articulation)
-        float vibChance;      // 0.42: chance of vibrato on a long note (Articulation = Slides + Vibrato)
-        bool  bassOff;        // the melody IS the bass voice (808): no separate bass layer
-        bool  soloLine;       // 0.43.2: the loop is ONE line (808): no chord / bass / arp layers, real 808 generator
-    };
+    // Use module SoundProfile instead of local definition
+    using SoundProfile = generators::SoundProfile;
     static SoundProfile soundProfileFor (int id)
     {
-        switch (id)
-        {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
-            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
-            case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true, true }; // 808 / Sub Lead
-            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
-        }
+        return generators::getSoundProfile(id);
     }
 }
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
