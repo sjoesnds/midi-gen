@@ -77,7 +77,8 @@ void MidiForgeAudioProcessor::prepareToPlay(double sr, int)
 {
 sampleRate = sr; lastGlobalStep.store (-1);
 samplePosition = 0;
-pendingOffs.clear();
+pendingEvents.clear();
+pendingEvents.reserve (4096);
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
@@ -2665,11 +2666,14 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     std::vector<VisibleNote> notes = getVisibleNotes();
     if (notes.empty()) { rerollSameDNA(); return; }
 
-    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu ^ (uint32_t)(amount*1000.0f));
+    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu ^ (uint32_t)(amount*1000.0f) ^ (++mutationCounter * 0x85ebca6bu));
+    const int maxStep = juce::jmax(0, getVisibleBars()*16-1);
     for(size_t i=0;i<notes.size();++i)
     {
         auto& n=notes[i];
         const uint32_t h=hash32(base ^ (uint32_t)(i*0x9e3779b9u));
+        // 0.45.1: notes of one chord hit share the roll for timing / length, so a triad is never torn apart
+        const uint32_t hg=(n.channel==1) ? hash32(base ^ (uint32_t)(n.step*0x9e3779b9u) ^ 0x51ED270Bu) : h;
         const float roll=(float)(h%1000u)/1000.0f;
 
         // Each layer has its own mutation grammar. Locked layers are untouched.
@@ -2714,13 +2718,13 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
 
         // Rhythm mutation: shift only by 1/8-note cells, so we don't reintroduce
         // the accidental off-grid 1/16 positions fixed in Rhythm Engine 2.0.
-        if((h%100u) < (uint32_t)(18.0f+35.0f*amount))
+        if((hg%100u) < (uint32_t)(18.0f+35.0f*amount))
         {
-            const int delta=((h>>18)&1u)?2:-2;
-            n.step=juce::jmax(0,n.step+delta);
+            const int delta=((hg>>18)&1u)?2:-2;
+            n.step=juce::jlimit(0,maxStep,n.step+delta);
         }
-        if((h%100u)>62u)
-            n.length=juce::jlimit(1,16,n.length+(((h>>20)&1u)?1:-1));
+        if((hg%100u)>62u)
+            n.length=juce::jlimit(1,16,n.length+(((hg>>20)&1u)?1:-1));
         if((h%100u)>78u)
             n.velocity=juce::jlimit(38,118,n.velocity+(int)((h>>22)%11u)-5);
     }
@@ -2781,11 +2785,18 @@ if(e.step<0)return;
 if(e.channel==5){ const int drow=drumRowForNote(e.note); if(drow>=0 && (drumMuteMask&(1<<drow))!=0) return; }
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 const int midiCh=(e.channel==5)?10:e.channel;      // drums = GM channel 10
-midi.addEvent(juce::MidiMessage::noteOn(midiCh,e.note,(juce::uint8)velocity),sampleOffset);
+juce::ignoreUnused (midi);
 const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
-const juce::int64 offGlobal = samplePosition + sampleOffset
-+ (juce::int64) juce::jmax (1.0, e.length * stepSamples);
-pendingOffs.push_back ({ offGlobal, midiCh, e.note });
+const juce::int64 onGlobal  = samplePosition + sampleOffset;
+const int endStep = e.step + juce::jmax (1, e.length);
+const double endSwing = (endStep & 1) != 0 ? (double) swing * stepSamples * 0.5 : 0.0;   // same rule as the note-on offset in processBlock
+const juce::int64 offGlobal = juce::jmax (onGlobal + 1, (onGlobal - sampleOffset) + (juce::int64) (juce::jmax (1, e.length) * stepSamples + endSwing));
+// A still-pending note-off of the same pitch that would land AFTER this new note-on would cut the new note: pull it forward.
+for (auto& p : pendingEvents)
+    if (! p.on && p.channel == midiCh && p.note == e.note && p.globalSample >= onGlobal)
+        p.globalSample = onGlobal;
+pendingEvents.push_back ({ onGlobal,  midiCh, e.note, velocity, true  });
+pendingEvents.push_back ({ offGlobal, midiCh, e.note, 0,        false });
 }
 bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
 {
@@ -2822,8 +2833,8 @@ if (channel == 5)
         {
             if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
             any = true;
-            const double onTick = (double) n.step * ticksPerStep;
-            const double offTick = onTick + (double) juce::jmax (1, n.length) * ticksPerStep;
+            const double onTick = (double) n.step * ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
+            const double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
             const int pitch = drumOutPitch (row, n.note);
             dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
             dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
@@ -2838,8 +2849,8 @@ for (size_t ei = 0; ei < song.notes.size(); ++ei)
 const auto& e = song.notes[ei];
 if (e.channel != channel)
 continue;
-const double onTick = (double) e.step * ticksPerStep;
-double offTick = onTick + (double) juce::jmax(1, e.length) * ticksPerStep;
+const double onTick = (double) e.step * ticksPerStep + swingTicks (e.step, (double) ticksPerStep);
+double offTick = swungEndTick (e.step, juce::jmax (1, e.length), (double) ticksPerStep);
 addArticulation (track, songArt[ei], midiCh, onTick, offTick, (double) ticksPerStep);
 const int velocity = juce::jlimit(1, 127, e.velocity);
 track.addEvent(juce::MidiMessage::noteOn(midiCh, e.note, (juce::uint8) velocity), onTick);
@@ -2850,6 +2861,7 @@ track.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
 file.addTrack(track);
 }
 juce::File output = targetFile.withFileExtension(".mid");
+output.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
 auto stream = output.createOutputStream();
 if (stream == nullptr)
 return false;
@@ -2898,22 +2910,28 @@ if (dueCount > 0)
 }
 }
 }
-const juce::int64 blockEnd = samplePosition + audio.getNumSamples();
-for (size_t i = 0; i < pendingOffs.size(); )
+const int numSamples = audio.getNumSamples();
+const juce::int64 blockEnd = samplePosition + numSamples;
+// pass 0 = note-offs, pass 1 = note-ons: at the same sample a note always ends before the next one starts
+for (int pass = 0; pass < 2; ++pass)
 {
-auto& p = pendingOffs[i];
-if (p.globalSample < blockEnd)
-{
-const juce::int64 local = juce::jlimit<juce::int64> (0, juce::jmax (0, audio.getNumSamples() - 1),
-p.globalSample - samplePosition);
-out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), (int) local);
-p = pendingOffs.back();
-pendingOffs.pop_back();
-}
-else
-{
-++i;
-}
+    const bool wantOn = (pass == 1);
+    for (size_t i = 0; i < pendingEvents.size(); )
+    {
+        auto& p = pendingEvents[i];
+        if (p.on == wantOn && p.globalSample < blockEnd)
+        {
+            const int local = (int) juce::jlimit<juce::int64> (0, juce::jmax (0, numSamples - 1), p.globalSample - samplePosition);
+            if (p.on) out.addEvent (juce::MidiMessage::noteOn (p.channel, p.note, (juce::uint8) p.velocity), local);
+            else      out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), local);
+            p = pendingEvents.back();
+            pendingEvents.pop_back();
+        }
+        else
+        {
+            ++i;
+        }
+    }
 }
 samplePosition += audio.getNumSamples();
 midi.swapWith(out);
@@ -3038,8 +3056,8 @@ if (channel == 5)
         {
             if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
             any = true;
-            const double onTick = n.step * (double) ticksPerStep;
-            const double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+            const double onTick = n.step * (double) ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
+            const double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
             const int pitch = drumOutPitch (row, n.note);
             dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
             dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
@@ -3054,8 +3072,8 @@ for (size_t ni = 0; ni < pattern.notes.size(); ++ni)
 {
 const auto& n = pattern.notes[ni];
 if (n.channel != channel) continue;
-const double onTick  = n.step * (double) ticksPerStep;
-double offTick = onTick + juce::jmax (1, n.length) * (double) ticksPerStep;
+const double onTick  = n.step * (double) ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
+double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
 addArticulation (track, art[ni], midiCh, onTick, offTick, (double) ticksPerStep);
 auto on = juce::MidiMessage::noteOn (midiCh, n.note, (juce::uint8) juce::jlimit (1, 127, n.velocity));
 auto off = juce::MidiMessage::noteOff (midiCh, n.note);
@@ -3070,6 +3088,7 @@ return midiFile;
 bool MidiForgeAudioProcessor::exportMidiFileTo (const juce::File& file) const
 {
 auto midiFile = buildMidiFile (0);
+file.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
 if (auto stream = file.createOutputStream())
 return midiFile.writeTo (*stream);
 return false;
@@ -3077,6 +3096,7 @@ return false;
 bool MidiForgeAudioProcessor::exportMidiFileToChannel (const juce::File& file, int channel) const
 {
 auto midiFile = buildMidiFile (channel);
+file.deleteFile();   // 0.45.1
 if (auto stream = file.createOutputStream())
 return midiFile.writeTo (*stream);
 return false;

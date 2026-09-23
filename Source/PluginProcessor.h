@@ -26,7 +26,7 @@ void releaseResources() override
     const juce::ScopedLock sl (activeNotesLock);
     activeNotes.clear();
     activeBars = 4;
-    pendingOffs.clear();
+    pendingEvents.clear();
     samplePosition = 0;
     lastGlobalStep.store (-1);
     uiCurrentStep.store (-1);
@@ -253,8 +253,14 @@ std::atomic<double> currentBpm { 120.0 };
 // Глобальный счётчик сэмплов и очередь отложенных note-off — раньше note-off
 // пытались влезть в текущий блок и обрезали длинные ноты (аккорды/бас) почти до нуля.
 juce::int64 samplePosition = 0;
-struct PendingOff { juce::int64 globalSample; int channel; int note; };
-std::vector<PendingOff> pendingOffs;
+// 0.45.1: one queue for BOTH note-on and note-off. A note-on delayed by swing can land beyond the current
+// block (illegal for VST3), so it waits here; a stale note-off can never cut a retriggered note.
+struct PendingMidi { juce::int64 globalSample; int channel; int note; int velocity; bool on; };
+std::vector<PendingMidi> pendingEvents;
+// 0.45.1: swing in MIDI ticks for exported / dragged files (same rule as the live output: odd 16ths move by swing/2 of a step)
+double swingTicks (int step, double ticksPerStep) const { return (step & 1) != 0 ? (double) swing * ticksPerStep * 0.5 : 0.0; }
+double swungEndTick (int step, int len, double ticksPerStep) const { return (double) (step + len) * ticksPerStep + swingTicks (step + len, ticksPerStep); }
+uint32_t mutationCounter = 0;   // 0.45.1: every MUTATE press gets its own random rolls
 // --- Профиль вкуса: бегущие средние признаков лайкнутых/дизлайкнутых вариаций ---
 float likedD = 0, likedE = 0, likedC = 0; int likedN = 0;
 float disD = 0, disE = 0, disC = 0; int disN = 0;

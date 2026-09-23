@@ -544,6 +544,95 @@ int main()
         report ("AUTO-NEXT moves to the next loop after DISLIKE", moved && a.getSelectedVariation() == s1, fmt ("%.0f -> %.0f", s0, s0 + 1.0));
     }
 
+    // ------------------------------------------------------------------ 7. 0.45.1 regression checks
+    {
+        // 7a. EXPORT over an existing (longer) file must replace it, not append to it
+        const auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_overwrite.mid");
+        f.deleteFile();
+        MidiForgeAudioProcessor a; a.setBars (16); a.exportMidi (f);
+        a.setBars (1); a.exportMidi (f); const auto sizeOver = f.getSize();
+        f.deleteFile(); a.exportMidi (f); const auto sizeFresh = f.getSize();
+        juce::MidiFile parsed; bool parsedOk = false;
+        { juce::FileInputStream in (f); parsedOk = in.openedOk() && parsed.readFrom (in) && parsed.getNumTracks() >= 2; }
+        report ("EXPORT .MID over an existing file replaces it", sizeOver == sizeFresh && parsedOk,
+                fmt ("overwrite %.0f B, fresh %.0f B", (double) sizeOver, (double) sizeFresh));
+        a.setBars (16); a.exportMidiFileTo (f); a.setBars (1); a.exportMidiFileTo (f); const auto s2 = f.getSize();
+        f.deleteFile(); a.exportMidiFileTo (f);
+        report ("Export MIDI... over an existing file replaces it", s2 == f.getSize(), fmt ("overwrite %.0f B, fresh %.0f B", (double) s2, (double) f.getSize()));
+        f.deleteFile();
+    }
+    {
+        // 7b. MUTATE keeps chords together and is different on every press
+        MidiForgeAudioProcessor a; a.setChordStyle (1);
+        int stepsBefore = 0, stepsAfter = 0;
+        for (int r = 0; r < 20; ++r)
+        {
+            a.magicRandomize();
+            auto countSteps = [] (const std::vector<Note>& v) { std::set<int> st; for (auto& n : v) if (n.channel == 1) st.insert (n.step); return (int) st.size(); };
+            stepsBefore += countSteps (a.getVisibleNotes());
+            a.mutateSelected (0.45f);
+            stepsAfter += countSteps (a.getVisibleNotes());
+        }
+        report ("MUTATE never tears a chord apart", stepsAfter <= stepsBefore, fmt ("distinct chord start steps: %.0f before, %.0f after", stepsBefore, stepsAfter));
+        a.magicRandomize();
+        const auto orig = a.getVisibleNotes();
+        a.mutateSelected (0.45f); const auto m1 = a.getVisibleNotes();
+        a.replaceVisibleNotes (orig); a.mutateSelected (0.45f); const auto m2 = a.getVisibleNotes();
+        bool same = m1.size() == m2.size();
+        for (size_t i = 0; same && i < m1.size(); ++i) same = m1[i].step == m2[i].step && m1[i].note == m2[i].note && m1[i].length == m2[i].length;
+        report ("two MUTATE presses on the same loop differ", ! same, same ? "identical" : "different");
+    }
+    {
+        // 7c. SWING is written into exported / dragged MIDI (odd 16ths late by swing/2 of a step)
+        MidiForgeAudioProcessor a; a.setSwing (0.5f); a.setDrumsEnabled (true);
+        const auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_swing.mid");
+        a.exportMidiFileTo (f);
+        juce::MidiFile mf; { juce::FileInputStream in (f); mf.readFrom (in); }
+        int total = 0, bad = 0, swung = 0;
+        for (int t = 0; t < mf.getNumTracks(); ++t)
+            for (int e = 0; e < mf.getTrack (t)->getNumEvents(); ++e)
+            {
+                const auto& m = mf.getTrack (t)->getEventPointer (e)->message;
+                if (! m.isNoteOn()) continue;
+                const long r = std::lround (m.getTimeStamp()) % 480;   // 960 ppq: one 8th = 480 ticks, odd 16th = 240 + swing 60
+                ++total; if (r == 300) ++swung; else if (r != 0) ++bad;
+            }
+        f.deleteFile();
+        report ("SWING reaches the exported MIDI", total > 0 && swung > 0 && bad == 0, fmt ("%.0f note-ons, %.0f swung, %.0f off-grid", total, swung, bad));
+    }
+    {
+        // 7d. live output (processBlock): with maximum swing every event stays inside its block and a
+        //     retriggered note is never cut by a stale note-off (on / off always pair up, depth 0..1)
+        struct Head : juce::AudioPlayHead
+        {
+            double ppq = 0.0, bpm = 120.0;
+            juce::Optional<PositionInfo> getPosition() const override { PositionInfo i; i.setBpm (bpm); i.setPpqPosition (ppq); i.setIsPlaying (true); return i; }
+        };
+        MidiForgeAudioProcessor a; a.setSwing (0.75f); a.setDrumsEnabled (true); a.setBars (1);
+        const double sr = 48000.0; const int blk = 256;
+        a.prepareToPlay (sr, blk);
+        Head head; a.setPlayHead (&head);
+        juce::AudioBuffer<float> audio (2, blk);
+        std::map<std::pair<int, int>, int> depth;
+        int minDepth = 0, maxDepth = 0, beyond = 0, events = 0;
+        const int blocks = (int) (8.0 * sr / blk);
+        for (int b = 0; b < blocks; ++b)
+        {
+            head.ppq = (double) b * blk / sr * head.bpm / 60.0;
+            juce::MidiBuffer mb; a.processBlock (audio, mb);
+            for (const auto meta : mb)
+            {
+                const auto m = meta.getMessage();
+                if (meta.samplePosition >= blk) ++beyond;
+                auto& d = depth[{ m.getChannel(), m.getNoteNumber() }];
+                if (m.isNoteOn())  { ++d; maxDepth = std::max (maxDepth, d); ++events; }
+                if (m.isNoteOff()) { --d; minDepth = std::min (minDepth, d); }
+            }
+        }
+        report ("live MIDI: every event inside its block (swing 0.75)", events > 0 && beyond == 0, fmt ("%.0f note-ons, %.0f outside the block", events, beyond));
+        report ("live MIDI: note-on / note-off pair up, no retrigger cut", minDepth >= 0 && maxDepth <= 1, fmt ("depth min %.0f, max %.0f", minDepth, maxDepth));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
