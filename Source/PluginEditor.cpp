@@ -490,53 +490,66 @@ auto box = std::make_shared<juce::AlertWindow>("Save preset",
 "Enter a name for the current configuration:",
 juce::MessageBoxIconType::QuestionIcon);
 box->addTextEditor("name", {}, "Preset name");
-box->setContentJustification(juce::Justification::centred);
 
 auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
 
 // Enter in the text editor acts like pressing OK. JUCE 8's AlertWindow has no
-// "enterKeyReturnsTrue" member and no Component::addListener(), so we install a
-// KeyListener on the TextEditor instead. The listener owns a SafePointer to the
-// dialog: if the box is destroyed before the editor, the hook simply stops
-// firing (no dangling dereference).
+// "enterKeyReturnsTrue" field, so we install a KeyListener on the TextEditor.
+// The listener holds a SafePointer to the dialog and unregisters itself from
+// the editor when the listener is destroyed (the component that owns the
+// KeyListener list deletes its listeners, so cleanup happens with the box).
 struct EnterClicksOk : public juce::KeyListener
 {
-juce::Component::SafePointer<juce::AlertWindow> box;
-explicit EnterClicksOk (juce::AlertWindow& b) : box (b) {}
-bool keyPressed (const juce::KeyPress& key, juce::Component*) override
-{
-if (! key.isReturn() && ! key.isKeyCode(juce::KeyPress::enterKey))
-return false;
-auto* b = box.getComponent();
-if (b == nullptr) return true;
-if (auto* ok = b->getButton ("OK"))
-ok->triggerClick();
-else
-b->exitModalState (1); // safety net: no named button found
-return true;
-}
+    juce::Component::SafePointer<juce::AlertWindow> box;
+    juce::TextEditor* editor = nullptr;
+
+    EnterClicksOk (juce::AlertWindow* b, juce::TextEditor* te) : box (b), editor (te) {}
+
+    ~EnterClicksOk() override
+    {
+        if (editor != nullptr)
+            editor->removeKeyListener (this);
+    }
+
+    bool keyPressed (const juce::KeyPress& key, juce::Component*) override
+    {
+        if (! key.isKeyCode (juce::KeyPress::returnKey))
+            return false;
+        if (auto* b = box.getComponent())
+        {
+            if (auto* ok = b->getButton ("OK"))
+                ok->triggerClick();
+            else
+                b->exitModalState (1); // safety net: no named button found
+        }
+        return true;
+    }
 };
-if (auto* te = box->getTextEditor("name"))
-te->setKeyListener(new EnterClicksOk(*box));
 
-box->onButtonClicked = [safeThis, box] (juce::Button& b)
-{
-if (safeThis == nullptr) return;
-if (b.getButtonText() != "OK") { box->exitModalState(0); return; }
+if (auto* te = box->getTextEditor ("name"))
+    te->addKeyListener (new EnterClicksOk (box.get(), te)); // ownership: Component::KeyListenerList deletes it
 
-const auto name = box->getTextEditorContents("name").trim();
-if (name.isEmpty()) return;
+// Apply/save logic runs when the modal loop exits: result 1 == OK button
+// (our Enter handler routes Enter through the OK button, so both paths agree).
+box->enterModalState (true,
+    juce::ModalCallbackFunction::create ([safeThis, box] (int result)
+    {
+        if (result != 1 || safeThis == nullptr)
+            return; // Cancel / closed
 
-// Save through the processor so all state is captured in one place.
-safeThis->processor.saveCurrentSettingsAsPreset(name);
-safeThis->refreshPresetList();
-// Select the freshly saved preset without triggering a reload.
-const int i = safeThis->presetNames.indexOf(name);
-if (i >= 0)
-safeThis->presetBox.setSelectedId(safeThis->presetNameIdStart + i, juce::dontSendNotification);
-box->exitModalState(1);
-};
-box->enterModalState(true, juce::ModalCallbackFunction::create([box] (int) {}), true);
+        const auto name = box->getTextEditorContents ("name").trim();
+        if (name.isEmpty())
+            return;
+
+        // Save through the processor so all state is captured in one place.
+        safeThis->processor.saveCurrentSettingsAsPreset (name);
+        safeThis->refreshPresetList();
+        // Select the freshly saved preset without triggering a reload.
+        const int i = safeThis->presetNames.indexOf (name);
+        if (i >= 0)
+            safeThis->presetBox.setSelectedId (safeThis->presetNameIdStart + i,
+                                               juce::dontSendNotification);
+    }), true);
 }
 
 void MidiForgeAudioProcessorEditor::deleteSelectedPreset()

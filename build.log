@@ -1,0 +1,11 @@
+[  8%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_audio_processors_headless/juce_audio_processors_headless.cpp.o
+[ 16%] Building CXX object CMakeFiles/MidiForgeQA.dir/workspace/Source/PluginProcessor.cpp.o
+[ 25%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[ 33%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[ 41%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_audio_basics/juce_audio_basics.cpp.o
+[ 50%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_core/juce_core.cpp.o
+[ 58%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_core/juce_core_CompilationTime.cpp.o
+[ 66%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_events/juce_events.cpp.o
+[ 75%] Building CXX object CMakeFiles/MidiForgeQA.dir/tmp/juce-dl/juce/modules/juce_data_structures/juce_data_structures.cpp.o
+[ 83%] Linking CXX executable MidiForgeQA_artefacts/Release/MidiForgeQA
+[100%] Built target MidiForgeQA

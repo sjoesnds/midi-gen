@@ -1,5 +1,17 @@
-# CMake Build Directories
-build-qa-local/
+# Build directories
+build-win/
 
-# Logs
-*.log
+# Compiled objects and binaries
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
