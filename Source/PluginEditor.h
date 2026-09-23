@@ -17,7 +17,15 @@ void resized() override;
 private:
 void timerCallback() override;
 void refreshTaste();
+// --- Preset browser (Modules/PresetManager) -----------------------------
+void refreshPresetList();                       // repopulates the presetBox combo
+void applySelectedPreset();                     // loads presetBox selection into processor
+void saveCurrentAsPreset();                     // prompts for a name, saves via PresetManager
+void deleteSelectedPreset();                    // removes a user preset (factory presets are read-only)
 juce::String lastTasteText;
+presets::PresetManager presetManager;           // factory + user presets (*.xml in app data)
+int presetNameIdStart = 1000;                   // ComboBox id offset for preset items
+juce::StringArray presetNames;                  // parallel array of presetBox item ids
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel, variationInfoLabel;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
@@ -36,6 +44,10 @@ juce::Label title, sectionLabel, variationInfoLabel;
  juce::TextButton resetTasteBtn;
  juce::ToggleButton autoNextBtn;
  juce::ToggleButton tasteToggleBtn;
+ // --- Preset browser widgets ---------------------------------------------
+ juce::ComboBox presetBox;                       // factory + user presets
+ juce::TextButton savePresetBtn { "SAVE PRESET" };
+ juce::TextButton deletePresetBtn { "DEL" };
  // --- Экспорт MIDI ---
  juce::TextButton exportButton { "Export MIDI..." };
  // --- P2: edit history -------------------------------------------------

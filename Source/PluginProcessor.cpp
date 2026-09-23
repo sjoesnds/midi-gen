@@ -17,6 +17,7 @@ namespace
 {
     // Use module hash function instead of local implementation
     // This ensures consistent hashing across the codebase
+    using generators::hash32;
 }
 
 namespace
@@ -554,72 +555,12 @@ void MidiForgeAudioProcessor::loadPreferences()
 }
 
 // --- Preset Management ---------------------------------------------------
-void MidiForgeAudioProcessor::loadPreset(const presets::PresetData& preset)
-{
-    setRoot(preset.root);
-    setGenre(preset.genre);
-    setScale(preset.scale);
-    progression = preset.progression;
-    rhythm = preset.rhythm;
-    setMood(preset.mood);
-    setMelodyType(preset.melodyType);
-    setSoundTarget(preset.soundTarget);
-    
-    setChordDensity(preset.chordDensity);
-    setBassDensity(preset.bassDensity);
-    setMelodyDensity(preset.melodyDensity);
-    setArpDensity(preset.arpDensity);
-    
-    setSwing(preset.swing);
-    setHumanize(preset.humanize);
-    complexity = preset.complexity;
-    
-    melodyLength = preset.melodyLength;
-    pauseChance = preset.pauseChance;
-    leapChance = preset.leapChance;
-    ghostChance = preset.ghostChance;
-    
-    voicingWidth = preset.voicingWidth;
-    motifStrength = preset.motifStrength;
-    variationAmount = preset.variationAmount;
-    fillAmount = preset.fillAmount;
-    energy = preset.energy;
-    
-    arpRate = preset.arpRate;
-    chordExtensions = preset.chordExtensions;
-    inversions = preset.inversions;
-    chordsEnabled = preset.chordsEnabled;
-    bassEnabled = preset.bassEnabled;
-    melodyEnabled = preset.melodyEnabled;
-    arpEnabled = preset.arpEnabled;
-    hookMode = preset.hookMode;
-    drumsEnabled = preset.drumsEnabled;
-    articulation = preset.articulation;
-    
-    // DNA parameters
-    setDnaMelody(preset.dnaMelody);
-    setDnaRhythm(preset.dnaRhythm);
-    setDnaHarmony(preset.dnaHarmony);
-    setDnaMotif(preset.dnaMotif);
-    setDnaRegister(preset.dnaRegister);
-    setDnaGroove(preset.dnaGroove);
-    setDnaEnergy(preset.dnaEnergy);
-    setDnaSurprise(preset.dnaSurprise);
-    
-    // Layer locks
-    setLockChords(preset.lockChords);
-    setLockBass(preset.lockBass);
-    setLockMelody(preset.lockMelody);
-    setLockArp(preset.lockArp);
-    
-    regenerate();
-}
-
-void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& name)
+// Captures the current processor state as a PresetData snapshot.
+// Used by saveCurrentSettingsAsPreset() and by the UI preset browser.
+presets::PresetData MidiForgeAudioProcessor::getCurrentPreset() const
 {
     presets::PresetData preset;
-    preset.name = name;
-    
+
     preset.root = rootPc;
     preset.genre = genre;
     preset.scale = scale;
@@ -628,27 +569,27 @@ void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& na
     preset.mood = mood;
     preset.melodyType = melodyType;
     preset.soundTarget = soundTarget;
-    
+
     preset.chordDensity = chordDensity;
     preset.bassDensity = bassDensity;
     preset.melodyDensity = melodyDensity;
     preset.arpDensity = arpDensity;
-    
+
     preset.swing = swing;
     preset.humanize = humanize;
     preset.complexity = complexity;
-    
+
     preset.melodyLength = melodyLength;
     preset.pauseChance = pauseChance;
     preset.leapChance = leapChance;
     preset.ghostChance = ghostChance;
-    
+
     preset.voicingWidth = voicingWidth;
     preset.motifStrength = motifStrength;
     preset.variationAmount = variationAmount;
     preset.fillAmount = fillAmount;
     preset.energy = energy;
-    
+
     preset.arpRate = arpRate;
     preset.chordExtensions = chordExtensions;
     preset.inversions = inversions;
@@ -659,7 +600,7 @@ void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& na
     preset.hookMode = hookMode;
     preset.drumsEnabled = drumsEnabled;
     preset.articulation = articulation;
-    
+
     preset.dnaMelody = dnaMelody;
     preset.dnaRhythm = dnaRhythm;
     preset.dnaHarmony = dnaHarmony;
@@ -668,14 +609,84 @@ void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& na
     preset.dnaGroove = dnaGroove;
     preset.dnaEnergy = dnaEnergy;
     preset.dnaSurprise = dnaSurprise;
-    
+
     preset.lockChords = lockChordsLayer;
     preset.lockBass = lockBassLayer;
     preset.lockMelody = lockMelodyLayer;
     preset.lockArp = lockArpLayer;
-    
+
+    return preset;
+}
+
+// Applies a preset in one shot: fields are assigned directly (clamped the same
+// way the setters do), so the pattern is regenerated exactly once instead of
+// once per setter call (~40 regenerations saved on every preset load).
+void MidiForgeAudioProcessor::loadPreset(const presets::PresetData& preset)
+{
+    rootPc       = juce::jlimit(0, 11, preset.root);
+    genre        = juce::jlimit(0, 15, preset.genre);
+    scale        = juce::jlimit(0, 6, preset.scale);
+    progression  = juce::jlimit(0, 6, preset.progression);
+    rhythm       = juce::jlimit(0, 3, preset.rhythm);
+    mood         = juce::jlimit(0, 8, preset.mood);
+    melodyType   = juce::jlimit(0, 7, preset.melodyType);
+    soundTarget  = juce::jlimit(0, 7, preset.soundTarget);
+
+    chordDensity  = juce::jlimit(0.f, 1.f, preset.chordDensity);
+    bassDensity   = juce::jlimit(0.f, 1.f, preset.bassDensity);
+    melodyDensity = juce::jlimit(0.f, 1.f, preset.melodyDensity);
+    arpDensity    = juce::jlimit(0.f, 1.f, preset.arpDensity);
+
+    swing      = juce::jlimit(0.f, .75f, preset.swing);
+    humanize   = juce::jlimit(0.f, 1.f, preset.humanize);
+    complexity = juce::jlimit(0.f, 1.f, preset.complexity);
+
+    melodyLength = juce::jlimit(0.f, 1.f, preset.melodyLength);
+    pauseChance  = juce::jlimit(0.f, 1.f, preset.pauseChance);
+    leapChance   = juce::jlimit(0.f, 1.f, preset.leapChance);
+    ghostChance  = juce::jlimit(0.f, 1.f, preset.ghostChance);
+
+    voicingWidth    = juce::jlimit(0.f, 1.f, preset.voicingWidth);
+    motifStrength   = juce::jlimit(0.f, 1.f, preset.motifStrength);
+    variationAmount = juce::jlimit(0.f, 1.f, preset.variationAmount);
+    fillAmount      = juce::jlimit(0.f, 1.f, preset.fillAmount);
+    energy          = juce::jlimit(0.f, 1.f, preset.energy);
+
+    arpRate         = juce::jlimit(1, 8, preset.arpRate);
+    chordExtensions = preset.chordExtensions;
+    inversions      = preset.inversions;
+    chordsEnabled   = preset.chordsEnabled;
+    bassEnabled     = preset.bassEnabled;
+    melodyEnabled   = preset.melodyEnabled;
+    arpEnabled      = preset.arpEnabled;
+    hookMode        = preset.hookMode;
+    drumsEnabled    = preset.drumsEnabled;
+    articulation    = juce::jlimit(0, 2, preset.articulation);
+
+    dnaMelody   = juce::jlimit(0.f, 1.f, preset.dnaMelody);
+    dnaRhythm   = juce::jlimit(0.f, 1.f, preset.dnaRhythm);
+    dnaHarmony  = juce::jlimit(0.f, 1.f, preset.dnaHarmony);
+    dnaMotif    = juce::jlimit(0.f, 1.f, preset.dnaMotif);
+    dnaRegister = juce::jlimit(0.f, 1.f, preset.dnaRegister);
+    dnaGroove   = juce::jlimit(0.f, 1.f, preset.dnaGroove);
+    dnaEnergy   = juce::jlimit(0.f, 1.f, preset.dnaEnergy);
+    dnaSurprise = juce::jlimit(0.f, 1.f, preset.dnaSurprise);
+
+    lockChordsLayer = preset.lockChords;
+    lockBassLayer   = preset.lockBass;
+    lockMelodyLayer = preset.lockMelody;
+    lockArpLayer    = preset.lockArp;
+
+    regenerate();
+}
+
+void MidiForgeAudioProcessor::saveCurrentSettingsAsPreset(const juce::String& name)
+{
+    auto preset = getCurrentPreset();
+    preset.name = name;
+
     // Save to file using PresetManager
-    presets::PresetManager manager;
+    static presets::PresetManager manager;
     manager.savePreset(preset);
 }
 

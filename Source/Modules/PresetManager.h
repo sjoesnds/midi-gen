@@ -136,8 +136,8 @@ public:
     /** Saves a preset to file */
     bool savePreset(const PresetData& preset)
     {
-        auto file = getPresetFile(preset.name);
-        if (file.isEmpty())
+        const auto file = getPresetFile(preset.name);
+        if (file.getFullPathName().isEmpty())
             return false;
         
         juce::XmlElement xml("Preset");
@@ -244,19 +244,38 @@ public:
         auto preset = std::make_unique<PresetData>();
         auto* obj = json.getDynamicObject();
         
-        preset->name = obj->getProperty("name", "Imported").toString();
-        preset->description = obj->getProperty("description", "").toString();
-        preset->root = static_cast<int>(obj->getProperty("root", 0));
-        preset->genre = static_cast<int>(obj->getProperty("genre", 0));
-        preset->scale = static_cast<int>(obj->getProperty("scale", 0));
-        preset->chordDensity = static_cast<float>(obj->getProperty("chordDensity", 0.9f));
-        preset->melodyDensity = static_cast<float>(obj->getProperty("melodyDensity", 0.6f));
-        preset->swing = static_cast<float>(obj->getProperty("swing", 0.0f));
-        preset->humanize = static_cast<float>(obj->getProperty("humanize", 0.15f));
-        preset->energy = static_cast<float>(obj->getProperty("energy", 0.5f));
-        preset->dnaMelody = static_cast<float>(obj->getProperty("dnaMelody", 0.5f));
-        preset->dnaRhythm = static_cast<float>(obj->getProperty("dnaRhythm", 0.5f));
-        preset->dnaHarmony = static_cast<float>(obj->getProperty("dnaHarmony", 0.5f));
+        // NB: juce::DynamicObject::getProperty has no default-value overload,
+        // so we fetch the Variant and fall back manually via its own defaults.
+        auto* dyn = dynamic_cast<juce::DynamicObject*>(obj);
+        if (dyn == nullptr)
+            return nullptr;
+
+        auto getStr = [dyn] (const char* key, const char* def) {
+            const auto v = dyn->getProperties()[key];
+            return v.isVoid() ? juce::String(def) : v.toString();
+        };
+        auto getInt = [dyn] (const char* key, int def) {
+            const auto v = dyn->getProperties()[key];
+            return v.isVoid() ? def : static_cast<int>(v);
+        };
+        auto getFloat = [dyn] (const char* key, float def) {
+            const auto v = dyn->getProperties()[key];
+            return v.isVoid() ? def : static_cast<float>(static_cast<double>(v));
+        };
+
+        preset->name = getStr("name", "Imported");
+        preset->description = getStr("description", "");
+        preset->root = getInt("root", 0);
+        preset->genre = getInt("genre", 0);
+        preset->scale = getInt("scale", 0);
+        preset->chordDensity = getFloat("chordDensity", 0.9f);
+        preset->melodyDensity = getFloat("melodyDensity", 0.6f);
+        preset->swing = getFloat("swing", 0.0f);
+        preset->humanize = getFloat("humanize", 0.15f);
+        preset->energy = getFloat("energy", 0.5f);
+        preset->dnaMelody = getFloat("dnaMelody", 0.5f);
+        preset->dnaRhythm = getFloat("dnaRhythm", 0.5f);
+        preset->dnaHarmony = getFloat("dnaHarmony", 0.5f);
         
         return preset;
     }
