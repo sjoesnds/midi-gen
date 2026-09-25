@@ -2039,7 +2039,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -2648,6 +2648,168 @@ void MidiForgeAudioProcessor::buildVariationBank()
             - 0.18f * literalPenalty);
     };
 
+    // 0.54 Groove Engine: one loop-specific pocket is shared by every layer.
+    // The groove is generated once from the candidate identity, then applied with
+    // different strengths so melody/bass/drums move together without becoming a
+    // rigid quantized block.
+    auto applyGrooveEngine = [&] (Section& sec, uint32_t identity)
+    {
+        const int totalSteps = juce::jmax (16, sec.bars * 16);
+        int pocket[16] = { 0 };
+        int accents[16] = { 0 };
+
+        const uint32_t grooveSeed = hash32 (identity ^ 0x6A09E667u);
+        const int baseBias = (int) (grooveSeed % 3u) - 1;
+        for (int pos = 0; pos < 16; ++pos)
+        {
+            const uint32_t h = hash32 (grooveSeed ^ (uint32_t) (pos + 1) * 0x9E3779B9u);
+            const bool anchorPos = (pos % 4) == 0;
+            if (anchorPos)
+            {
+                pocket[pos] = 0;
+                accents[pos] = (pos == 0 ? 7 : (pos == 8 ? 5 : 3));
+            }
+            else
+            {
+                const int roll = (int) (h % 100u);
+                pocket[pos] = (roll < 24 ? -1 : (roll > 80 ? 1 : 0));
+                if (swing > 0.08f && (pos & 1) && pocket[pos] == 0 && roll > 42)
+                    pocket[pos] = 1;
+                if (rhythm == Syncopated && (pos % 4) == 3 && roll > 34)
+                    pocket[pos] = 1;
+                if (rhythm == Broken && (pos == 3 || pos == 10 || pos == 13) && roll > 46)
+                    pocket[pos] = -1;
+                pocket[pos] = juce::jlimit (-1, 1, pocket[pos] + ((pos % 4) == 2 ? baseBias : 0));
+                accents[pos] = ((pos % 4) == 2 ? 2 : ((pos % 4) == 3 ? 1 : 0));
+                if ((h % 100u) < 18u) accents[pos] += 2;
+            }
+        }
+
+        auto layerStrength = [] (int channel)
+        {
+            switch (channel)
+            {
+                case 1: return 0.34f;
+                case 2: return 0.78f;
+                case 3: return 0.92f;
+                case 4: return 0.66f;
+                case 5: return 0.84f;
+                default: return 0.50f;
+            }
+        };
+
+        for (size_t i = 0; i < sec.notes.size(); ++i)
+        {
+            auto& n = sec.notes[i];
+            const int pos = ((n.step % 16) + 16) % 16;
+            const float strength = layerStrength (n.channel);
+            const uint32_t h = hash32 (grooveSeed ^ (uint32_t) i * 0x85EBCA6Bu ^ (uint32_t) n.step * 0x27D4EB2Du);
+
+            int delta = juce::roundToInt ((float) pocket[pos] * strength);
+            if ((pos % 4) == 0 || n.channel == 1)
+                delta = 0;
+            n.step = juce::jlimit (0, totalSteps - 1, n.step + delta);
+
+            const int localPos = ((n.step % 16) + 16) % 16;
+            int velocityDelta = accents[localPos];
+            if (localPos == 0 || localPos == 8) velocityDelta += 3;
+            if ((h % 100u) < 22u) velocityDelta -= 2;
+            else if ((h % 100u) > 80u) velocityDelta += 2;
+            velocityDelta = juce::roundToInt ((float) velocityDelta * (0.65f + 0.35f * strength));
+            n.velocity = juce::jlimit (28, 122, n.velocity + velocityDelta);
+
+            if (n.channel != 5)
+            {
+                if (accents[localPos] >= 3 && (h & 3u) != 0u)
+                    n.length = juce::jlimit (1, 16, n.length + 1);
+                else if (accents[localPos] == 0 && (h % 100u) < 28u)
+                    n.length = juce::jmax (1, n.length - 1);
+            }
+            else if ((h % 100u) < 38u)
+            {
+                n.length = juce::jmax (1, juce::jmin (2, n.length));
+            }
+        }
+
+        removeDuplicateNotes (sec.notes);
+        cleanMelodyLine (sec.notes);
+        std::sort (sec.notes.begin(), sec.notes.end(), [] (const NoteEvent& a, const NoteEvent& b)
+        {
+            if (a.step != b.step) return a.step < b.step;
+            if (a.channel != b.channel) return a.channel < b.channel;
+            return a.note < b.note;
+        });
+    };
+
+    auto grooveQualityScore = [&] (const Section& sec)
+    {
+        int positionCount[16] = { 0 };
+        int positionVelocity[16] = { 0 };
+        int layerMask[16] = { 0 };
+        float lengthSum = 0.0f;
+        int lengthCount = 0;
+
+        for (const auto& n : sec.notes)
+        {
+            const int p = ((n.step % 16) + 16) % 16;
+            ++positionCount[p];
+            positionVelocity[p] += n.velocity;
+            if (n.channel >= 1 && n.channel <= 5)
+                layerMask[p] |= (1 << (n.channel - 1));
+            if (n.channel != 5)
+            {
+                lengthSum += (float) n.length;
+                ++lengthCount;
+            }
+        }
+
+        int occupied = 0;
+        float velocityMean = 0.0f;
+        for (int p = 0; p < 16; ++p)
+        {
+            if (positionCount[p] > 0)
+            {
+                ++occupied;
+                velocityMean += (float) positionVelocity[p] / (float) positionCount[p];
+            }
+        }
+        velocityMean /= (float) juce::jmax (1, occupied);
+
+        float accentVariance = 0.0f;
+        int offbeatHits = 0;
+        int sharedPositions = 0;
+        for (int p = 0; p < 16; ++p)
+        {
+            if ((p & 1) != 0 && positionCount[p] > 0) ++offbeatHits;
+            unsigned mask = (unsigned) layerMask[p];
+            int layersAtPos = 0;
+            while (mask != 0u) { layersAtPos += (int) (mask & 1u); mask >>= 1; }
+            if (layersAtPos >= 2) ++sharedPositions;
+            if (positionCount[p] > 0)
+            {
+                const float d = ((float) positionVelocity[p] / (float) positionCount[p]) - velocityMean;
+                accentVariance += d * d;
+            }
+        }
+        accentVariance /= (float) juce::jmax (1, occupied);
+
+        const float accentContrast = juce::jlimit (0.0f, 1.0f, std::sqrt (accentVariance) / 18.0f);
+        const float offbeatRatio = (float) offbeatHits / (float) juce::jmax (1, occupied);
+        const float offbeatFit = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (offbeatRatio - 0.42f) / 0.48f);
+        const float sharedLayerFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+            std::abs ((float) sharedPositions / 16.0f - 0.46f) / 0.46f);
+        const float contrastFit = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (accentContrast - 0.44f) / 0.50f);
+        const float lengthFit = lengthCount > 0
+            ? juce::jlimit (0.0f, 1.0f, (lengthSum / (float) lengthCount) / 5.0f) : 0.5f;
+
+        return juce::jlimit (0.0f, 1.0f,
+            0.30f * contrastFit
+            + 0.24f * offbeatFit
+            + 0.24f * sharedLayerFit
+            + 0.12f * lengthFit
+            + 0.10f * juce::jlimit (0.0f, 1.0f, (float) occupied / 16.0f));
+    };
+
     auto similarity = [&](const Section& a, const Section& b)
     {
         std::vector<int> ap, bp, ar, br;
@@ -3049,7 +3211,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const int archetype = c % 8;
         Section flat=flatten(song,c,local);
         applyMagicArchetype (flat, archetype, identity);
+        applyGrooveEngine (flat, identity);
         const auto f=melodyFeatures(flat,identity);
+        const float grooveQuality = grooveQualityScore (flat);
         const float motifMemory = motifMemoryScore(flat);
         float quality=0.0f;
         // Magic DNA 2.0: candidate features are judged against the same
@@ -3076,6 +3240,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // Loop Quality 2.0: judge the circular behavior of the whole loop while
         // keeping the existing MAGIC DNA/archetype system in control.
         quality += 0.22f*f.loopQuality;
+        quality += 0.17f * grooveQuality;
         // Motif Memory 2.0 becomes a shared signal for every archetype. The
         // dedicated MOTIF archetype gets a stronger weight above, while the
         // rest still benefit from recognizable identity without being forced
