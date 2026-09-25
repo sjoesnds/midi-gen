@@ -1692,6 +1692,158 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// 0.47 Human Phrase Engine
+// -----------------------------------------------------------------------------
+// Capture the first bar of a four-bar phrase as a compact melodic fingerprint.
+// Later bars use that fingerprint as a compositional reference rather than
+// independently re-rolling the motif. This creates A / A' / B / A'' behavior
+// without making every bar a literal copy.
+MidiForgeAudioProcessor::PhraseMotif
+MidiForgeAudioProcessor::extractPhraseMotif (const Section& section, int phraseStartBar) const
+{
+    PhraseMotif motif;
+    const int start = phraseStartBar * 16;
+    const int end = start + 16;
+
+    const NoteEvent* anchor = nullptr;
+    for (const auto& n : section.notes)
+    {
+        if (n.channel == 3 && n.step >= start && n.step < end)
+        {
+            anchor = &n;
+            break;
+        }
+    }
+    if (anchor == nullptr)
+        return motif;
+
+    for (const auto& n : section.notes)
+    {
+        if (n.channel != 3 || n.step < start || n.step >= end)
+            continue;
+        motif.relativePitches.push_back (n.note - anchor->note);
+        motif.relativeSteps.push_back (n.step - start);
+        motif.lengths.push_back (n.length);
+    }
+
+    return motif;
+}
+
+void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOffset,
+                                                    const PhraseMotif& motif) const
+{
+    if (motif.relativePitches.empty())
+        return;
+
+    const int role = barOffset & 3; // A, A', B, A''
+    if (role == 0)
+        return;
+
+    const int start = barOffset * 16;
+    const int end = start + 16;
+
+    std::vector<NoteEvent*> current;
+    for (auto& n : section.notes)
+        if (n.channel == 3 && n.step >= start && n.step < end)
+            current.push_back (&n);
+
+    if (current.empty())
+        return;
+
+    std::sort (current.begin(), current.end(),
+               [](const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+
+    const auto nearestMotifIndex = [&](size_t i) -> size_t
+    {
+        if (current.size() <= 1 || motif.relativePitches.size() <= 1)
+            return 0;
+        const double t = (double) i / (double) (current.size() - 1);
+        return (size_t) juce::jlimit (
+            0,
+            (int) motif.relativePitches.size() - 1,
+            juce::roundToInt (t * (double) (motif.relativePitches.size() - 1)));
+    };
+
+    const auto snapInMelodyLane = [&](int pitch) -> int
+    {
+        int lo = 62, hi = 86;
+        registerLane (2, lo, hi);
+        pitch = juce::jlimit (lo, hi, pitch);
+        return juce::jlimit (lo, hi, snapToScale (pitch));
+    };
+
+    const int firstPitch = current.front()->note;
+
+    for (size_t i = 0; i < current.size(); ++i)
+    {
+        NoteEvent& n = *current[i];
+        const size_t mi = nearestMotifIndex (i);
+        int target = firstPitch + motif.relativePitches[mi];
+
+        if (role == 2)
+        {
+            // B = contrast. Invert the motif contour around its anchor and
+            // push the middle toward a higher-tension register.
+            target = firstPitch - motif.relativePitches[mi];
+            if (i > 0 && i + 1 < current.size())
+                target += (i & 1u) ? -2 : 3;
+        }
+
+        const float strength = (role == 1 ? 0.58f : role == 2 ? 0.22f : 0.72f);
+        const int blended = juce::roundToInt ((float) n.note * (1.0f - strength)
+                                              + (float) target * strength);
+        n.note = snapInMelodyLane (blended);
+
+        if (role == 1)
+        {
+            // A' keeps the identity but changes sustain/accent detail.
+            if (mi < motif.lengths.size() && (i & 1u) == 0)
+                n.length = juce::jlimit (1, 4,
+                    juce::roundToInt (0.70f * (float) n.length
+                                      + 0.30f * (float) motif.lengths[mi]));
+            if ((i & 3u) == 1)
+                n.velocity = juce::jlimit (40, 118, n.velocity + 4);
+        }
+
+        if (role == 2 && i == current.size() / 2)
+        {
+            // B gets the phrase peak instead of being louder everywhere.
+            n.note = snapInMelodyLane (n.note + 3);
+            n.velocity = juce::jlimit (40, 118, n.velocity + 7);
+            n.length = juce::jmin (4, n.length + 1);
+        }
+    }
+
+    if (role == 3)
+    {
+        // A'' gets an actual answer/cadence. Resolve the final melodic note
+        // toward the current chord's root or third, choosing the closer option.
+        NoteEvent& last = *current.back();
+        const auto prog = progressionDegrees();
+        if (!prog.empty())
+        {
+            const int degree = prog[(size_t) (barOffset % (int) prog.size())];
+            int lo = 62, hi = 86;
+            registerLane (2, lo, hi);
+
+            auto inLane = [&](int p)
+            {
+                while (p < lo) p += 12;
+                while (p > hi) p -= 12;
+                return juce::jlimit (lo, hi, snapToScale (p));
+            };
+
+            const int root = inLane (degreeToPitch (degree, octave));
+            const int third = inLane (degreeToPitch (degree + 2, octave));
+            last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
+            last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
+            last.velocity = juce::jlimit (40, 118, last.velocity + 3);
+        }
+    }
+}
+
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
 if(arpDensity<=0.001f)return;
@@ -1730,6 +1882,12 @@ if(melodyEnabled)
 {
     if(solo) add808(section,bar,targetEnergy,r,variationSalt);
     else addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
+
+    if(!solo && (bar % 4) != 0)
+    {
+        const PhraseMotif phraseMotif = extractPhraseMotif(section, bar - (bar % 4));
+        applyHumanPhraseRole(section, bar, phraseMotif);
+    }
 }
 if(arpEnabled && !solo)
 addArp(section,bar,deg,targetEnergy,r);
