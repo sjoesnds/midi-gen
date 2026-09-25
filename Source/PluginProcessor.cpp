@@ -3761,27 +3761,288 @@ void MidiForgeAudioProcessor::buildVariationBank()
         selected.push_back(std::move(candidates[(size_t)best]));
     }
 
-    std::vector<Section> result;
-    result.reserve(8);
-    for(size_t i=0;i<selected.size();++i)
+    // 0.56 Loop Transformation: MAGIC 3 discovers multiple strong archetypal
+    // candidates first, then this stage picks the strongest discovered loop and
+    // turns it into a coherent family of standalone transformations. The musical
+    // identity stays anchored in the same source loop; only one intentional
+    // transformation domain changes per variant.
+    auto transformLoop = [&] (Section source, int mode, uint32_t identity)
     {
-        auto flat=std::move(selected[i].section);
-        const int archetype = selected[i].archetype;
-        flat.name="VARIATION "+juce::String((int)i+1)+" • "+juce::String(archetypeNames[juce::jlimit(0,7,archetype)]);
+        const int barsN = juce::jmax (1, source.bars);
+        const int totalSteps = juce::jmax (16, barsN * 16);
+        const bool tight = (mode == 1 || mode == 6);
+        const bool sparse = (mode == 2 || mode == 7);
+        const bool dark = (mode == 3 || mode == 7);
+        const bool bigger = (mode == 4);
+        const bool weird = (mode == 5 || mode == 6);
 
-        auto applyLock = [&](int channel, bool locked)
+        if (tight)
         {
-            if(!locked) return;
-            flat.notes.erase(std::remove_if(flat.notes.begin(),flat.notes.end(),
-                [channel](const NoteEvent& n){return n.channel==channel;}),flat.notes.end());
-            for(const auto& n:previousSelected.notes)
-                if(n.channel==channel && n.step<flat.bars*16) flat.notes.push_back(n);
-        };
-        applyLock(1,lockChordsLayer);
-        applyLock(2,lockBassLayer);
-        applyLock(3,lockMelodyLayer);
-        applyLock(4,lockArpLayer);
-        result.push_back(std::move(flat));
+            for (auto& n : source.notes)
+            {
+                if (n.channel == 5) continue;
+                const int pos = n.step % 16;
+                if ((pos & 1) != 0)
+                {
+                    const int target = pos <= 7 ? juce::jmax (0, pos - 1)
+                                                : juce::jmin (14, pos + 1);
+                    n.step = juce::jlimit (0, totalSteps - 1,
+                                           (n.step / 16) * 16 + target);
+                }
+                if (n.channel == 3 && n.length > 2 && (n.step % 4) != 0)
+                    n.length = juce::jmax (1, n.length - 1);
+            }
+        }
+
+        if (sparse)
+        {
+            std::vector<int> melodyPerBar ((size_t) barsN, 0);
+            std::vector<int> arpPerBar ((size_t) barsN, 0);
+            for (const auto& n : source.notes)
+            {
+                const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+                if (n.channel == 3) ++melodyPerBar[(size_t) bar];
+                if (n.channel == 4) ++arpPerBar[(size_t) bar];
+            }
+
+            source.notes.erase (std::remove_if (source.notes.begin(), source.notes.end(),
+                [&] (const NoteEvent& n)
+                {
+                    const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+                    const uint32_t h = hash32 (identity
+                                               ^ (uint32_t) (n.step * 131 + n.note * 17)
+                                               ^ (uint32_t) n.channel * 0x9E3779B9u);
+
+                    if (n.channel == 3)
+                    {
+                        if (melodyPerBar[(size_t) bar] <= 1) return false;
+                        return (h % 100u) < 28u;
+                    }
+
+                    if (n.channel == 4)
+                    {
+                        if (arpPerBar[(size_t) bar] <= 1) return false;
+                        return (h % 100u) < 34u;
+                    }
+
+                    if (n.channel == 5)
+                        return (h % 100u) < 18u;
+
+                    return false; // keep chords and bass structurally intact
+                }), source.notes.end());
+        }
+
+        if (dark)
+        {
+            for (auto& n : source.notes)
+            {
+                const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 0x45D9F3Bu
+                                           ^ (uint32_t) n.note * 0x27D4EB2Du);
+
+                if (n.channel == 3 || n.channel == 4)
+                {
+                    n.note = foldIntoLane (snapToScale (n.note - ((h % 3u) == 0u ? 7 : 5)), 30, 96);
+                    n.velocity = juce::jmax (30, n.velocity - 6);
+                }
+                else if (n.channel == 2 && (h % 100u) < 42u)
+                {
+                    n.note = juce::jlimit (24, 55, n.note - 12);
+                    n.velocity = juce::jmax (34, n.velocity - 4);
+                }
+                else if (n.channel == 1 && (h % 100u) < 20u)
+                {
+                    n.note = juce::jlimit (24, 108, n.note - 12);
+                    n.velocity = juce::jmax (30, n.velocity - 3);
+                }
+            }
+        }
+
+        if (bigger)
+        {
+            for (auto& n : source.notes)
+            {
+                const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 0x9E3779B9u
+                                           ^ (uint32_t) n.channel * 0x85EBCA6Bu);
+
+                if (n.channel == 3 && (h % 100u) < 36u)
+                {
+                    n.note = juce::jlimit (36, 108, n.note + 12);
+                    n.velocity = juce::jlimit (35, 122, n.velocity + 5);
+                    n.length = juce::jmin (16, n.length + 1);
+                }
+                else if (n.channel == 4 && (h % 100u) < 24u)
+                {
+                    n.note = juce::jlimit (40, 108, n.note + 12);
+                }
+                else if (n.channel == 2 && (h % 100u) < 30u)
+                {
+                    n.note = juce::jmax (24, n.note - 12);
+                    n.velocity = juce::jlimit (35, 118, n.velocity + 3);
+                }
+            }
+
+            // Widen each chord hit by moving its top voice up one octave on a
+            // subset of hits. This preserves the progression while making it
+            // physically feel larger rather than simply adding random notes.
+            std::sort (source.notes.begin(), source.notes.end(),
+                       [] (const NoteEvent& a, const NoteEvent& b)
+                       {
+                           if (a.channel != b.channel) return a.channel < b.channel;
+                           if (a.step != b.step) return a.step < b.step;
+                           return a.note < b.note;
+                       });
+
+            for (size_t pos = 0; pos < source.notes.size(); )
+            {
+                if (source.notes[pos].channel != 1)
+                {
+                    ++pos;
+                    continue;
+                }
+
+                const int step = source.notes[pos].step;
+                size_t endPos = pos;
+                while (endPos < source.notes.size()
+                       && source.notes[endPos].channel == 1
+                       && source.notes[endPos].step == step)
+                    ++endPos;
+
+                const uint32_t h = hash32 (identity ^ (uint32_t) step * 0x51ED270Bu);
+                if (endPos > pos && (h % 100u) < 46u)
+                {
+                    auto& top = source.notes[endPos - 1];
+                    top.note = juce::jlimit (24, 108, top.note + 12);
+                    top.length = juce::jmin (16, top.length + 1);
+                }
+
+                pos = endPos;
+            }
+        }
+
+        if (weird)
+        {
+            std::vector<int> anchors ((size_t) barsN, -1);
+            for (const auto& n : source.notes)
+            {
+                if (n.channel == 3)
+                {
+                    const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+                    if (anchors[(size_t) bar] < 0)
+                        anchors[(size_t) bar] = n.note;
+                }
+            }
+
+            for (size_t i = 0; i < source.notes.size(); ++i)
+            {
+                auto& n = source.notes[i];
+                const uint32_t h = hash32 (identity
+                                           ^ (uint32_t) i * 0xC2B2AE35u
+                                           ^ (uint32_t) n.step * 0x27D4EB2Du);
+
+                if (n.channel == 3)
+                {
+                    const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+                    if (anchors[(size_t) bar] >= 0 && (h % 100u) < 24u)
+                    {
+                        const int rel = n.note - anchors[(size_t) bar];
+                        n.note = foldIntoLane (snapToScale (anchors[(size_t) bar] - rel), 34, 108);
+                    }
+
+                    if ((h % 100u) >= 24u && (h % 100u) < 42u)
+                    {
+                        const int delta = (h & 1u) ? 1 : -1;
+                        n.step = juce::jlimit (0, totalSteps - 1, n.step + delta);
+                    }
+                }
+                else if (n.channel == 4 && (h % 100u) < 28u)
+                {
+                    n.step = juce::jlimit (0, totalSteps - 1,
+                                           n.step + ((h & 1u) ? 2 : -2));
+                }
+                else if (n.channel == 5 && (h % 100u) < 20u)
+                {
+                    n.velocity = juce::jlimit (26, 122, n.velocity + ((h & 1u) ? 7 : -7));
+                }
+            }
+        }
+
+        removeDuplicateNotes (source.notes);
+        cleanMelodyLine (source.notes);
+        std::sort (source.notes.begin(), source.notes.end(),
+                   [] (const NoteEvent& a, const NoteEvent& b)
+                   {
+                       if (a.step != b.step) return a.step < b.step;
+                       if (a.channel != b.channel) return a.channel < b.channel;
+                       return a.note < b.note;
+                   });
+        return source;
+    };
+
+    static constexpr const char* transformationNames[8] =
+    {
+        "ORIGINAL", "TIGHT", "SPARSE", "DARK",
+        "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK"
+    };
+
+    // Use the strongest final discovery as the transformation source. MAGIC 3
+    // still contributes the archetype search/diversity; 0.56 turns that discovery
+    // into a focused family of standalone loop alternatives.
+    size_t sourceIndex = 0;
+    for (size_t i = 1; i < selected.size(); ++i)
+        if (selected[i].quality > selected[sourceIndex].quality)
+            sourceIndex = i;
+
+    const Section transformationSource = selected.empty()
+        ? Section {}
+        : selected[sourceIndex].section;
+    const uint32_t transformationSeed = selected.empty()
+        ? generationSeed
+        : selected[sourceIndex].identity;
+
+    std::vector<Section> result;
+    result.reserve (8);
+
+    if (! transformationSource.notes.empty())
+    {
+        for (int mode = 0; mode < 8; ++mode)
+        {
+            Section flat = transformLoop (
+                transformationSource,
+                mode,
+                hash32 (transformationSeed ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
+
+            flat.name = "VARIATION " + juce::String (mode + 1)
+                      + " • " + juce::String (transformationNames[mode]);
+
+            auto applyLock = [&] (int channel, bool locked)
+            {
+                if (! locked) return;
+                flat.notes.erase (std::remove_if (flat.notes.begin(), flat.notes.end(),
+                    [channel] (const NoteEvent& n) { return n.channel == channel; }),
+                    flat.notes.end());
+
+                for (const auto& n : previousSelected.notes)
+                    if (n.channel == channel && n.step < flat.bars * 16)
+                        flat.notes.push_back (n);
+            };
+
+            applyLock (1, lockChordsLayer);
+            applyLock (2, lockBassLayer);
+            applyLock (3, lockMelodyLayer);
+            applyLock (4, lockArpLayer);
+
+            removeDuplicateNotes (flat.notes);
+            cleanMelodyLine (flat.notes);
+            std::sort (flat.notes.begin(), flat.notes.end(),
+                       [] (const NoteEvent& a, const NoteEvent& b)
+                       {
+                           if (a.step != b.step) return a.step < b.step;
+                           if (a.channel != b.channel) return a.channel < b.channel;
+                           return a.note < b.note;
+                       });
+
+            result.push_back (std::move (flat));
+        }
     }
 
     // Defensive fallback: the bank should never become empty.
