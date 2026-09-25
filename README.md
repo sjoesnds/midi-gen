@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.55.0**
+**Current version: 0.56.0**
 
 ## What it does
 
@@ -46,6 +46,24 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing genre, DNA, archetype, Judge or diversity systems.
 - Local deterministic jitter keeps the adaptive phase exploratory instead of collapsing all candidates into clones.
 - The final eight-variation bank and one-winner-per-archetype behavior remain unchanged.
+
+### Loop Transformation — 0.56
+
+MAGIC 4 now feeds its strongest discovered loop into a dedicated transformation stage. The generator remains loop-centric: there is no song/arrangement layer.
+
+Each generation produces eight standalone variants derived from the same musical source:
+
+- **ORIGINAL** — untouched identity reference.
+- **TIGHT** — cleaner timing and slightly tighter note tails.
+- **SPARSE** — selective note removal while preserving melody anchors, bass and chord structure.
+- **DARK** — lower register and softer dynamics while keeping scale/harmonic identity.
+- **BIGGER** — wider register, longer phrases and expanded chord voicing.
+- **WEIRD** — controlled contour inversions and micro-timing mutations.
+- **TIGHT+WEIRD** — combination of the two transformation domains.
+- **SPARSE+DARK** — reduced density with a darker register.
+
+The source loop is transformed deterministically from its generation identity, so reruns remain reproducible while the variants stay recognizably related.
+
 
 ### Groove Engine — 0.54
 - Builds one deterministic pocket profile per candidate and shares it across melody, bass, chords, arp and drums.
