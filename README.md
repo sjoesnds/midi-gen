@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.56.0**
+**Current version: 0.57.0**
 
 ## What it does
 
@@ -63,6 +63,15 @@ Each generation produces eight standalone variants derived from the same musical
 - **SPARSE+DARK** — reduced density with a darker register.
 
 The source loop is transformed deterministically from its generation identity, so reruns remain reproducible while the variants stay recognizably related.
+
+
+### Taste ML 2.0 — 0.57
+
+The Taste ML layer now combines long-term learning with a bounded short-term preference memory.
+
+Class-balanced training prevents repeated LIKE or DISLIKE feedback from dominating the opposite signal. A recent liked/disliked prototype follows the latest ratings with exponential decay, then contributes a deliberately small reranking bonus on the next generation.
+
+Confidence is also balanced-aware: the model trusts histories with evidence on both sides more than equally large one-sided histories. Existing saved Taste ML data remains compatible; older models load with the new short-term layer initialized empty.
 
 
 ### Groove Engine — 0.54
