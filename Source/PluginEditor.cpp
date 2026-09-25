@@ -67,7 +67,7 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.49.0", juce::dontSendNotification);
+versionLabel.setText("v0.50.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -103,6 +103,40 @@ autoNextBtn.setButtonText("AUTO-NEXT");
 autoNextBtn.setToggleState(p.getAutoNext(), juce::dontSendNotification);
 autoNextBtn.onClick=[this]{ processor.setAutoNext(autoNextBtn.getToggleState()); };
 addAndMakeVisible(autoNextBtn);
+
+// --- Piano Roll 2.0 toolbar -----------------------------------------
+pianoGridBox.addItemList ({"1/16", "1/8", "1/4", "1/2"}, 1);
+pianoGridBox.setSelectedId (1, juce::dontSendNotification);
+pianoGridBox.onChange = [this]
+{
+    static constexpr int grids[] = { 1, 2, 4, 8 };
+    pianoRoll.setGridSteps (grids[juce::jlimit (0, 3, pianoGridBox.getSelectedId() - 1)]);
+};
+addAndMakeVisible (pianoGridBox);
+quantizeButton.setButtonText ("QUANTIZE");
+quantizeButton.onClick = [this]
+{
+    static constexpr int grids[] = { 1, 2, 4, 8 };
+    pianoRoll.quantizeSelected (grids[juce::jlimit (0, 3, pianoGridBox.getSelectedId() - 1)]);
+};
+resetViewButton.onClick = [this] { pianoRoll.resetView(); };
+phraseButton.onClick = [this] { pianoRoll.selectPhrase(); };
+transposeDownButton.onClick = [this] { pianoRoll.transposeSelected (-12); };
+transposeUpButton.onClick = [this] { pianoRoll.transposeSelected (12); };
+snapScaleButton.onClick = [this] { pianoRoll.snapSelectedToScale(); };
+humanizeSelectionButton.onClick = [this] { pianoRoll.humanizeSelected(); };
+selectionLabel.setText ("SEL 0", juce::dontSendNotification);
+selectionLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
+selectionLabel.setFont (juce::Font (11.0f));
+selectionLabel.setJustificationType (juce::Justification::centredLeft);
+addAndMakeVisible (quantizeButton);
+addAndMakeVisible (resetViewButton);
+addAndMakeVisible (phraseButton);
+addAndMakeVisible (transposeDownButton);
+addAndMakeVisible (transposeUpButton);
+addAndMakeVisible (snapScaleButton);
+addAndMakeVisible (humanizeSelectionButton);
+addAndMakeVisible (selectionLabel);
 mode.setVisible(false);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
@@ -310,7 +344,7 @@ g.drawFittedText("PART DENSITY / MUSICAL DNA",20,146,860,18,juce::Justification:
 g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
 g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
 g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
-g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "PIANO ROLL",20,452,860,18,juce::Justification::left,1);
+g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "PIANO ROLL 2.0  -  multi-select / phrase tools / scale-safe editing",20,452,860,18,juce::Justification::left,1);
 g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left,1);
 }
 void MidiForgeAudioProcessorEditor::resized()
@@ -381,6 +415,15 @@ complexity.setBounds(x1 + 2 * ((contentW - 16) / 3) + 16,428,(contentW - 16) / 3
 
 // Piano roll is kept large enough to remain usable, but no longer pushes the
 // action controls below the host window.
+pianoGridBox.setBounds(20,447,62,22);
+quantizeButton.setBounds(88,447,80,22);
+resetViewButton.setBounds(174,447,82,22);
+phraseButton.setBounds(262,447,78,22);
+transposeDownButton.setBounds(346,447,48,22);
+transposeUpButton.setBounds(400,447,48,22);
+snapScaleButton.setBounds(454,447,64,22);
+humanizeSelectionButton.setBounds(524,447,82,22);
+selectionLabel.setBounds(614,447,170,22);
 pianoRoll.setBounds(left,472,contentW,190);
 drumGrid.setBounds(left,472,contentW,190);
 drumViewBtn.setBounds(850,112,120,22);
@@ -450,4 +493,8 @@ if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelec
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
 refreshTaste();
+pianoRoll.updateHistoryButtons();
+const selectedCount = juce::String ((int) pianoRoll.getSelectionCount());
+if (selectionLabel.getText() != "SEL " + selectedCount)
+    selectionLabel.setText ("SEL " + selectedCount, juce::dontSendNotification);
 }
