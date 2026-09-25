@@ -2957,7 +2957,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 archetypeFit = 0.48f * f.rhythmIdentity + 0.22f * f.velocity + 0.18f * f.density + 0.12f * f.hook;
                 break;
             case 2: // HARMONY
-                archetypeFit = 0.44f * f.harmony + 0.26f * f.phraseArc + 0.18f * f.registerScore + 0.12f * f.hook;
+                archetypeFit = 0.38f * f.phraseMemory + 0.28f * f.hook + 0.20f * f.seam + 0.14f * f.registerScore;
                 break;
             case 3: // MOTIF
                 archetypeFit = 0.34f * f.motifIdentity + 0.28f * f.phraseMemory + 0.22f * f.repetition + 0.16f * f.contour;
@@ -2969,7 +2969,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 archetypeFit = 0.40f * f.surprise + 0.26f * f.leap + 0.22f * f.variety + 0.12f * f.contour;
                 break;
             case 6: // EMOTIONAL
-                archetypeFit = 0.42f * f.phraseArc + 0.24f * f.seam + 0.18f * f.harmony + 0.16f * f.cadence;
+                archetypeFit = 0.46f * f.phraseArc + 0.24f * f.seam + 0.18f * f.registerScore + 0.12f * f.surprise;
                 break;
             default: // WILDCARD
                 archetypeFit = 0.26f * f.hook + 0.20f * f.rhythmIdentity + 0.18f * f.motifIdentity
