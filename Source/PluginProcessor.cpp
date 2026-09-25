@@ -2039,7 +2039,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -2228,6 +2228,196 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float jitter=(float)((hash32(identity)^0x55aa33u)%1000u)/100000.0f;
         f.hook=juce::jlimit(0.0f,1.0f,f.hook+jitter);
         juce::ignoreUnused(totalSteps);
+        // 0.52 Loop Quality 2.0: judge the loop as one circular musical object.
+        // This layer looks beyond isolated notes: strong candidates should have
+        // a convincing seam, recurring identity, controlled contrast, useful
+        // density movement and healthy layer interplay.
+        if (!m.empty())
+        {
+            const int barsN = juce::jmax (1, sec.bars);
+            const int totalLoopSteps = juce::jmax (16, barsN * 16);
+
+            // Circular seam timing: allow intentional breathing room, but not an
+            // accidental hole large enough to make the loop feel disconnected.
+            const int firstStep = m.front()->step;
+            const int lastEnd = juce::jlimit (0, totalLoopSteps,
+                                               m.back()->step + juce::jmax (1, m.back()->length));
+            const int circularGap = juce::jmax (0, totalLoopSteps - lastEnd + firstStep);
+            const float seamGapFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, (float) std::abs (circularGap - 2) / 6.0f);
+
+            // Fingerprints ignore absolute pitch so the same idea can move with
+            // harmony while retaining its rhythmic and interval identity.
+            auto barFingerprint = [&] (int bar)
+            {
+                struct Fingerprint
+                {
+                    std::vector<int> onsets;
+                    std::vector<int> intervals;
+                    std::vector<int> relativePitches;
+                } out;
+
+                std::vector<const NoteEvent*> barNotes;
+                for (auto* n : m)
+                    if (n->step / 16 == bar)
+                        barNotes.push_back (n);
+                if (barNotes.empty()) return out;
+
+                const int anchor = barNotes.front()->note;
+                for (size_t i = 0; i < barNotes.size(); ++i)
+                {
+                    out.onsets.push_back (barNotes[i]->step % 16);
+                    out.relativePitches.push_back (juce::jlimit (-24, 24,
+                                                                barNotes[i]->note - anchor));
+                    if (i > 0)
+                        out.intervals.push_back (juce::jlimit (-12, 12,
+                            barNotes[i]->note - barNotes[i - 1]->note));
+                }
+                return out;
+            };
+
+            auto fingerprintSimilarity = [] (const auto& a, const auto& b)
+            {
+                if (a.onsets.empty() || b.onsets.empty())
+                    return 0.0f;
+
+                const size_t onsetPairs = juce::jmin (a.onsets.size(), b.onsets.size());
+                int sameOnsets = 0;
+                for (size_t i = 0; i < onsetPairs; ++i)
+                    if (std::abs (a.onsets[i] - b.onsets[i]) <= 1) ++sameOnsets;
+
+                const size_t pitchPairs = juce::jmin (a.relativePitches.size(), b.relativePitches.size());
+                int samePitchShape = 0;
+                for (size_t i = 0; i < pitchPairs; ++i)
+                    if (std::abs (a.relativePitches[i] - b.relativePitches[i]) <= 2) ++samePitchShape;
+
+                const size_t intervalPairs = juce::jmin (a.intervals.size(), b.intervals.size());
+                int sameIntervals = 0;
+                for (size_t i = 0; i < intervalPairs; ++i)
+                    if (a.intervals[i] == b.intervals[i]) ++sameIntervals;
+
+                const float countFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+                    (float) std::abs ((int) a.onsets.size() - (int) b.onsets.size()) / 5.0f);
+                const float onsetFit = (float) sameOnsets / (float) onsetPairs;
+                const float pitchFit = pitchPairs > 0 ? (float) samePitchShape / (float) pitchPairs : onsetFit;
+                const float intervalFit = intervalPairs > 0 ? (float) sameIntervals / (float) intervalPairs : pitchFit;
+                return juce::jlimit (0.0f, 1.0f,
+                    0.30f * onsetFit + 0.28f * pitchFit + 0.27f * intervalFit + 0.15f * countFit);
+            };
+
+            const auto firstFingerprint = barFingerprint (0);
+            float recurrenceSum = 0.0f;
+            int recurrenceCount = 0;
+            float localContrastSum = 0.0f;
+            int localContrastCount = 0;
+            int previousBarCount = -1;
+            std::vector<float> allBarCounts;
+            allBarCounts.reserve ((size_t) barsN);
+
+            for (int bar = 0; bar < barsN; ++bar)
+            {
+                const auto fp = barFingerprint (bar);
+                if (! firstFingerprint.onsets.empty() && bar > 0 && ! fp.onsets.empty())
+                {
+                    recurrenceSum += fingerprintSimilarity (firstFingerprint, fp);
+                    ++recurrenceCount;
+                }
+
+                int totalBarNotes = 0;
+                for (const auto& n : sec.notes)
+                    if (n.step / 16 == bar)
+                        ++totalBarNotes;
+                allBarCounts.push_back ((float) totalBarNotes);
+
+                if (previousBarCount >= 0)
+                {
+                    const float delta = std::abs ((float) totalBarNotes - (float) previousBarCount)
+                                      / (float) juce::jmax (3, juce::jmax (totalBarNotes, previousBarCount));
+                    localContrastSum += juce::jlimit (0.0f, 1.0f, delta);
+                    ++localContrastCount;
+                }
+                previousBarCount = totalBarNotes;
+            }
+
+            const float motifRecurrence = recurrenceCount > 0
+                ? recurrenceSum / (float) recurrenceCount : 0.55f;
+
+            // Reward some internal movement, but reject bar-to-bar chaos. The
+            // target sits around a light human phrase contrast.
+            const float rawContrast = localContrastCount > 0
+                ? localContrastSum / (float) localContrastCount : 0.0f;
+            const float contrastFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (rawContrast - 0.28f) / 0.42f);
+
+            float densityMean = 0.0f;
+            for (const auto count : allBarCounts) densityMean += count;
+            densityMean /= (float) juce::jmax<size_t> (1, allBarCounts.size());
+            float densityVariance = 0.0f;
+            for (const auto count : allBarCounts)
+            {
+                const float d = count - densityMean;
+                densityVariance += d * d;
+            }
+            densityVariance /= (float) juce::jmax<size_t> (1, allBarCounts.size());
+            const float densityCv = std::sqrt (densityVariance) / juce::jmax (1.0f, densityMean);
+            const float densityFlow = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (densityCv - 0.30f) / 0.55f);
+
+            // Melody/bass independence: perfect alignment everywhere is rigid,
+            // while no shared accents at all makes the layers feel disconnected.
+            int melodyOnsets = 0;
+            int supportedOnsets = 0;
+            std::vector<int> bassStarts;
+            for (const auto& n : sec.notes)
+                if (n.channel == 2) bassStarts.push_back (n.step);
+            std::sort (bassStarts.begin(), bassStarts.end());
+            for (auto* n : m)
+            {
+                ++melodyOnsets;
+                bool nearbyBass = false;
+                for (const auto step : bassStarts)
+                {
+                    if (std::abs (step - n->step) <= 1) { nearbyBass = true; break; }
+                    if (step > n->step + 1) break;
+                }
+                if (nearbyBass) ++supportedOnsets;
+            }
+            const float sharedAccentRatio = melodyOnsets > 0
+                ? (float) supportedOnsets / (float) melodyOnsets : 0.0f;
+            const float layerInterplay = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (sharedAccentRatio - 0.56f) / 0.46f);
+
+            // Closure shape: let the final bar hand the loop back to bar one.
+            float closure = 0.55f;
+            if (barsN >= 2)
+            {
+                int finalBarCount = 0;
+                int penultimateBarCount = 0;
+                for (const auto& n : sec.notes)
+                {
+                    if (n.step / 16 == barsN - 1) ++finalBarCount;
+                    else if (n.step / 16 == barsN - 2) ++penultimateBarCount;
+                }
+                const float densityRatio = penultimateBarCount > 0
+                    ? (float) finalBarCount / (float) penultimateBarCount : 1.0f;
+                const float densityClosure = 1.0f
+                    - juce::jlimit (0.0f, 1.0f, std::abs (densityRatio - 0.88f) / 0.90f);
+                const float tailLengthFit = juce::jlimit (0.0f, 1.0f,
+                    (float) juce::jmax (0, m.back()->length - 1) / 3.0f);
+                closure = 0.62f * densityClosure + 0.38f * tailLengthFit;
+            }
+
+            const float seamScore = 0.55f * f.seam + 0.45f * seamGapFit;
+            const float repetitionBalance = 0.58f * motifRecurrence + 0.42f * contrastFit;
+            f.loopQuality = juce::jlimit (0.0f, 1.0f,
+                0.24f * seamScore
+                + 0.22f * repetitionBalance
+                + 0.18f * densityFlow
+                + 0.14f * layerInterplay
+                + 0.12f * closure
+                + 0.10f * f.phraseArc);
+        }
+
         // Taste Learning 2.0 features.
         if (!m.empty())
         {
@@ -2673,6 +2863,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
+        // Loop Quality 2.0: judge the circular behavior of the whole loop while
+        // keeping the existing MAGIC DNA/archetype system in control.
+        quality += 0.22f*f.loopQuality;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
         // Hybrid DNA 1.0: combine Genre + Mood + Era + Melody Type into one
