@@ -3729,7 +3729,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 for (size_t i = 0; i < (size_t) taste::kDim; ++i)
                     z[i] = juce::jlimit(-3.0f, 3.0f, (tasteFeatures[c][i] - tasteMean[i]) / tasteStd[i]);
                 const float p = tasteModel.predict(z, soundTarget, genre);
+                const float recent = tasteModel.recentPreference (z);
                 candidates[c].quality += gain * (2.0f * p - 1.0f);
+                // Taste ML 2.0: short-term preference memory is deliberately
+                // lighter than the long-term classifier, so recent feedback can
+                // steer the next generation without hijacking it.
+                candidates[c].quality += 0.08f * conf * recent;
             }
         }
     }
