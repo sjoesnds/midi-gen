@@ -11,15 +11,20 @@ private juce::Timer
 {
 public:
 explicit MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor&);
-~MidiForgeAudioProcessorEditor() override { stopTimer(); }
+~MidiForgeAudioProcessorEditor() override { regenerationPending = false; stopTimer(); }
 void paint(juce::Graphics&) override;
 void resized() override;
 private:
 void timerCallback() override;
 void refreshTaste();
+void scheduleRegeneration (bool preserveSelection);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
-juce::Label title, sectionLabel, variationInfoLabel;
+juce::Label title, sectionLabel, variationInfoLabel, versionLabel;
+uint64_t regenerationDueMs = 0;
+uint32_t scheduledGenerationNonce = 0;
+bool regenerationPending = false;
+bool preserveSelectionOnRegenerate = false;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
@@ -36,9 +41,7 @@ juce::Label title, sectionLabel, variationInfoLabel;
  juce::TextButton resetTasteBtn;
  juce::ToggleButton autoNextBtn;
  juce::ToggleButton tasteToggleBtn;
- // --- Экспорт MIDI ---
- juce::TextButton exportButton { "Export MIDI..." };
- // --- P2: edit history -------------------------------------------------
+  // --- P2: edit history -------------------------------------------------
  juce::TextButton undoBtn { "UNDO" }, redoBtn { "REDO" }, clearBtn { "CLEAR" };
  juce::Label historyLabel;
  std::unique_ptr<juce::FileChooser> fileChooser;
