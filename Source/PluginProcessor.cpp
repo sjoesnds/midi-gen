@@ -3135,6 +3135,12 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     replaceVisibleNotes (notes);
 }
 
+void MidiForgeAudioProcessor::evolveSelected()
+{
+    // Evolve keeps the same phrase-aware Mutation 2.0 engine, but with a lighter touch.
+    mutateSelected (0.22f);
+}
+
 void MidiForgeAudioProcessor::regenerate()
 {
 buildVariationBank();
