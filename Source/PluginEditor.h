@@ -255,7 +255,7 @@ bool preserveSelectionOnRegenerate = false;
                  if (isSelectedIndex (hit) && selectedIndices.size() > 1)
                  {
                      auto notes = processor.getVisibleNotes();
-                     std::vector<juce::MidiForgeAudioProcessor::VisibleNote> keep;
+                     std::vector<MidiForgeAudioProcessor::VisibleNote> keep;
                      keep.reserve (notes.size());
                      for (int i = 0; i < (int) notes.size(); ++i)
                          if (! isSelectedIndex (i)) keep.push_back (notes[(size_t) i]);
@@ -444,7 +444,7 @@ bool preserveSelectionOnRegenerate = false;
              {
                  auto notes = processor.getVisibleNotes();
                  beginEditHistory();
-                 std::vector<juce::MidiForgeAudioProcessor::VisibleNote> keep;
+                 std::vector<MidiForgeAudioProcessor::VisibleNote> keep;
                  keep.reserve (notes.size());
                  for (int i = 0; i < (int) notes.size(); ++i)
                      if (! isSelectedIndex (i)) keep.push_back (notes[(size_t) i]);
@@ -633,11 +633,6 @@ bool preserveSelectionOnRegenerate = false;
          selectedNote = -1;
 
          int baseStep = viewStartStep;
-         if (! notes.empty() && ! selectedIndices.empty())
-             baseStep = notes[(size_t) selectedIndices.front()].step;
-
-         if (! notes.empty() && ! selectedIndices.empty())
-             baseStep = notes[(size_t) selectedIndices.front()].step;
 
          if (notes.empty())
          {
@@ -736,7 +731,7 @@ bool preserveSelectionOnRegenerate = false;
              if (index >= 0 && index < (int) notes.size())
              {
                  auto& n = notes[(size_t) index];
-                 const int stepJitter = random.nextInt ({ -1, 2 });
+                 const int stepJitter = random.nextInt (3) - 1;
                  n.step = juce::jlimit (0, totalSteps - 1, n.step + stepJitter);
                  n.velocity = juce::jlimit (1, 127, n.velocity + random.nextInt (-8, 9));
                  n.length = juce::jmax (1, n.length + random.nextInt (-1, 2));
