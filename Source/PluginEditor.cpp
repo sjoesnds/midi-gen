@@ -67,6 +67,10 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
+versionLabel.setText("v0.46.0", juce::dontSendNotification);
+versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
+versionLabel.setFont(juce::Font(11.0f));
+addAndMakeVisible(versionLabel);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (31.0f, juce::Font::bold));
 sectionLabel.setText("COMPOSITION ENGINE",juce::dontSendNotification);
@@ -123,21 +127,21 @@ setupSlider(ghostChance,0,.5,.01,p.getGhostChance(),this);
 setupSlider(swing,0,.75,.01,p.getSwing(),this);
 setupSlider(humanize,0,1,.01,p.getHumanize(),this);
 setupSlider(complexity,0,1,.01,p.getComplexity(),this);
-chordDensity.onValueChange=[this]{processor.setChordDensity((float)chordDensity.getValue());};
-bassDensity.onValueChange=[this]{processor.setBassDensity((float)bassDensity.getValue());};
-melodyDensity.onValueChange=[this]{processor.setMelodyDensity((float)melodyDensity.getValue());};
-arpDensity.onValueChange=[this]{processor.setArpDensity((float)arpDensity.getValue());};
-motifStrength.onValueChange=[this]{processor.setMotifStrength((float)motifStrength.getValue());};
-variationAmount.onValueChange=[this]{processor.setVariationAmount((float)variationAmount.getValue());};
-fillAmount.onValueChange=[this]{processor.setFillAmount((float)fillAmount.getValue());};
-energy.onValueChange=[this]{processor.setEnergy((float)energy.getValue());};
-melodyLength.onValueChange=[this]{processor.setMelodyLength((float)melodyLength.getValue());};
-pauseChance.onValueChange=[this]{processor.setPauseChance((float)pauseChance.getValue());};
-leapChance.onValueChange=[this]{processor.setLeapChance((float)leapChance.getValue());};
-ghostChance.onValueChange=[this]{processor.setGhostChance((float)ghostChance.getValue());};
+chordDensity.onValueChange=[this]{processor.setChordDensity((float)chordDensity.getValue(), false); scheduleRegeneration(false);};
+bassDensity.onValueChange=[this]{processor.setBassDensity((float)bassDensity.getValue(), false); scheduleRegeneration(false);};
+melodyDensity.onValueChange=[this]{processor.setMelodyDensity((float)melodyDensity.getValue(), false); scheduleRegeneration(false);};
+arpDensity.onValueChange=[this]{processor.setArpDensity((float)arpDensity.getValue(), false); scheduleRegeneration(false);};
+motifStrength.onValueChange=[this]{processor.setMotifStrength((float)motifStrength.getValue(), false); scheduleRegeneration(false);};
+variationAmount.onValueChange=[this]{processor.setVariationAmount((float)variationAmount.getValue(), false); scheduleRegeneration(true);};
+fillAmount.onValueChange=[this]{processor.setFillAmount((float)fillAmount.getValue(), false); scheduleRegeneration(false);};
+energy.onValueChange=[this]{processor.setEnergy((float)energy.getValue(), false); scheduleRegeneration(false);};
+melodyLength.onValueChange=[this]{processor.setMelodyLength((float)melodyLength.getValue(), false); scheduleRegeneration(false);};
+pauseChance.onValueChange=[this]{processor.setPauseChance((float)pauseChance.getValue(), false); scheduleRegeneration(false);};
+leapChance.onValueChange=[this]{processor.setLeapChance((float)leapChance.getValue(), false); scheduleRegeneration(false);};
+ghostChance.onValueChange=[this]{processor.setGhostChance((float)ghostChance.getValue(), false); scheduleRegeneration(false);};
 swing.onValueChange=[this]{processor.setSwing((float)swing.getValue());};
 humanize.onValueChange=[this]{processor.setHumanize((float)humanize.getValue());};
-complexity.onValueChange=[this]{processor.setComplexity((float)complexity.getValue());};
+complexity.onValueChange=[this]{processor.setComplexity((float)complexity.getValue(), false); scheduleRegeneration(false);};
 chords.setButtonText("CHORDS");bass.setButtonText("BASS");melody.setButtonText("MELODY");arp.setButtonText("ARP");drums.setButtonText("DRUMS");
 extensions.setButtonText("7/9 EXT");inversions.setButtonText("INV");hookModeButton.setButtonText("HOOK");
 soundCloudButton.setButtonText("SOUNDCLOUD");
@@ -251,22 +255,6 @@ tasteToggleBtn.setButtonText("TASTE ML");
 tasteToggleBtn.setToggleState(processor.getTasteEnabled(), juce::dontSendNotification);
 tasteToggleBtn.onClick=[this]{ processor.setTasteEnabled(tasteToggleBtn.getToggleState()); };
 addAndMakeVisible(tasteToggleBtn);
-// --- Экспорт MIDI ---
-exportButton.onClick = [this]
-{
-fileChooser = std::make_unique<juce::FileChooser> ("Save MIDI file", juce::File(), "*.mid");
-auto safeThis = juce::Component::SafePointer<MidiForgeAudioProcessorEditor>(this);
-fileChooser->launchAsync (
-juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-[safeThis] (const juce::FileChooser& fc)
-{
-if (safeThis == nullptr) return;
-auto file = fc.getResult();
-if (file != juce::File())
-safeThis->processor.exportMidiFileTo (file.withFileExtension ("mid"));
-});
-};
-addAndMakeVisible (exportButton);
 addAndMakeVisible (dragHandle);
 addAndMakeVisible (pianoRoll);
 addChildComponent (drumGrid);
@@ -288,6 +276,13 @@ addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
 startTimerHz (10);
+}
+void MidiForgeAudioProcessorEditor::scheduleRegeneration (bool preserveSelection)
+{
+    regenerationPending = true;
+    preserveSelectionOnRegenerate = preserveSelectionOnRegenerate || preserveSelection;
+    scheduledGenerationNonce = processor.getGenerationNonce();
+    regenerationDueMs = juce::Time::getMillisecondCounter64() + 250;
 }
 void MidiForgeAudioProcessorEditor::refreshTaste()
 {
@@ -326,6 +321,7 @@ const int contentW = W - 40;
 
 // Header
 title.setBounds(left,14,360,32);
+versionLabel.setBounds(660,20,70,22);
 sectionLabel.setBounds(23,48,500,18);
 
 // Source / harmony
@@ -401,7 +397,6 @@ dislikeBtn.setBounds(730,687,82,32);
 mutateButton.setBounds(818,687,76,32);
 evolveButton.setBounds(900,687,76,32);
 
-exportButton.setBounds(20,733,122,28);
 undoBtn.setBounds(150,733,66,28);
 redoBtn.setBounds(224,733,66,28);
 clearBtn.setBounds(298,733,66,28);
@@ -424,6 +419,26 @@ tasteToggleBtn.setBounds(884,733,92,24);
 }
 void MidiForgeAudioProcessorEditor::timerCallback()
 {
+    if (regenerationPending)
+    {
+        if (processor.getGenerationNonce() != scheduledGenerationNonce)
+        {
+            regenerationPending = false;
+            preserveSelectionOnRegenerate = false;
+        }
+        else if (juce::Time::getMillisecondCounter64() >= regenerationDueMs)
+        {
+            const bool preserve = preserveSelectionOnRegenerate;
+            regenerationPending = false;
+            preserveSelectionOnRegenerate = false;
+            if (preserve)
+                processor.regenerateVariations();
+            else
+                processor.regenerate();
+            pianoRoll.resetEditHistory();
+        }
+    }
+
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
 variationBox.setSelectedId (id, juce::dontSendNotification);
