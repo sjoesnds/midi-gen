@@ -2439,6 +2439,215 @@ void MidiForgeAudioProcessor::buildVariationBank()
         return f;
     };
 
+    // 0.53 Motif Memory 2.0: remember more than a single interval pattern.
+    // A loop can carry a main motif, a secondary answer, a rhythmic fingerprint
+    // and a bass fingerprint. Matching is transposition-safe and tolerates small
+    // human changes, so a motif can evolve without becoming a literal copy.
+    auto motifMemoryScore = [&](const Section& sec)
+    {
+        struct MotifCell
+        {
+            std::vector<int> onsets;
+            std::vector<int> intervals;
+            std::vector<int> relativePitches;
+            int sourceBar = -1;
+        };
+
+        const int barsN = juce::jmax (1, sec.bars);
+        std::vector<std::vector<const NoteEvent*>> barsMelody ((size_t) barsN);
+        std::vector<std::vector<const NoteEvent*>> barsBass ((size_t) barsN);
+        for (const auto& n : sec.notes)
+        {
+            const int b = juce::jlimit (0, barsN - 1, n.step / 16);
+            if (n.channel == 3) barsMelody[(size_t) b].push_back (&n);
+            else if (n.channel == 2) barsBass[(size_t) b].push_back (&n);
+        }
+        for (auto& v : barsMelody)
+            std::stable_sort (v.begin(), v.end(), [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+        for (auto& v : barsBass)
+            std::stable_sort (v.begin(), v.end(), [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+
+        auto makeCell = [&](int bar) -> MotifCell
+        {
+            MotifCell out;
+            out.sourceBar = bar;
+            const auto& notes = barsMelody[(size_t) bar];
+            const size_t limit = juce::jmin<size_t> (7, notes.size());
+            if (limit == 0) return out;
+            const int anchorPitch = notes.front()->note;
+            for (size_t i = 0; i < limit; ++i)
+            {
+                out.onsets.push_back (notes[i]->step % 16);
+                out.relativePitches.push_back (juce::jlimit (-24, 24, notes[i]->note - anchorPitch));
+                if (i > 0)
+                    out.intervals.push_back (juce::jlimit (-12, 12, notes[i]->note - notes[i - 1]->note));
+            }
+            return out;
+        };
+
+        auto cellSimilarity = [&](const MotifCell& a, const MotifCell& b)
+        {
+            if (a.onsets.empty() || b.onsets.empty()) return 0.0f;
+            const size_t n = juce::jmin (a.onsets.size(), b.onsets.size());
+            int onsetHits = 0;
+            int pitchHits = 0;
+            for (size_t i = 0; i < n; ++i)
+            {
+                if (std::abs (a.onsets[i] - b.onsets[i]) <= 1) ++onsetHits;
+                if (std::abs (a.relativePitches[i] - b.relativePitches[i]) <= 2) ++pitchHits;
+            }
+            const size_t ni = juce::jmin (a.intervals.size(), b.intervals.size());
+            int intervalHits = 0;
+            for (size_t i = 0; i < ni; ++i)
+                if (a.intervals[i] == b.intervals[i]) ++intervalHits;
+
+            const float lengthFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+                (float) std::abs ((int) a.onsets.size() - (int) b.onsets.size()) / 4.0f);
+            const float onsetFit = (float) onsetHits / (float) n;
+            const float pitchFit = (float) pitchHits / (float) n;
+            const float intervalFit = ni > 0 ? (float) intervalHits / (float) ni : pitchFit;
+
+            // Inverted contour is still a recognizable transformation, but gets
+            // less credit than preserving the original interval direction.
+            int inverseHits = 0;
+            for (size_t i = 0; i < ni; ++i)
+                if (a.intervals[i] == -b.intervals[i]) ++inverseHits;
+            const float inverseFit = ni > 0 ? (float) inverseHits / (float) ni : 0.0f;
+
+            return juce::jlimit (0.0f, 1.0f,
+                0.30f * onsetFit
+                + 0.30f * pitchFit
+                + 0.24f * intervalFit
+                + 0.08f * inverseFit
+                + 0.08f * lengthFit);
+        };
+
+        int firstBar = -1;
+        for (int b = 0; b < barsN; ++b)
+            if (barsMelody[(size_t) b].size() >= 2) { firstBar = b; break; }
+        if (firstBar < 0) return 0.45f;
+
+        const MotifCell mainMotif = makeCell (firstBar);
+        if (mainMotif.onsets.size() < 2) return 0.45f;
+
+        float mainSimilaritySum = 0.0f;
+        int comparableBars = 0;
+        int strongMainRepeats = 0;
+        std::vector<float> barSimilarity ((size_t) barsN, 0.0f);
+        for (int b = firstBar + 1; b < barsN; ++b)
+        {
+            const auto cell = makeCell (b);
+            if (cell.onsets.size() < 2) continue;
+            const float sim = cellSimilarity (mainMotif, cell);
+            barSimilarity[(size_t) b] = sim;
+            mainSimilaritySum += sim;
+            ++comparableBars;
+            if (sim >= 0.64f) ++strongMainRepeats;
+        }
+        const float mainRecurrence = comparableBars > 0
+            ? mainSimilaritySum / (float) comparableBars : 0.0f;
+
+        // Pick a secondary motif that is genuinely different from the main one,
+        // then reward it when it reappears later as an answer/counter-idea.
+        int secondaryBar = -1;
+        float secondaryDistinctness = 0.0f;
+        for (int b = firstBar + 1; b < barsN; ++b)
+        {
+            const auto cell = makeCell (b);
+            if (cell.onsets.size() < 2) continue;
+            const float distinctness = 1.0f - cellSimilarity (mainMotif, cell);
+            if (distinctness > secondaryDistinctness)
+            {
+                secondaryDistinctness = distinctness;
+                secondaryBar = b;
+            }
+        }
+
+        float secondaryRecurrence = 0.0f;
+        int secondaryComparisons = 0;
+        if (secondaryBar >= 0 && secondaryDistinctness >= 0.22f)
+        {
+            const auto secondaryMotif = makeCell (secondaryBar);
+            for (int b = secondaryBar + 1; b < barsN; ++b)
+            {
+                const auto cell = makeCell (b);
+                if (cell.onsets.size() < 2) continue;
+                secondaryRecurrence += cellSimilarity (secondaryMotif, cell);
+                ++secondaryComparisons;
+            }
+        }
+        if (secondaryComparisons > 0)
+            secondaryRecurrence /= (float) secondaryComparisons;
+
+        // Rhythmic fingerprint: compare the main motif's onset pattern with all
+        // layers. This is deliberately independent from pitch.
+        float rhythmFingerprint = 0.0f;
+        int rhythmComparisons = 0;
+        for (int b = firstBar + 1; b < barsN; ++b)
+        {
+            const auto& melody = barsMelody[(size_t) b];
+            if (melody.size() < 2) continue;
+            const size_t n = juce::jmin (mainMotif.onsets.size(), melody.size());
+            int hits = 0;
+            for (size_t i = 0; i < n; ++i)
+                if (std::abs (mainMotif.onsets[i] - (melody[i]->step % 16)) <= 1) ++hits;
+            rhythmFingerprint += (float) hits / (float) n;
+            ++rhythmComparisons;
+        }
+        if (rhythmComparisons > 0)
+            rhythmFingerprint /= (float) rhythmComparisons;
+
+        // Bass fingerprint: compare bar-to-bar bass movement rather than absolute
+        // notes so the same harmonic idea can shift register without losing identity.
+        std::vector<int> bassRoots;
+        for (int b = 0; b < barsN; ++b)
+            if (!barsBass[(size_t) b].empty())
+                bassRoots.push_back (barsBass[(size_t) b].front()->note);
+        float bassFingerprint = 0.5f;
+        if (bassRoots.size() >= 3)
+        {
+            std::vector<int> bassIntervals;
+            for (size_t i = 1; i < bassRoots.size(); ++i)
+                bassIntervals.push_back (juce::jlimit (-12, 12, bassRoots[i] - bassRoots[i - 1]));
+
+            int repeated = 0;
+            for (size_t i = 1; i < bassIntervals.size(); ++i)
+                if (bassIntervals[i] == bassIntervals[i - 1]) ++repeated;
+            bassFingerprint = 0.35f
+                + 0.65f * juce::jlimit (0.0f, 1.0f,
+                    (float) repeated / (float) juce::jmax<size_t> (1, bassIntervals.size() - 1));
+        }
+
+        // Main motif should recur, but a good loop should not be a bar copier.
+        // Shape the reward around a healthy recurrence range.
+        const float recurrenceTarget = barsN <= 2 ? 0.72f : 0.58f;
+        const float recurrenceFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f, std::abs (mainRecurrence - recurrenceTarget) / 0.58f);
+        const float mainPresence = barsN <= 2
+            ? juce::jlimit (0.0f, 1.0f, mainRecurrence)
+            : juce::jlimit (0.0f, 1.0f, (float) strongMainRepeats / (float) juce::jmax (1, barsN / 2));
+        const float secondaryPresence = secondaryComparisons > 0
+            ? juce::jlimit (0.0f, 1.0f, secondaryRecurrence) : 0.45f;
+
+        // If every later bar is nearly identical to the first, memory becomes
+        // mechanical repetition rather than compositional identity.
+        int literalBars = 0;
+        for (int b = firstBar + 1; b < barsN; ++b)
+            if (barSimilarity[(size_t) b] >= 0.92f) ++literalBars;
+        const float literalPenalty = barsN > 2
+            ? juce::jlimit (0.0f, 1.0f, (float) literalBars / (float) juce::jmax (1, barsN - 1))
+            : 0.0f;
+
+        return juce::jlimit (0.0f, 1.0f,
+            0.28f * mainPresence
+            + 0.20f * recurrenceFit
+            + 0.16f * rhythmFingerprint
+            + 0.14f * secondaryPresence
+            + 0.12f * bassFingerprint
+            + 0.10f * recurrenceTarget
+            - 0.18f * literalPenalty);
+    };
+
     auto similarity = [&](const Section& a, const Section& b)
     {
         std::vector<int> ap, bp, ar, br;
@@ -2841,6 +3050,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         Section flat=flatten(song,c,local);
         applyMagicArchetype (flat, archetype, identity);
         const auto f=melodyFeatures(flat,identity);
+        const float motifMemory = motifMemoryScore(flat);
         float quality=0.0f;
         // Magic DNA 2.0: candidate features are judged against the same
         // musical universe created by MAGIC. The generic judge remains
@@ -2866,6 +3076,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // Loop Quality 2.0: judge the circular behavior of the whole loop while
         // keeping the existing MAGIC DNA/archetype system in control.
         quality += 0.22f*f.loopQuality;
+        // Motif Memory 2.0 becomes a shared signal for every archetype. The
+        // dedicated MOTIF archetype gets a stronger weight above, while the
+        // rest still benefit from recognizable identity without being forced
+        // into literal repetition.
+        quality += 0.18f * motifMemory;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
         // Hybrid DNA 1.0: combine Genre + Mood + Era + Melody Type into one
@@ -3153,7 +3368,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 archetypeFit = 0.38f * f.phraseMemory + 0.28f * f.hook + 0.20f * f.seam + 0.14f * f.registerScore;
                 break;
             case 3: // MOTIF
-                archetypeFit = 0.34f * f.motifIdentity + 0.28f * f.phraseMemory + 0.22f * f.repetition + 0.16f * f.contour;
+                archetypeFit = 0.38f * motifMemory + 0.24f * f.motifIdentity + 0.20f * f.phraseMemory + 0.18f * f.repetition;
                 break;
             case 4: // MINIMAL
                 archetypeFit = 0.55f * f.space + 0.25f * (1.0f - f.density) + 0.20f * f.repetition;
