@@ -63,15 +63,15 @@ void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
 void setSoundTarget(int);
 // Musical controls
-void setChordDensity(float); void setBassDensity(float);
-void setMelodyDensity(float); void setArpDensity(float);
-void setSwing(float); void setHumanize(float); void setComplexity(float);
-void setMelodyLength(float); void setPauseChance(float);
-void setLeapChance(float); void setGhostChance(float);
+void setChordDensity(float, bool regenerateNow = true); void setBassDensity(float, bool regenerateNow = true);
+void setMelodyDensity(float, bool regenerateNow = true); void setArpDensity(float, bool regenerateNow = true);
+void setSwing(float); void setHumanize(float); void setComplexity(float, bool regenerateNow = true);
+void setMelodyLength(float, bool regenerateNow = true); void setPauseChance(float, bool regenerateNow = true);
+void setLeapChance(float, bool regenerateNow = true); void setGhostChance(float, bool regenerateNow = true);
 void setArpRate(int); void setVoicingWidth(float);
 void setChordExtensions(bool); void setInversions(bool);
-void setMotifStrength(float); void setVariationAmount(float);
-void setFillAmount(float); void setEnergy(float);
+void setMotifStrength(float, bool regenerateNow = true); void setVariationAmount(float, bool regenerateNow = true);
+void setFillAmount(float, bool regenerateNow = true); void setEnergy(float, bool regenerateNow = true);
 void setChordsEnabled(bool); void setBassEnabled(bool);
 void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
 void setLeadStyleSoundCloud(bool v) { leadStyleSoundCloud = v; }
@@ -146,6 +146,7 @@ bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { return static_cast<int>(variations.size()); }
 int getSelectedVariation() const { return selectedVariation; }
+uint32_t getGenerationNonce() const { return generationNonce; }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
 void likeVariation(int varIndex);
 void dislikeVariation(int varIndex);
@@ -159,6 +160,7 @@ float getTasteConfidence() const { return tasteModel.confidence(); }
 juce::String getTasteSummary() const;
 bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
+void setLeadStyleSoundCloud (bool v);
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
