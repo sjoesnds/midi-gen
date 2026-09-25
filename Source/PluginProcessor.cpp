@@ -618,18 +618,20 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     }
     const int n=(int)stack.size();
 
-    // Centre of the previous chord (voice leading reference).
-    float prevCentre=-1.0f;
+    // 0.48 Harmony 2.0: use the previous chord's individual voices, not only
+    // its average pitch. This lets each voice move to the nearest practical note
+    // while still respecting the register lane and voicing width.
+    std::vector<int> prevVoices;
     if(barOffset>0)
     {
-        // first chord hit of the previous bar (comping patterns do not always start on step 0)
         int firstStep=1000000;
         for(const auto& ev : s.notes)
-            if(ev.channel==1 && ev.step>=(barOffset-1)*16 && ev.step<barOffset*16) firstStep=std::min(firstStep,ev.step);
-        float sum=0.0f; int cnt=0;
+            if(ev.channel==1 && ev.step>=(barOffset-1)*16 && ev.step<barOffset*16)
+                firstStep=std::min(firstStep,ev.step);
         for(const auto& ev : s.notes)
-            if(ev.channel==1 && ev.step==firstStep) { sum+=(float)ev.note; ++cnt; }
-        if(cnt>0) prevCentre=sum/(float)cnt;
+            if(ev.channel==1 && ev.step==firstStep)
+                prevVoices.push_back(ev.note);
+        std::sort(prevVoices.begin(),prevVoices.end());
     }
     const float laneCentre=0.5f*(float)(lo+hi);
 
@@ -645,7 +647,28 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
             float mean=0.0f; for(int p : v) mean+=(float)p; mean/=(float)n;
             const int span=v.back()-v.front();
             float cost=0.35f*std::abs(mean-laneCentre);
-            cost += (prevCentre>=0.0f) ? std::abs(mean-prevCentre) : 0.6f*std::abs(mean-laneCentre);
+            if(prevVoices.empty())
+                cost += 0.6f*std::abs(mean-laneCentre);
+            else
+            {
+                // Per-voice movement dominates the decision. A common pitch class
+                // is slightly rewarded because real players naturally retain voices.
+                float motion=0.0f;
+                for(int p : v)
+                {
+                    int nearest=999;
+                    bool commonTone=false;
+                    for(int q : prevVoices)
+                    {
+                        nearest=std::min(nearest,std::abs(p-q));
+                        if((((p%12)+12)%12)==(((q%12)+12)%12))
+                            commonTone=true;
+                    }
+                    motion += (float) nearest;
+                    if(commonTone) motion -= 0.75f;
+                }
+                cost += 0.58f * motion / (float)n;
+            }
             for(int p : v){ if(p<lo) cost+=2.0f*(float)(lo-p); if(p>hi) cost+=2.0f*(float)(p-hi); }
             cost += 0.8f*(float)juce::jmax(0,span-14);
             cost += 0.3f*(float)inv;
@@ -755,8 +778,23 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
         const bool anchor=(x==0);
         if(!anchor && (!rhythmHit(x)||r.nextFloat()>hitChance))continue;
         int note=root;
-        if(!anchor && complexity>0.5f&&r.nextFloat()<0.22f)note+=r.nextBool()?7:-5;
-        note=foldIntoLane(note,lo,hi);
+        if(!anchor && complexity>0.5f&&r.nextFloat()<0.22f)
+            note += r.nextBool() ? 7 : -5;
+
+        // 0.48 Harmonic anticipation: the final offbeat can briefly point to
+        // the next chord. Keep the motion inside the active scale.
+        if(!anchor && x>=11 && x<=14 && complexity>0.38f && r.nextFloat()<0.24f)
+        {
+            const auto prog=progressionDegrees();
+            if(!prog.empty())
+            {
+                const int nextDegree=prog[(size_t)((barOffset+1)%(int)prog.size())];
+                const int nextRoot=foldIntoLane(degreeToPitch(nextDegree,2),lo,hi);
+                if(std::abs(nextRoot-root)>0)
+                    note=nextRoot;
+            }
+        }
+        note=foldIntoLane(snapToScale(note),lo,hi);
         bool ghost=r.nextFloat()<ghostChance*.5f&&x!=0;
         int len=(genre==House||genre==Techno||genre==DnB)?3:
                 ((genre==RnB||genre==Lofi)?6:(x==0?7:3));
@@ -1242,6 +1280,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Harmonic context is used as gravity, not as a command to resolve every bar.
     const auto prog = progressionDegrees();
     const int degree = prog[(size_t)(barOffset % (int)prog.size())];
+    const int nextDegree = prog[(size_t)((barOffset + 1) % (int)prog.size())];
     const auto scaleNotes = scaleSemitones();
     const int scaleCount = (int) scaleNotes.size();
 
@@ -1543,6 +1582,19 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
             note = foldIntoLane(note, melLo, melHi);
             note = juce::jlimit(melLo, melHi, snapToScale(note));
+        }
+
+        // 0.48 Harmonic anticipation: on the end of a four-bar cell, a late
+        // note may lean toward the next chord instead of resolving only backward.
+        // This creates audible forward motion while preserving the active scale.
+        if (cycle == 3 && x >= 12 && x != 15 && complexity > 0.34f
+            && (float)(hash32(identitySeed ^ (uint32_t)(x * 173 + 401)) % 1000u) / 1000.0f < 0.42f)
+        {
+            const int nextRoot = pitchForDegree(nextDegree, octave);
+            const int nextThird = pitchForDegree(nextDegree + 2, octave);
+            const int target = (std::abs(nextRoot - note) <= std::abs(nextThird - note)) ? nextRoot : nextThird;
+            const int blended = juce::roundToInt(0.42f * (float) note + 0.58f * (float) target);
+            note = juce::jlimit(melLo, melHi, snapToScale(blended));
         }
 
         // Final safety net (post-processing above can still create a wide interval):

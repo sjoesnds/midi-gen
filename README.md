@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.47.0**
+**Current version: 0.48.0**
 
 ## What it does
 
@@ -25,6 +25,12 @@ The generator:
 4. selects a diverse variation bank instead of returning the first few candidates.
 
 The current search uses a large candidate pool and deterministic seeds so generation remains reproducible.
+
+### Harmony 2.0 — 0.48
+- Chord voice leading now compares individual voices between adjacent bars instead of only comparing chord centres.
+- Common-tone retention is rewarded and unnecessary large voice jumps are penalized.
+- Bass pitch mutations are snapped back into the active scale.
+- Bass and late phrase notes can make controlled anticipation toward the next chord for stronger harmonic forward motion.
 
 ### Human Phrase Engine — 0.47
 A four-bar idea is treated as a phrase with compositional roles:
