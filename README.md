@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.53.0**
+**Current version: 0.54.0**
 
 ## What it does
 
@@ -37,6 +37,14 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - **EMOTIONAL** shapes register and dynamics into a rise, peak and release.
 - **WILDCARD** deliberately mixes lighter mutations to escape the main archetypes.
 - The final variation bank contains one winner from each archetype, then applies the existing diversity, Taste ML and Smart Lock systems.
+
+### Groove Engine — 0.54
+- Builds one deterministic pocket profile per candidate and shares it across melody, bass, chords, arp and drums.
+- Uses different layer strengths so the parts feel related without moving as a rigid block.
+- Adds shared accent hierarchy on downbeats and selected offbeats instead of independent random velocities.
+- Shapes sustain and note length around accents so phrasing changes with the groove rather than only timing.
+- Re-evaluates the complete loop with a groove score covering accent contrast, offbeat pocket, layer interaction, occupancy and sustain.
+- Keeps the system inside the loop: no song sections, arrangement layer or extra UI controls are introduced.
 
 ### Motif Memory 2.0 — 0.53
 - Recognizes a loop's main motif from rhythm and relative pitch shape instead of absolute notes.
