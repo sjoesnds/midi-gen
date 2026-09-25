@@ -1,5 +1,5 @@
 #pragma once
-// MIDI Forge 0.40 - Taste ML
+// MIDI Forge 0.57 - Taste ML 2.0
 //
 // A small, local, online logistic-regression model that learns which loops the
 // user likes.  No network, no external library.
@@ -184,32 +184,93 @@ namespace taste
             return 1.0f / (1.0f + std::exp (-std::min (20.0f, std::max (-20.0f, logit (z, sound, genre)))));
         }
 
-        // y = 1 like, 0 dislike; weight 1 explicit, 0.5 implicit.
+        // y = 1 like, 0 dislike. Taste ML 2.0 balances classes so a long run of
+        // one-sided feedback cannot drown the less frequent signal.
         void update (const Vec& z, int sound, int genre, float y, float weight)
         {
             const int s = std::min (kSounds - 1, std::max (0, sound));
             const int g = std::min (kGenres - 1, std::max (0, genre));
-            const float err = (y - predict (z, sound, genre)) * weight;
+            const float safeWeight = std::max (0.05f, weight);
+            const float sameMass = y > 0.5f ? juce::jmax (0.5f, pos) : juce::jmax (0.5f, neg);
+            const float otherMass = y > 0.5f ? juce::jmax (0.5f, neg) : juce::jmax (0.5f, pos);
+            const float balanceScale = juce::jlimit (0.55f, 1.80f,
+                std::sqrt (otherMass / sameMass));
+            const float effectiveWeight = safeWeight * balanceScale;
+            const float err = (y - predict (z, sound, genre)) * effectiveWeight;
             const float lr = 0.14f / (1.0f + 0.03f * n);
+
             for (size_t i = 0; i < (size_t) kDim; ++i)
             {
-                w[i]      = clampW (w[i]      + lr        * (err * z[i] - 0.010f * w[i]));
-                ws[(size_t) s][i] = clampW (ws[(size_t) s][i] + 0.6f * lr * (err * z[i] - 0.060f * ws[(size_t) s][i]));
-                wg[(size_t) g][i] = clampW (wg[(size_t) g][i] + 0.6f * lr * (err * z[i] - 0.060f * wg[(size_t) g][i]));
+                w[i] = clampW (w[i] + lr * (err * z[i] - 0.010f * w[i]));
+                ws[(size_t) s][i] = clampW (ws[(size_t) s][i]
+                    + 0.6f * lr * (err * z[i] - 0.060f * ws[(size_t) s][i]));
+                wg[(size_t) g][i] = clampW (wg[(size_t) g][i]
+                    + 0.6f * lr * (err * z[i] - 0.060f * wg[(size_t) g][i]));
             }
+
             bias += lr * 0.5f * err;
-            n += weight;
-            (y > 0.5f ? pos : neg) += weight;
+            n += safeWeight;
+            (y > 0.5f ? pos : neg) += safeWeight;
+
+            // Short-term memory: a small exponential prototype follows the latest
+            // feedback while remaining bounded, so recent sessions can steer the
+            // search without erasing the long-term model.
+            const float alphaBase = safeWeight >= 1.0f ? 0.34f : 0.20f;
+            Vec& center = y > 0.5f ? recentLike : recentDislike;
+            float& mass = y > 0.5f ? recentLikeMass : recentDislikeMass;
+            const float alpha = mass <= 0.0f ? 1.0f : alphaBase;
+            for (int i = 0; i < kDim; ++i)
+                center[(size_t) i] = center[(size_t) i] * (1.0f - alpha) + z[(size_t) i] * alpha;
+            mass = juce::jmin (12.0f, mass + safeWeight);
         }
 
-        // 0..1: how much the search may trust the model.
+        // 0..1: how much the search may trust the model. Balanced positive and
+        // negative evidence is stronger than a one-sided history of equal size.
         float confidence() const
         {
             float c = std::min (1.0f, std::max (0.0f, (n - 1.5f) / 8.0f));
-            if (pos < 0.5f || neg < 0.5f) c *= 0.7f;      // one-sided data: weaker evidence
-            return c;
+            const float total = pos + neg;
+            if (total > 0.0f)
+            {
+                const float balance = 2.0f * juce::jmin (pos, neg) / total;
+                c *= 0.72f + 0.28f * balance;
+            }
+            if (recentLikeMass <= 0.0f || recentDislikeMass <= 0.0f)
+                c *= 0.86f;
+            return juce::jlimit (0.0f, 1.0f, c);
         }
         float samples() const { return n; }
+
+        // 0..1 confidence-adjusted short-term preference signal. Positive values
+        // mean the candidate is closer to recently liked loops; negative values
+        // mean it is closer to recently disliked loops. This is deliberately a
+        // soft reranking signal, not a replacement for the learned classifier.
+        float recentPreference (const Vec& z) const
+        {
+            const float likeMass = recentLikeMass;
+            const float dislikeMass = recentDislikeMass;
+            if (likeMass <= 0.0f && dislikeMass <= 0.0f) return 0.0f;
+
+            auto similarity = [] (const Vec& a, const Vec& b)
+            {
+                float d = 0.0f;
+                for (int i = 0; i < kDim; ++i)
+                {
+                    const float delta = a[(size_t) i] - b[(size_t) i];
+                    d += delta * delta;
+                }
+                return std::exp (-d / (float) kDim / 2.25f);
+            };
+
+            const float likeSim = likeMass > 0.0f ? similarity (z, recentLike) : 0.0f;
+            const float dislikeSim = dislikeMass > 0.0f ? similarity (z, recentDislike) : 0.0f;
+
+            if (likeMass > 0.0f && dislikeMass > 0.0f)
+                return clamp01 (0.5f + 0.5f * (likeSim - dislikeSim)) * 2.0f - 1.0f;
+            if (likeMass > 0.0f)
+                return 0.45f * likeSim;
+            return -0.45f * dislikeSim;
+        }
 
         // strongest learned preferences (global weights): positive = likes, negative = avoids
         void topPreferences (int& likeIdx, int& avoidIdx) const
@@ -225,7 +286,7 @@ namespace taste
         juce::var toVar() const
         {
             auto* o = new juce::DynamicObject();
-            o->setProperty ("v", 1);
+            o->setProperty ("v", 2);
             o->setProperty ("dim", kDim);
             o->setProperty ("b", (double) bias);
             o->setProperty ("n", (double) n);
@@ -236,6 +297,12 @@ namespace taste
             for (int s = 0; s < kSounds; ++s) for (int i = 0; i < kDim; ++i) jws.add ((double) ws[(size_t) s][(size_t) i]);
             for (int g = 0; g < kGenres; ++g) for (int i = 0; i < kDim; ++i) jwg.add ((double) wg[(size_t) g][(size_t) i]);
             o->setProperty ("w", jw); o->setProperty ("ws", jws); o->setProperty ("wg", jwg);
+            juce::Array<juce::var> jrl, jrd;
+            for (int i = 0; i < kDim; ++i) { jrl.add ((double) recentLike[(size_t) i]); jrd.add ((double) recentDislike[(size_t) i]); }
+            o->setProperty ("recentLike", jrl);
+            o->setProperty ("recentDislike", jrd);
+            o->setProperty ("recentLikeMass", (double) recentLikeMass);
+            o->setProperty ("recentDislikeMass", (double) recentDislikeMass);
             return juce::var (o);
         }
         bool fromVar (const juce::var& v)
@@ -258,6 +325,21 @@ namespace taste
             for (int i = 0; i < kDim; ++i) m.w[(size_t) i] = (float) (double) (*jw)[i];
             for (int s = 0; s < savedSounds; ++s) for (int i = 0; i < kDim; ++i) m.ws[(size_t) s][(size_t) i] = (float) (double) (*jws)[s * kDim + i];
             for (int g = 0; g < kGenres; ++g) for (int i = 0; i < kDim; ++i) m.wg[(size_t) g][(size_t) i] = (float) (double) (*jwg)[g * kDim + i];
+
+            // Taste ML 1.x files have no short-term memory; load them normally
+            // and start the 2.0 recent-memory layer empty.
+            auto* jrl = o->getProperty ("recentLike").getArray();
+            auto* jrd = o->getProperty ("recentDislike").getArray();
+            if (jrl != nullptr && jrd != nullptr && jrl->size() == kDim && jrd->size() == kDim)
+            {
+                for (int i = 0; i < kDim; ++i)
+                {
+                    m.recentLike[(size_t) i] = (float) (double) (*jrl)[i];
+                    m.recentDislike[(size_t) i] = (float) (double) (*jrd)[i];
+                }
+                m.recentLikeMass = juce::jlimit (0.0f, 12.0f, (float) (double) o->getProperty ("recentLikeMass"));
+                m.recentDislikeMass = juce::jlimit (0.0f, 12.0f, (float) (double) o->getProperty ("recentDislikeMass"));
+            }
             *this = m;
             return true;
         }
@@ -267,6 +349,10 @@ namespace taste
         Vec w {};
         std::array<Vec, kSounds> ws {};
         std::array<Vec, kGenres> wg {};
+        Vec recentLike {};
+        Vec recentDislike {};
+        float recentLikeMass = 0.0f;
+        float recentDislikeMass = 0.0f;
         float bias = 0.0f, n = 0.0f, pos = 0.0f, neg = 0.0f;
     };
 }
