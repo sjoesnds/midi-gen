@@ -199,6 +199,17 @@ struct Section {
 struct SongData {
     std::vector<Section> sections;
 };
+
+// 0.47 Human Phrase Engine: an explicit four-bar motif keeps the
+// generator's "human" identity stable across A / A' / B / A'' roles.
+// Timing remains grid-safe; contour, recurrence, contrast, and cadence
+// become first-class musical decisions.
+struct PhraseMotif
+{
+    std::vector<int> relativePitches;
+    std::vector<int> relativeSteps;
+    std::vector<int> lengths;
+};
 // 0.42 Articulation is decided from the melody line itself when a MIDI file is written,
 // so it never has to survive piano-roll edits.
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
@@ -301,6 +312,8 @@ void add808(Section&, int barOffset, float localEnergy, juce::Random&, int varia
 void addDrums(Section&, int barOffset, float localEnergy, juce::Random&, int variationSalt);
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
                const std::vector<NoteEvent>* inheritedMotif, int variationSalt = 0);
+PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
+void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void buildVariationBank();
 Section mergedSelectedSong() const;

@@ -1,5 +1,11 @@
 # MIDI Forge fixed project
 
+## 0.47 Human Phrase Engine
+- The melody generator now treats each four-bar idea as a phrase instead of four independent bars.
+- The first bar becomes a compact motif fingerprint; A' preserves its contour with controlled variation.
+- B contrasts/inverts the motif and peaks in the middle; A'' returns toward the motif and resolves the final note to a scale-safe chord tone.
+- The engine stays grid-safe and sits on top of the existing MAGIC search, Taste ML, Smart Locks, and sound profiles.
+
 ## 0.46 Performance / State
 - Slider-driven generation is debounced for 250 ms, so dragging a control no longer runs the full 1000-candidate search on every mouse tick.
 - The duplicate MIDI export entry was removed; the main EXPORT .MID action is now the single UI path.
