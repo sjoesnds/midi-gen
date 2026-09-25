@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.49.0**
+**Current version: 0.50.0**
 
 ## What it does
 
@@ -25,6 +25,15 @@ The generator:
 4. selects a diverse variation bank instead of returning the first few candidates.
 
 The current search uses a large candidate pool and deterministic seeds so generation remains reproducible.
+
+### Piano Roll 2.0 — 0.50
+- Multi-select notes with Ctrl-click, Shift ranges and Ctrl+A.
+- Group drag keeps relative timing and pitch relationships intact.
+- Group transpose by octaves, scale-safe pitch snapping and selected-note quantization.
+- Group humanize changes timing, velocity and sustain together instead of note-by-note drift.
+- Four-bar PHRASE selection makes A/A' /B/A'' blocks easy to edit as one unit.
+- Grid toolbar supports 1/16, 1/8, 1/4 and 1/2-step editing plus view reset.
+- Selection state and edit history remain visible while working.
 
 ### Mutation 2.0 — 0.49
 - MUTATE now chooses a musical mutation domain instead of independently randomizing notes.
