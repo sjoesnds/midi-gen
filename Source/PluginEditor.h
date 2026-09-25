@@ -625,14 +625,17 @@ bool preserveSelectionOnRegenerate = false;
      }
 
      bool hasSelection() const { return ! selectedIndices.empty(); }
+     int getSelectionCount() const { return (int) selectedIndices.size(); }
 
      void selectPhrase()
      {
          const auto notes = processor.getVisibleNotes();
+         int baseStep = viewStartStep;
+         if (selectedNote >= 0 && selectedNote < (int) notes.size())
+             baseStep = notes[(size_t) selectedNote].step;
+
          selectedIndices.clear();
          selectedNote = -1;
-
-         int baseStep = viewStartStep;
 
          if (notes.empty())
          {
