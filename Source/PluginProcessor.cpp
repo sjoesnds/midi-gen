@@ -3057,6 +3057,15 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
 
     if (!locked (1))
     {
+        // Chord notes can arrive interleaved with other layers after rhythm mutations.
+        // Sort only for grouping here; the final note order is normalized below.
+        std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
+        {
+            if (a.channel != b.channel) return a.channel < b.channel;
+            if (a.step != b.step) return a.step < b.step;
+            return a.note < b.note;
+        });
+
         // Chord mutations never change the progression itself: only one voice
         // per selected hit may move by an octave, preserving harmonic identity.
         for (size_t pos = 0; pos < notes.size(); )
