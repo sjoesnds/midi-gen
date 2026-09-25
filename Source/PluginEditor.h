@@ -737,8 +737,8 @@ bool preserveSelectionOnRegenerate = false;
                  auto& n = notes[(size_t) index];
                  const int stepJitter = random.nextInt (3) - 1;
                  n.step = juce::jlimit (0, totalSteps - 1, n.step + stepJitter);
-                 n.velocity = juce::jlimit (1, 127, n.velocity + random.nextInt (-8, 9));
-                 n.length = juce::jmax (1, n.length + random.nextInt (-1, 2));
+                 n.velocity = juce::jlimit (1, 127, n.velocity + random.nextInt (17) - 8);
+                 n.length = juce::jmax (1, n.length + random.nextInt (3) - 1);
              }
 
          processor.replaceVisibleNotes (notes);
