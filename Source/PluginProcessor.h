@@ -85,6 +85,7 @@ bool getLockBass() const   { return lockBassLayer; }
 bool getLockMelody() const { return lockMelodyLayer; }
 bool getLockArp() const    { return lockArpLayer; }
 int getRoot() const { return rootPc; }
+int snapPitchToScale (int midi) const { return snapToScale (midi); }
 int getGenre() const { return genre; }
 int getScale() const { return scale; }
 int getProgression() const { return progression; }
