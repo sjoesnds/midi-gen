@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.51.0**
+**Current version: 0.52.0**
 
 ## What it does
 
@@ -37,6 +37,15 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - **EMOTIONAL** shapes register and dynamics into a rise, peak and release.
 - **WILDCARD** deliberately mixes lighter mutations to escape the main archetypes.
 - The final variation bank contains one winner from each archetype, then applies the existing diversity, Taste ML and Smart Lock systems.
+
+### Loop Quality 2.0 — 0.52
+- Judges the whole loop as one circular musical object instead of scoring only isolated notes or bars.
+- Checks the loop seam for both pitch continuity and intentional breathing room at the wrap point.
+- Measures motif recurrence using transposition-safe rhythm and contour fingerprints.
+- Rewards controlled density movement between bars instead of flat repetition or chaotic changes.
+- Evaluates melody/bass accent interaction so layers support each other without becoming mechanically locked.
+- Adds a soft closure score for the final bar and final note so the loop hands naturally back to bar one.
+- Keeps the existing MAGIC 3 archetype, DNA, diversity, Taste ML and Smart Lock systems in control; Loop Quality is an additional judge layer rather than a separate generator.
 
 ### Piano Roll 2.0 — 0.50
 - Multi-select notes with Ctrl-click, Shift ranges and Ctrl+A.
