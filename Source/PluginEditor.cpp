@@ -282,7 +282,7 @@ void MidiForgeAudioProcessorEditor::scheduleRegeneration (bool preserveSelection
     regenerationPending = true;
     preserveSelectionOnRegenerate = preserveSelectionOnRegenerate || preserveSelection;
     scheduledGenerationNonce = processor.getGenerationNonce();
-    regenerationDueMs = juce::Time::getMillisecondCounter64() + 250;
+    regenerationDueMs = juce::Time::currentTimeMillis() + 250;
 }
 void MidiForgeAudioProcessorEditor::refreshTaste()
 {
@@ -426,7 +426,7 @@ void MidiForgeAudioProcessorEditor::timerCallback()
             regenerationPending = false;
             preserveSelectionOnRegenerate = false;
         }
-        else if (juce::Time::getMillisecondCounter64() >= regenerationDueMs)
+        else if (juce::Time::currentTimeMillis() >= regenerationDueMs)
         {
             const bool preserve = preserveSelectionOnRegenerate;
             regenerationPending = false;
