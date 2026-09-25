@@ -67,7 +67,7 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.50.0", juce::dontSendNotification);
+versionLabel.setText("v0.51.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
