@@ -2953,6 +2953,10 @@ o.writeInt(soundTarget);
 o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
 o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
 o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
+// 0.46: persist newer UI/learning state while remaining backward-compatible.
+o.writeBool(leadStyleSoundCloud);
+o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
+o.writeBool(tasteEnabled);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -2972,6 +2976,14 @@ if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
 if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
+// 0.46: older preset states simply stop before these optional bytes.
+if (i.getNumBytesRemaining() >= 1) leadStyleSoundCloud = i.readBool();
+if (i.getNumBytesRemaining() >= 4)
+{
+    lockChordsLayer = i.readBool(); lockBassLayer = i.readBool();
+    lockMelodyLayer = i.readBool(); lockArpLayer = i.readBool();
+}
+if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
 regenerate();
 chooseVariation (savedSelection);
 }
