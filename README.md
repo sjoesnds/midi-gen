@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.54.0**
+**Current version: 0.55.0**
 
 ## What it does
 
@@ -37,6 +37,15 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - **EMOTIONAL** shapes register and dynamics into a rise, peak and release.
 - **WILDCARD** deliberately mixes lighter mutations to escape the main archetypes.
 - The final variation bank contains one winner from each archetype, then applies the existing diversity, Taste ML and Smart Lock systems.
+
+### MAGIC 4 — Adaptive Search — 0.55
+- Keeps the existing 1000-candidate budget, but splits the search into two phases instead of treating every candidate as equally blind exploration.
+- The first 600 candidates explore the current musical space broadly.
+- The best 48 first-pass candidates are rank-weighted to build an adaptive profile of density, space, rhythm, motif, leap, register, surprise, loop quality, groove and motif memory.
+- The remaining 400 candidates are generated with their melody controls, phrasing, swing, register and variation amount nudged toward that discovered neighborhood.
+- Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing genre, DNA, archetype, Judge or diversity systems.
+- Local deterministic jitter keeps the adaptive phase exploratory instead of collapsing all candidates into clones.
+- The final eight-variation bank and one-winner-per-archetype behavior remain unchanged.
 
 ### Groove Engine — 0.54
 - Builds one deterministic pocket profile per candidate and shares it across melody, bass, chords, arp and drums.
