@@ -160,7 +160,6 @@ float getTasteConfidence() const { return tasteModel.confidence(); }
 juce::String getTasteSummary() const;
 bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
-void setLeadStyleSoundCloud (bool v);
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
