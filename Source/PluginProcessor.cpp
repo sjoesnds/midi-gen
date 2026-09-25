@@ -2032,6 +2032,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         Section section;
         float quality = 0.0f;
         uint32_t identity = 0;
+        int archetype = 0;
     };
 
     auto melodyFeatures = [&](const Section& sec, uint32_t identity)
@@ -2343,6 +2344,289 @@ void MidiForgeAudioProcessor::buildVariationBank()
         return flat;
     };
 
+    // MAGIC 3.0: multi-archetype search. Each candidate is born into a
+    // deliberate musical archetype instead of competing in one generic pool.
+    static constexpr const char* archetypeNames[8] =
+    {
+        "HOOK", "GROOVE", "HARMONY", "MOTIF",
+        "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD"
+    };
+
+    const auto magicProgression = progressionDegrees();
+    auto rootAtBar = [&] (int bar)
+    {
+        if (magicProgression.empty())
+            return 12 * octave + rootPc;
+        return degreeToPitch (magicProgression[(size_t) (bar % (int) magicProgression.size())], octave);
+    };
+
+    auto applyMagicArchetype = [&] (Section& flat, int archetype, uint32_t identity)
+    {
+        const int barsN = juce::jmax (1, flat.bars);
+        const int totalSteps = juce::jmax (16, barsN * 16);
+
+        auto melodyNotes = [&]()
+        {
+            std::vector<NoteEvent> out;
+            for (const auto& n : flat.notes)
+                if (n.channel == 3) out.push_back (n);
+            std::stable_sort (out.begin(), out.end(), [] (const NoteEvent& a, const NoteEvent& b)
+            {
+                if (a.step != b.step) return a.step < b.step;
+                return a.note < b.note;
+            });
+            return out;
+        };
+
+        auto eraseMelody = [&]()
+        {
+            flat.notes.erase (std::remove_if (flat.notes.begin(), flat.notes.end(),
+                [] (const NoteEvent& n) { return n.channel == 3; }), flat.notes.end());
+        };
+
+        // 0 HOOK: preserve one memorable opening cell and let harmony move it.
+        if (archetype == 0)
+        {
+            const auto source = melodyNotes();
+            if (! source.empty())
+            {
+                std::vector<NoteEvent> firstBar;
+                for (const auto& n : source)
+                    if (n.step < 16) firstBar.push_back (n);
+
+                if (! firstBar.empty())
+                {
+                    eraseMelody();
+                    for (int bar = 0; bar < barsN; ++bar)
+                    {
+                        const int rootDelta = rootAtBar (bar) - rootAtBar (0);
+                        for (const auto& src : firstBar)
+                        {
+                            auto n = src;
+                            n.step = bar * 16 + (src.step % 16);
+                            n.note = snapToScale (src.note + rootDelta);
+                            if (n.step < totalSteps) flat.notes.push_back (n);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1 GROOVE: create pocket through shared micro-shifts and accents.
+        if (archetype == 1)
+        {
+            for (size_t i = 0; i < flat.notes.size(); ++i)
+            {
+                auto& n = flat.notes[i];
+                if (n.channel == 1) continue;
+                const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 0x27d4eb2du ^ (uint32_t) i);
+                if ((n.step % 4) == 0 && (h % 100u) < 42u)
+                    n.step = juce::jlimit (0, totalSteps - 1, n.step + 1);
+                const int pos = n.step % 16;
+                const int accent = (pos == 0 || pos == 8) ? 8 : ((pos % 4) == 0 ? 3 : -2);
+                n.velocity = juce::jlimit (25, 122, n.velocity + accent);
+                if (n.channel != 5 && (h & 31u) == 0u)
+                    n.length = juce::jlimit (1, 8, n.length + 1);
+            }
+        }
+
+        // 2 HARMONY: pull melodic and bass destinations toward the active chord.
+        if (archetype == 2 && ! magicProgression.empty())
+        {
+            int bassLo = 28, bassHi = 52;
+            registerLane (1, bassLo, bassHi);
+            for (size_t i = 0; i < flat.notes.size(); ++i)
+            {
+                auto& n = flat.notes[i];
+                const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+                const int degree = magicProgression[(size_t) (bar % (int) magicProgression.size())];
+                if (n.channel == 3)
+                {
+                    int best = n.note;
+                    int bestDist = 1000;
+                    for (const int chordDegree : { degree, degree + 2, degree + 4 })
+                    {
+                        const int chordPitch = degreeToPitch (chordDegree, octave);
+                        for (int oct = -2; oct <= 2; ++oct)
+                        {
+                            const int candidate = chordPitch + oct * 12;
+                            const int dist = std::abs (candidate - n.note);
+                            if (candidate >= 48 && candidate <= 108 && dist < bestDist)
+                            {
+                                best = candidate;
+                                bestDist = dist;
+                            }
+                        }
+                    }
+                    n.note = snapToScale (best);
+                }
+                else if (n.channel == 2)
+                {
+                    const int root = juce::jlimit (bassLo, bassHi, degreeToPitch (degree, 2));
+                    const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 13u ^ (uint32_t) i);
+                    if ((h % 100u) < 72u)
+                        n.note = juce::jlimit (bassLo, bassHi, snapToScale (root));
+                }
+            }
+        }
+
+        // 3 MOTIF: repeat a two-bar fingerprint through the arrangement.
+        if (archetype == 3)
+        {
+            const auto source = melodyNotes();
+            std::vector<NoteEvent> motif;
+            for (const auto& n : source)
+                if (n.step < 32) motif.push_back (n);
+
+            if (! motif.empty())
+            {
+                eraseMelody();
+                for (int phraseStart = 0; phraseStart < totalSteps; phraseStart += 32)
+                {
+                    const int rootDelta = rootAtBar (phraseStart / 16) - rootAtBar (0);
+                    for (const auto& src : motif)
+                    {
+                        auto n = src;
+                        n.step = phraseStart + (src.step % 32);
+                        if (n.step >= totalSteps) continue;
+                        n.note = snapToScale (src.note + rootDelta);
+                        flat.notes.push_back (n);
+                    }
+                }
+            }
+        }
+
+        // 4 MINIMAL: reduce supporting clutter while preserving the strongest melody hits.
+        if (archetype == 4)
+        {
+            std::vector<char> keepMelody (flat.notes.size(), 0);
+            for (int bar = 0; bar < barsN; ++bar)
+            {
+                std::vector<size_t> candidatesInBar;
+                for (size_t i = 0; i < flat.notes.size(); ++i)
+                    if (flat.notes[i].channel == 3 && flat.notes[i].step / 16 == bar)
+                        candidatesInBar.push_back (i);
+
+                std::sort (candidatesInBar.begin(), candidatesInBar.end(), [&] (size_t a, size_t b)
+                {
+                    const auto& na = flat.notes[a];
+                    const auto& nb = flat.notes[b];
+                    const int sa = na.velocity + (na.step % 4 == 0 ? 28 : 0) + na.length * 4;
+                    const int sb = nb.velocity + (nb.step % 4 == 0 ? 28 : 0) + nb.length * 4;
+                    return sa > sb;
+                });
+                const size_t limit = juce::jmin<size_t> (3, candidatesInBar.size());
+                for (size_t k = 0; k < limit; ++k)
+                    keepMelody[candidatesInBar[k]] = 1;
+            }
+
+            for (size_t i = flat.notes.size(); i-- > 0; )
+            {
+                auto& n = flat.notes[i];
+                if (n.channel == 3 && ! keepMelody[i])
+                    flat.notes.erase (flat.notes.begin() + (long long) i);
+            }
+
+            int arpSeen = 0;
+            for (size_t i = flat.notes.size(); i-- > 0; )
+            {
+                auto& n = flat.notes[i];
+                if (n.channel == 4)
+                {
+                    if ((arpSeen++ & 1) != 0)
+                        flat.notes.erase (flat.notes.begin() + (long long) i);
+                }
+                else if (n.channel == 5)
+                {
+                    const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 17u ^ (uint32_t) i);
+                    if ((n.step % 4) != 0 && n.velocity < 72 && (h % 100u) < 35u)
+                        flat.notes.erase (flat.notes.begin() + (long long) i);
+                }
+            }
+        }
+
+        // 5 WEIRD: controlled register jumps and asymmetric timing, still scale-safe.
+        if (archetype == 5)
+        {
+            int melodySeen = 0;
+            for (auto& n : flat.notes)
+            {
+                if (n.channel != 3) continue;
+                const uint32_t h = hash32 (identity ^ (uint32_t) melodySeen * 0x9e3779b9u);
+                if ((melodySeen++ % 4) == 2)
+                {
+                    const int jump = ((h & 1u) != 0u) ? 7 : -7;
+                    n.note = snapToScale (juce::jlimit (28, 108, n.note + jump));
+                }
+                if ((h % 100u) < 18u)
+                    n.step = juce::jlimit (0, totalSteps - 1, n.step + (((h >> 8) & 1u) ? 1 : -1));
+            }
+        }
+
+        // 6 EMOTIONAL: explicit rise -> peak -> release in register and dynamics.
+        if (archetype == 6)
+        {
+            for (size_t i = 0; i < flat.notes.size(); ++i)
+            {
+                auto& n = flat.notes[i];
+                const float t = barsN > 1 ? (float) (n.step / 16) / (float) (barsN - 1) : 0.0f;
+                const float arc = 1.0f - std::abs (2.0f * t - 1.0f);
+                if (n.channel == 3)
+                {
+                    n.note = snapToScale (juce::jlimit (36, 108, n.note + juce::roundToInt (arc * 6.0f)));
+                    n.velocity = juce::jlimit (35, 120, n.velocity + juce::roundToInt (arc * 12.0f));
+                    if (n.step / 16 == barsN - 1)
+                        n.length = juce::jmin (6, juce::jmax (2, n.length + 1));
+                }
+                else if (n.channel == 2 && (n.step % 16) == 0)
+                {
+                    n.velocity = juce::jlimit (40, 118, n.velocity + juce::roundToInt (arc * 7.0f));
+                }
+            }
+
+            if (! magicProgression.empty())
+            {
+                const int lastBar = barsN - 1;
+                const int degree = magicProgression[(size_t) (lastBar % (int) magicProgression.size())];
+                int lastMelody = -1;
+                for (int i = (int) flat.notes.size() - 1; i >= 0; --i)
+                    if (flat.notes[(size_t) i].channel == 3)
+                    {
+                        lastMelody = i;
+                        break;
+                    }
+                if (lastMelody >= 0)
+                    flat.notes[(size_t) lastMelody].note = snapToScale (degreeToPitch (degree, octave));
+            }
+        }
+
+        // 7 WILDCARD: a lighter hybrid branch deliberately escapes the main archetypes.
+        if (archetype == 7)
+        {
+            const int branch = (int) ((identity >> 8) % 3u);
+            for (size_t i = 0; i < flat.notes.size(); ++i)
+            {
+                auto& n = flat.notes[i];
+                const uint32_t h = hash32 (identity ^ (uint32_t) i * 0x85ebca6bu);
+                if (n.channel == 3 && branch == 0 && (h % 100u) < 35u)
+                    n.note = snapToScale (juce::jlimit (32, 108, n.note + 5));
+                else if (n.channel != 1 && branch == 1 && (n.step % 4) == 0 && (h % 100u) < 40u)
+                    n.step = juce::jlimit (0, totalSteps - 1, n.step + 1);
+                else if (n.channel == 3 && branch == 2 && (h % 100u) < 26u)
+                    n.note = snapToScale (juce::jlimit (32, 108, n.note - 12));
+            }
+        }
+
+        removeDuplicateNotes (flat.notes);
+        cleanMelodyLine (flat.notes);
+        std::sort (flat.notes.begin(), flat.notes.end(), [] (const NoteEvent& a, const NoteEvent& b)
+        {
+            if (a.step != b.step) return a.step < b.step;
+            if (a.channel != b.channel) return a.channel < b.channel;
+            return a.note < b.note;
+        });
+    };
+
     const bool sparseTypeAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     const auto judgeProf = soundProfileFor(soundTarget);
     std::vector<Candidate> candidates;
@@ -2363,7 +2647,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         buildBaseSong(song,local,c+1);
         variationAmount=oldVariation;
 
+        const int archetype = c % 8;
         Section flat=flatten(song,c,local);
+        applyMagicArchetype (flat, archetype, identity);
         const auto f=melodyFeatures(flat,identity);
         float quality=0.0f;
         // Magic DNA 2.0: candidate features are judged against the same
@@ -2659,7 +2945,44 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // model scores every candidate after the pool statistics are known (below).
         tasteFeatures.push_back(taste::extractFeatures(flat.notes, flat.bars));
 
-        candidates.push_back({std::move(flat),quality,identity});
+        // Archetype-specific focus: the generic judge remains dominant, while
+        // this pass makes sure each creative route gets a meaningful chance.
+        float archetypeFit = 0.5f;
+        switch (archetype)
+        {
+            case 0: // HOOK
+                archetypeFit = 0.36f * f.hook + 0.26f * f.motifIdentity + 0.20f * f.phraseMemory + 0.18f * f.repetition;
+                break;
+            case 1: // GROOVE
+                archetypeFit = 0.48f * f.rhythmIdentity + 0.22f * f.velocity + 0.18f * f.density + 0.12f * f.hook;
+                break;
+            case 2: // HARMONY
+                archetypeFit = 0.44f * f.harmony + 0.26f * f.phraseArc + 0.18f * f.registerScore + 0.12f * f.hook;
+                break;
+            case 3: // MOTIF
+                archetypeFit = 0.34f * f.motifIdentity + 0.28f * f.phraseMemory + 0.22f * f.repetition + 0.16f * f.contour;
+                break;
+            case 4: // MINIMAL
+                archetypeFit = 0.55f * f.space + 0.25f * (1.0f - f.density) + 0.20f * f.repetition;
+                break;
+            case 5: // WEIRD
+                archetypeFit = 0.40f * f.surprise + 0.26f * f.leap + 0.22f * f.variety + 0.12f * f.contour;
+                break;
+            case 6: // EMOTIONAL
+                archetypeFit = 0.42f * f.phraseArc + 0.24f * f.seam + 0.18f * f.harmony + 0.16f * f.cadence;
+                break;
+            default: // WILDCARD
+                archetypeFit = 0.26f * f.hook + 0.20f * f.rhythmIdentity + 0.18f * f.motifIdentity
+                             + 0.18f * f.surprise + 0.18f * f.variety;
+                break;
+        }
+        const float archetypeTargetsDensity[8] = { .55f, .68f, .52f, .46f, .25f, .58f, .50f, .52f };
+        const float archetypeTargetsSpace[8]   = { .42f, .28f, .44f, .40f, .84f, .34f, .46f, .48f };
+        archetypeFit += 0.14f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.density - archetypeTargetsDensity[archetype])));
+        archetypeFit += 0.12f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.space - archetypeTargetsSpace[archetype])));
+        quality += 0.19f * juce::jlimit (0.0f, 1.0f, archetypeFit);
+
+        candidates.push_back({std::move(flat),quality,identity,archetype});
     }
 
     // Standardise against this search pool (kept for training the ratings of the
@@ -2697,34 +3020,27 @@ void MidiForgeAudioProcessor::buildVariationBank()
     std::vector<Candidate> selected;
     selected.reserve(8);
     std::vector<bool> used(candidates.size(),false);
+    std::array<bool,8> usedArchetypes {};
 
-    // Greedy diversity-aware selection. The best candidate wins first; after
-    // that, similarity to already selected loops becomes a real penalty.
+    // Pick one winner from each archetype. Similarity still matters inside and
+    // across archetypes, but MAGIC 3 cannot collapse the final bank into one style.
     for(int slot=0;slot<8;++slot)
     {
         int best=-1;
         float bestScore=-1000.0f;
         for(size_t i=0;i<candidates.size();++i)
         {
-            if(used[i]) continue;
+            if(used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
             float score=candidates[i].quality;
             float maxSim=0.0f;
-            for(const auto& s:selected) maxSim=juce::jmax(maxSim,similarity(candidates[i].section,s.section));
+            for(const auto& s:selected)
+                maxSim=juce::jmax(maxSim,similarity(candidates[i].section,s.section));
             score-=0.78f*maxSim;
-            // Do not let the top eight collapse into one archetype. Spread
-            // candidate identities across the final bank while preserving quality.
-            if(slot>0)
-            {
-                const int profile=(int)(candidates[i].identity % 8u);
-                int profileCount=0;
-                for(const auto& s:selected) if(((int)(s.identity % 8u))==profile) ++profileCount;
-                score -= 0.07f*(float)profileCount;
-            }
-            if(slot==0) score=candidates[i].quality;
             if(score>bestScore){bestScore=score;best=(int)i;}
         }
         if(best<0) break;
         used[(size_t)best]=true;
+        usedArchetypes[(size_t) candidates[(size_t) best].archetype]=true;
         selected.push_back(std::move(candidates[(size_t)best]));
     }
 
@@ -2733,7 +3049,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
     for(size_t i=0;i<selected.size();++i)
     {
         auto flat=std::move(selected[i].section);
-        flat.name="VARIATION "+juce::String((int)i+1);
+        const int archetype = selected[i].archetype;
+        flat.name="VARIATION "+juce::String((int)i+1)+" • "+juce::String(archetypeNames[juce::jlimit(0,7,archetype)]);
 
         auto applyLock = [&](int channel, bool locked)
         {
