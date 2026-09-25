@@ -2876,77 +2876,269 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     std::vector<VisibleNote> notes = getVisibleNotes();
     if (notes.empty()) { rerollSameDNA(); return; }
 
-    const uint32_t base = hash32(generationSeed ^ 0xA17E5EEDu ^ (uint32_t)(amount*1000.0f) ^ (++mutationCounter * 0x85ebca6bu));
-    const int maxStep = juce::jmax(0, getVisibleBars()*16-1);
-    for(size_t i=0;i<notes.size();++i)
+    const uint32_t mutationId = ++mutationCounter;
+    const uint32_t base = hash32 (generationSeed
+                                   ^ 0xA17E5EEDu
+                                   ^ (uint32_t) (amount * 1000.0f)
+                                   ^ mutationId * 0x85ebca6bu);
+    const int totalSteps = juce::jmax (16, getVisibleBars() * 16);
+    const int phraseSteps = juce::jmin (64, totalSteps);
+    const float strength = juce::jlimit (0.0f, 1.0f, amount);
+
+    auto locked = [&] (int channel)
     {
-        auto& n=notes[i];
-        const uint32_t h=hash32(base ^ (uint32_t)(i*0x9e3779b9u));
-        // 0.45.1: notes of one chord hit share the roll for timing / length, so a triad is never torn apart
-        const uint32_t hg=(n.channel==1) ? hash32(base ^ (uint32_t)(n.step*0x9e3779b9u) ^ 0x51ED270Bu) : h;
-        const float roll=(float)(h%1000u)/1000.0f;
+        return (channel == 1 && lockChordsLayer)
+            || (channel == 2 && lockBassLayer)
+            || (channel == 3 && lockMelodyLayer)
+            || (channel == 4 && lockArpLayer);
+    };
 
-        // Each layer has its own mutation grammar. Locked layers are untouched.
-        const bool locked=(n.channel==1&&lockChordsLayer)||(n.channel==2&&lockBassLayer)||
-                           (n.channel==3&&lockMelodyLayer)||(n.channel==4&&lockArpLayer);
-        if(locked) continue;
-        if(n.channel==5)
+    auto snapLane = [&] (int note, int part)
+    {
+        int lo = 28, hi = 108;
+        registerLane (part, lo, hi);
+        return juce::jlimit (lo, hi, snapToScale (note));
+    };
+
+    auto mutateMelodyPhrase = [&] (int phraseStart, int mode, uint32_t seed)
+    {
+        std::vector<size_t> idx;
+        for (size_t i = 0; i < notes.size(); ++i)
+            if (notes[i].channel == 3
+                && notes[i].step >= phraseStart
+                && notes[i].step < phraseStart + phraseSteps)
+                idx.push_back (i);
+
+        if (idx.empty() || locked (3))
+            return;
+
+        std::sort (idx.begin(), idx.end(), [&] (size_t a, size_t b)
         {
-            // Drums keep their groove: MUTATE / EVOLVE only touches their velocity (0.44).
-            if((h%100u)>62u) n.velocity=juce::jlimit(30,120,n.velocity+(int)((h>>22)%13u)-6);
-            continue;
+            return notes[a].step < notes[b].step;
+        });
+
+        const uint32_t h = hash32 (seed ^ (uint32_t) phraseStart * 0x9e3779b9u);
+        const int anchor = notes[idx.front()].note;
+
+        // MOTIF: transpose or gently invert the whole phrase contour. The
+        // relative shape survives, so the result still sounds like the same idea.
+        if (mode == 0 || mode == 4)
+        {
+            const bool invert = (h & 4u) != 0u && idx.size() >= 4;
+            const int move = ((h >> 8) & 1u) ? 2 : -2;
+            for (size_t k : idx)
+            {
+                const int rel = notes[k].note - anchor;
+                int target = invert ? anchor - rel : notes[k].note + move;
+                target = snapLane (target, 2);
+                const float blend = invert ? (0.24f + 0.34f * strength)
+                                           : (0.55f + 0.35f * strength);
+                notes[k].note = snapLane (
+                    juce::roundToInt ((float) notes[k].note * (1.0f - blend)
+                                      + (float) target * blend), 2);
+            }
         }
 
-        const float chance=0.10f+0.48f*amount;
-        if(roll<chance)
+        // RHYTHM: move a phrase segment together rather than randomly moving
+        // individual notes. This preserves the recognizable rhythmic grammar.
+        if (mode == 1 || mode == 4)
         {
-            if(n.channel==3)
+            const int delta = ((h >> 5) & 1u) ? 2 : -2;
+            const int pivot = phraseStart + ((h >> 12) & 31);
+            for (size_t k : idx)
+                if (notes[k].step >= pivot)
+                    notes[k].step = juce::jlimit (phraseStart, phraseStart + phraseSteps - 1,
+                                                  notes[k].step + delta);
+        }
+
+        // CADENCE: the final note is pulled toward the ending bar's root or
+        // third, giving the mutation a new destination instead of a random pitch.
+        if (mode == 2 || mode == 4)
+        {
+            size_t last = idx.back();
+            int finalBar = notes[last].step / 16;
+            const auto prog = progressionDegrees();
+            if (!prog.empty())
             {
-                // Melody: scale-safe pitch mutation, occasional direction flip.
-                const int step=((h>>8)&1u)?2:-2;
-                { int ml=62, mh=86; registerLane(2,ml,mh); n.note=juce::jlimit(ml,mh,snapToScale(n.note+step)); }
-            }
-            else if(n.channel==2)
-            {
-                // Bass: mostly octave/scale-degree movement, never chromatic.
-                const int move=((h>>9)&3u)==0 ? 12 : (((h>>9)&1u)?2:-2);
-                { int bl=28, bh=52; registerLane(1,bl,bh); n.note=foldIntoLane(snapToScale(n.note+move),bl,bh); }
-            }
-            else if(n.channel==1)
-            {
-                // Chords: alter voicing rather than changing the harmony identity.
-                if((h&3u)==0) n.note=juce::jlimit(24,108,n.note+12);
-                else if((h&3u)==1) n.note=juce::jlimit(24,108,n.note-12);
-                else n.velocity=juce::jlimit(40,105,n.velocity+(int)((h>>12)%13u)-6);
-            }
-            else if(n.channel==4)
-            {
-                // Arp: move along the active scale, preserving its role.
-                n.note=juce::jlimit(36,108,snapToScale(n.note+(((h>>10)&1u)?2:-2)));
+                const int degree = prog[(size_t) (finalBar % (int) prog.size())];
+                const int root = degreeToPitch (degree, octave);
+                const int third = degreeToPitch (degree + 2, octave);
+                const int target = std::abs(root - notes[last].note)
+                    <= std::abs(third - notes[last].note) ? root : third;
+                const float blend = 0.55f + 0.40f * strength;
+                notes[last].note = snapLane (
+                    juce::roundToInt ((float) notes[last].note * (1.0f - blend)
+                                      + (float) target * blend), 2);
+                notes[last].length = juce::jlimit (1, 4, juce::jmax (notes[last].length, 2));
             }
         }
 
-        // Rhythm mutation: shift only by 1/8-note cells, so we don't reintroduce
-        // the accidental off-grid 1/16 positions fixed in Rhythm Engine 2.0.
-        if((hg%100u) < (uint32_t)(18.0f+35.0f*amount))
+        // GROOVE: preserve note pitches but reshape the accents and sustain at
+        // phrase level. Strong beats remain strong; pickups can breathe.
+        if (mode == 3 || mode == 4)
         {
-            const int delta=((hg>>18)&1u)?2:-2;
-            n.step=juce::jlimit(0,maxStep,n.step+delta);
+            for (size_t k = 0; k < idx.size(); ++k)
+            {
+                auto& n = notes[idx[k]];
+                const int local = (n.step - phraseStart) & 15;
+                int delta = (local == 0) ? 5 : (local == 8 ? 3 : ((local & 3) == 0 ? 1 : -1));
+                if (((h >> (k & 15)) & 1u) != 0u) delta = -delta;
+                n.velocity = juce::jlimit (40, 118,
+                    n.velocity + juce::roundToInt ((float) delta * (0.55f + 0.65f * strength)));
+                if (k + 1 == idx.size() || (n.step & 7) == 0)
+                    n.length = juce::jlimit (1, 4, n.length + (((h + (uint32_t) k) & 1u) ? 1 : -1));
+            }
         }
-        if((hg%100u)>62u)
-            n.length=juce::jlimit(1,16,n.length+(((hg>>20)&1u)?1:-1));
-        if((h%100u)>78u)
-            n.velocity=juce::jlimit(38,118,n.velocity+(int)((h>>22)%11u)-5);
+    };
+
+    const int mode = (int) (base % 4u); // 0 motif, 1 rhythm, 2 cadence, 3 groove
+
+    // One musical domain is chosen per MUTATE press, so a mutation feels like a
+    // deliberate edit. EVOLVE calls the same system with a smaller amount.
+    for (int phraseStart = 0; phraseStart < totalSteps; phraseStart += phraseSteps)
+        mutateMelodyPhrase (phraseStart, mode, base ^ (uint32_t) phraseStart);
+
+    // Bass and arp follow the same mutation idea, but remain role-safe.
+    if (!locked (2))
+    {
+        for (auto& n : notes)
+        {
+            if (n.channel != 2) continue;
+            const int phraseStart = (n.step / phraseSteps) * phraseSteps;
+            const uint32_t h = hash32 (base ^ (uint32_t) phraseStart * 0x27d4eb2du);
+
+            if (mode == 0)
+            {
+                const int move = ((h >> (n.step & 15)) & 1u) ? 2 : -2;
+                n.note = snapLane (n.note + move, 1);
+            }
+            else if (mode == 1 && n.step % 16 >= 10 && n.step % 16 <= 14)
+            {
+                const auto prog = progressionDegrees();
+                if (! prog.empty())
+                {
+                    const int nextDegree = prog[(size_t) ((n.step / 16 + 1) % (int) prog.size())];
+                    if ((h % 100u) < (uint32_t) (25.0f + 40.0f * strength))
+                        n.note = snapLane (degreeToPitch (nextDegree, 2), 1);
+                }
+            }
+            else if (mode == 2 && (n.step % 16) == 0)
+            {
+                const auto prog = progressionDegrees();
+                if (! prog.empty())
+                    n.note = snapLane (
+                        degreeToPitch (prog[(size_t) ((n.step / 16) % (int) prog.size())], 2), 1);
+            }
+            else if (mode == 3)
+            {
+                n.velocity = juce::jlimit (45, 118,
+                    n.velocity + ((n.step % 16) == 0 ? 5 : -2));
+                if ((h & 15u) == 0u)
+                    n.length = juce::jlimit (1, 8, n.length + 1);
+            }
+        }
     }
-    removeDuplicateNotes(notes);
-    cleanMelodyLine(notes);
-    replaceVisibleNotes(notes);
+
+    if (!locked (4))
+    {
+        for (auto& n : notes)
+        {
+            if (n.channel != 4) continue;
+            const uint32_t h = hash32 (base ^ (uint32_t) (n.step * 31 + 7));
+            if (mode == 0 || mode == 4)
+                n.note = juce::jlimit (36, 108,
+                    snapToScale (n.note + (((h & 1u) != 0u) ? 2 : -2)));
+            if (mode == 1 && (h % 100u) < (uint32_t) (18.0f + 28.0f * strength))
+                n.step = juce::jlimit (0, totalSteps - 1, n.step + (((h >> 8) & 1u) ? 2 : -2));
+            if (mode == 3)
+                n.velocity = juce::jlimit (40, 112, n.velocity + ((n.step % 8) == 0 ? 4 : -2));
+        }
+    }
+
+    if (!locked (1))
+    {
+        // Chord notes can arrive interleaved with other layers after rhythm mutations.
+        // Sort only for grouping here; the final note order is normalized below.
+        std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
+        {
+            if (a.channel != b.channel) return a.channel < b.channel;
+            if (a.step != b.step) return a.step < b.step;
+            return a.note < b.note;
+        });
+
+        // Chord mutations never change the progression itself: only one voice
+        // per selected hit may move by an octave, preserving harmonic identity.
+        for (size_t pos = 0; pos < notes.size(); )
+        {
+            if (notes[pos].channel != 1) { ++pos; continue; }
+            const int step = notes[pos].step;
+            std::vector<size_t> group;
+            while (pos < notes.size() && notes[pos].channel == 1 && notes[pos].step == step)
+            {
+                group.push_back (pos++);
+            }
+            if (!group.empty() && (mode == 0 || mode == 2))
+            {
+                const uint32_t h = hash32 (base ^ (uint32_t) step * 0x51ed270bu);
+                const size_t voice = group.size() > 2 ? 1u : 0u;
+                const int dir = (h & 1u) ? 12 : -12;
+                notes[group[voice]].note = juce::jlimit (24, 108, notes[group[voice]].note + dir);
+            }
+            if (mode == 3)
+                for (size_t k : group)
+                    notes[k].velocity = juce::jlimit (40, 105, notes[k].velocity + ((step % 8) == 0 ? 3 : -2));
+        }
+    }
+
+    if (!locked (5))
+    {
+        // Drums get a groove mutation, never pitch mutations. Keep every row's
+        // identity while shifting one selected phrase cell as a unit.
+        std::vector<size_t> drumIdx;
+        for (size_t i = 0; i < notes.size(); ++i)
+            if (notes[i].channel == 5)
+                drumIdx.push_back (i);
+
+        if (mode == 1 && !drumIdx.empty())
+        {
+            const int delta = (base & 1u) ? 2 : -2;
+            const int selectedRow = (int) ((base >> 6) % (uint32_t) kDrumRows);
+            for (size_t k : drumIdx)
+            {
+                if (drumRowForNote (notes[k].note) != selectedRow) continue;
+                const int cell = notes[k].step / phraseSteps;
+                const int local = notes[k].step % phraseSteps;
+                if (cell == (int) ((base >> 12) % (uint32_t) juce::jmax (1, (totalSteps + phraseSteps - 1) / phraseSteps)))
+                    notes[k].step = juce::jlimit (0, totalSteps - 1, cell * phraseSteps + local + delta);
+            }
+        }
+
+        for (size_t k : drumIdx)
+        {
+            const uint32_t h = hash32 (base ^ (uint32_t) notes[k].step * 13u ^ (uint32_t) k);
+            if (mode == 3 || mode == 4)
+            {
+                const int accent = (notes[k].step % 8 == 0) ? 5 : ((notes[k].step % 4 == 0) ? 2 : -2);
+                notes[k].velocity = juce::jlimit (25, 122, notes[k].velocity + accent);
+            }
+        }
+    }
+
+    removeDuplicateNotes (notes);
+    cleanMelodyLine (notes);
+    std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
+    {
+        if (a.step != b.step) return a.step < b.step;
+        if (a.channel != b.channel) return a.channel < b.channel;
+        return a.note < b.note;
+    });
+    replaceVisibleNotes (notes);
 }
+
 void MidiForgeAudioProcessor::evolveSelected()
 {
-    // Gentle evolution: preserve the current idea and mutate it rather than
-    // throwing the loop away. This is intentionally a small mutation pass.
-    mutateSelected(0.22f);
+    // Evolve keeps the same phrase-aware Mutation 2.0 engine, but with a lighter touch.
+    mutateSelected (0.22f);
 }
 
 void MidiForgeAudioProcessor::regenerate()

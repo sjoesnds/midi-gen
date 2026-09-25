@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.48.0**
+**Current version: 0.49.0**
 
 ## What it does
 
@@ -25,6 +25,15 @@ The generator:
 4. selects a diverse variation bank instead of returning the first few candidates.
 
 The current search uses a large candidate pool and deterministic seeds so generation remains reproducible.
+
+### Mutation 2.0 — 0.49
+- MUTATE now chooses a musical mutation domain instead of independently randomizing notes.
+- Motif mutations preserve the contour of the selected phrase while changing its destination or interval shape.
+- Rhythm mutations move phrase segments together, keeping the rhythmic identity coherent.
+- Cadence mutations reshape phrase endings toward scale-safe chord tones.
+- Groove mutations reshape accents and sustain across melody, bass, chords, arp and drums.
+- Smart Locks continue to freeze individual layers during mutation.
+- EVOLVE uses the same engine at lower strength.
 
 ### Harmony 2.0 — 0.48
 - Chord voice leading now compares individual voices between adjacent bars instead of only comparing chord centres.
