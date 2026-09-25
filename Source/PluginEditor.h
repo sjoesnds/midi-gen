@@ -5,6 +5,7 @@
 #include <optional>
 #include <array>
 #include <functional>
+#include <algorithm>
 #include "PluginProcessor.h"
 class MidiForgeAudioProcessorEditor : public juce::AudioProcessorEditor,
 public juce::DragAndDropContainer,
@@ -757,7 +758,12 @@ bool preserveSelectionOnRegenerate = false;
      {
          history.clear();
          historyCursor = -1;
+         selectedIndices.clear();
+         selectedNote = -1;
+         dragStartSelection.clear();
+         dragStartNotes.clear();
          updateHistoryButtons();
+         repaint();
      }
 
      void updateHistoryButtons()
