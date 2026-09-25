@@ -494,7 +494,8 @@ if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelecte
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
 refreshTaste();
 pianoRoll.updateHistoryButtons();
-const selectedCount = juce::String ((int) pianoRoll.getSelectionCount());
-if (selectionLabel.getText() != "SEL " + selectedCount)
-    selectionLabel.setText ("SEL " + selectedCount, juce::dontSendNotification);
+const juce::String selectedCount = juce::String (pianoRoll.getSelectionCount());
+const juce::String selectedText = "SEL " + selectedCount;
+if (selectionLabel.getText() != selectedText)
+    selectionLabel.setText (selectedText, juce::dontSendNotification);
 }
