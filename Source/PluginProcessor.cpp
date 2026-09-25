@@ -2033,6 +2033,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float quality = 0.0f;
         uint32_t identity = 0;
         int archetype = 0;
+        float density = 0.5f;
+        float space = 0.5f;
+        float rhythm = 0.5f;
+        float motif = 0.5f;
+        float leap = 0.3f;
+        float reg = 0.5f;
+        float surprise = 0.3f;
+        float loop = 0.5f;
+        float groove = 0.5f;
+        float memory = 0.5f;
     };
 
     auto melodyFeatures = [&](const Section& sec, uint32_t identity)
@@ -3192,21 +3202,132 @@ void MidiForgeAudioProcessor::buildVariationBank()
     const auto judgeProf = soundProfileFor(soundTarget);
     std::vector<Candidate> candidates;
     std::vector<taste::Vec> tasteFeatures;
-    constexpr int candidateCount=1000;
+    constexpr int candidateCount = 1000;
+    constexpr int firstPassCandidates = 600;
     candidates.reserve(candidateCount);
     tasteFeatures.reserve(candidateCount);
 
+    struct AdaptiveProfile
+    {
+        bool ready = false;
+        float density = 0.50f;
+        float space = 0.50f;
+        float rhythm = 0.50f;
+        float motif = 0.50f;
+        float leap = 0.30f;
+        float reg = 0.50f;
+        float surprise = 0.30f;
+        float loop = 0.50f;
+        float groove = 0.50f;
+        float memory = 0.50f;
+    } adaptive;
+
+    auto buildAdaptiveProfile = [&]()
+    {
+        if ((int) candidates.size() < firstPassCandidates)
+            return;
+
+        std::vector<size_t> ranked ((size_t) firstPassCandidates);
+        std::iota (ranked.begin(), ranked.end(), 0u);
+        const size_t keep = 48;
+        std::partial_sort (ranked.begin(), ranked.begin() + (long long) keep, ranked.end(),
+            [&] (size_t a, size_t b) { return candidates[a].quality > candidates[b].quality; });
+
+        float weights[10] = { 0 };
+        float sums[10] = { 0 };
+        float totalWeight = 0.0f;
+        for (size_t k = 0; k < keep; ++k)
+        {
+            const Candidate& c = candidates[ranked[k]];
+            const float rankWeight = 1.0f - 0.65f * ((float) k / (float) juce::jmax<size_t> (1, keep - 1));
+            sums[0] += c.density * rankWeight;
+            sums[1] += c.space * rankWeight;
+            sums[2] += c.rhythm * rankWeight;
+            sums[3] += c.motif * rankWeight;
+            sums[4] += c.leap * rankWeight;
+            sums[5] += c.reg * rankWeight;
+            sums[6] += c.surprise * rankWeight;
+            sums[7] += c.loop * rankWeight;
+            sums[8] += c.groove * rankWeight;
+            sums[9] += c.memory * rankWeight;
+            totalWeight += rankWeight;
+        }
+        for (float& w : weights) w = totalWeight;
+        if (totalWeight > 0.0f)
+        {
+            adaptive.density = sums[0] / weights[0];
+            adaptive.space = sums[1] / weights[1];
+            adaptive.rhythm = sums[2] / weights[2];
+            adaptive.motif = sums[3] / weights[3];
+            adaptive.leap = sums[4] / weights[4];
+            adaptive.reg = sums[5] / weights[5];
+            adaptive.surprise = sums[6] / weights[6];
+            adaptive.loop = sums[7] / weights[7];
+            adaptive.groove = sums[8] / weights[8];
+            adaptive.memory = sums[9] / weights[9];
+            adaptive.ready = true;
+        }
+    };
+
     for(int c=0;c<candidateCount;++c)
     {
+        if (c == firstPassCandidates)
+            buildAdaptiveProfile();
+
         const uint32_t identity=hash32(generationSeed ^ (uint32_t)(c+1)*0x45d9f3bu);
         juce::Random local((juce::int64)identity);
         SongData song;
-        const float oldVariation=variationAmount;
-        // Spread the search deliberately: some candidates are sparse, some
-        // hook-heavy, some rhythm-first.  This is exploration, not noise.
-        variationAmount=juce::jlimit(0.f,1.f,oldVariation + ((int)(identity%17u)-8)*0.035f);
+        const float oldVariation = variationAmount;
+        const float oldMelodyDensity = melodyDensity;
+        const float oldPauseChance = pauseChance;
+        const float oldLeapChance = leapChance;
+        const float oldMotifStrength = motifStrength;
+        const float oldComplexity = complexity;
+        const float oldSwing = swing;
+        const int oldOctave = octave;
+        const float randomJitter = ((float) ((identity >> 8) % 1000u) / 1000.0f - 0.5f);
+
+        // First pass explores broadly. After 600 candidates, MAGIC 4 nudges the
+        // same generator toward the best discovered feature neighborhood while
+        // retaining deterministic local jitter so it keeps exploring.
+        if (adaptive.ready)
+        {
+            const float adapt = 0.62f;
+            const float targetDensity = juce::jlimit (0.16f, 0.88f,
+                adaptive.density + randomJitter * 0.12f);
+            const float targetLeap = juce::jlimit (0.04f, 0.48f,
+                adaptive.leap + randomJitter * 0.12f);
+            const float targetMotif = juce::jlimit (0.35f, 0.98f,
+                adaptive.motif + randomJitter * 0.10f);
+            const float targetSurprise = juce::jlimit (0.10f, 0.90f,
+                adaptive.surprise + randomJitter * 0.14f);
+            melodyDensity = juce::jlimit (0.10f, 0.92f,
+                oldMelodyDensity * (1.0f - adapt) + targetDensity * adapt);
+            pauseChance = juce::jlimit (0.02f, 0.46f,
+                (1.0f - melodyDensity) * 0.34f + adaptive.space * 0.16f);
+            leapChance = juce::jlimit (0.03f, 0.52f,
+                oldLeapChance * (1.0f - adapt) + targetLeap * adapt);
+            motifStrength = juce::jlimit (0.30f, 0.99f,
+                oldMotifStrength * (1.0f - adapt) + targetMotif * adapt);
+            complexity = juce::jlimit (0.14f, 0.94f,
+                oldComplexity * (1.0f - adapt) + targetSurprise * adapt);
+            swing = juce::jlimit (0.0f, 0.55f,
+                oldSwing * (1.0f - adapt) + adaptive.rhythm * 0.42f * adapt);
+            octave = juce::jlimit (2, 6, oldOctave + (adaptive.reg > 0.62f ? 1 : adaptive.reg < 0.30f ? -1 : 0));
+        }
+
+        variationAmount = juce::jlimit (0.f, 1.f,
+            oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
         buildBaseSong(song,local,c+1);
-        variationAmount=oldVariation;
+
+        variationAmount = oldVariation;
+        melodyDensity = oldMelodyDensity;
+        pauseChance = oldPauseChance;
+        leapChance = oldLeapChance;
+        motifStrength = oldMotifStrength;
+        complexity = oldComplexity;
+        swing = oldSwing;
+        octave = oldOctave;
 
         const int archetype = c % 8;
         Section flat=flatten(song,c,local);
@@ -3248,6 +3369,26 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.18f * motifMemory;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
+
+        // MAGIC 4 adaptive exploitation: only the second search phase receives
+        // this bonus. The first phase remains the broad explorer that discovers
+        // the promising region in the first place.
+        if (adaptive.ready)
+        {
+            const float adaptiveFit =
+                0.17f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.density - adaptive.density)))
+                + 0.12f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.space - adaptive.space)))
+                + 0.14f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.rhythmIdentity - adaptive.rhythm)))
+                + 0.18f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.motifIdentity - adaptive.motif)))
+                + 0.10f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.leap - adaptive.leap)))
+                + 0.08f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.registerScore - adaptive.reg)))
+                + 0.10f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.surprise - adaptive.surprise)))
+                + 0.06f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.loopQuality - adaptive.loop)))
+                + 0.05f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (grooveQuality - adaptive.groove)))
+                + 0.04f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (motifMemory - adaptive.memory)));
+            quality += 0.20f * adaptiveFit;
+        }
+
         // Hybrid DNA 1.0: combine Genre + Mood + Era + Melody Type into one
         // coherent target fingerprint. Each axis contributes softly, so no single
         // preset can collapse the search into one exact pattern.
@@ -3555,7 +3696,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
         archetypeFit += 0.12f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.space - archetypeTargetsSpace[archetype])));
         quality += 0.19f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
-        candidates.push_back({std::move(flat),quality,identity,archetype});
+        candidates.push_back({std::move(flat), quality, identity, archetype,
+                              f.density, f.space, f.rhythmIdentity, f.motifIdentity,
+                              f.leap, f.registerScore, f.surprise, f.loopQuality,
+                              grooveQuality, motifMemory});
     }
 
     // Standardise against this search pool (kept for training the ratings of the
