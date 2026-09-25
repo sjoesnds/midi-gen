@@ -155,26 +155,26 @@ void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regene
 void MidiForgeAudioProcessor::setBars(int v){bars=juce::jlimit(1,16,v);regenerate();}
 void MidiForgeAudioProcessor::setSeed(int v){seed=v;regenerate();}
 void MidiForgeAudioProcessor::setOctave(int v){octave=juce::jlimit(2,6,v);regenerate();}
-void MidiForgeAudioProcessor::setSectionMode(int v){ sectionMode = Loop; regenerate(); }
-void MidiForgeAudioProcessor::setChordDensity(float v){chordDensity=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setBassDensity(float v){bassDensity=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setMelodyDensity(float v){melodyDensity=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setArpDensity(float v){arpDensity=juce::jlimit(0.f,1.f,v);regenerate();}
+void MidiForgeAudioProcessor::setSectionMode(int v){ sectionMode = juce::jlimit((int)Loop, (int)SongExtended, v); regenerate(); }
+void MidiForgeAudioProcessor::setChordDensity(float v, bool regenerateNow){chordDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setBassDensity(float v, bool regenerateNow){bassDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setMelodyDensity(float v, bool regenerateNow){melodyDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setArpDensity(float v, bool regenerateNow){arpDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setSwing(float v){swing=juce::jlimit(0.f,.75f,v);}
 void MidiForgeAudioProcessor::setHumanize(float v){humanize=juce::jlimit(0.f,1.f,v);}
-void MidiForgeAudioProcessor::setComplexity(float v){complexity=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setMelodyLength(float v){melodyLength=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setPauseChance(float v){pauseChance=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setLeapChance(float v){leapChance=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setGhostChance(float v){ghostChance=juce::jlimit(0.f,1.f,v);regenerate();}
+void MidiForgeAudioProcessor::setComplexity(float v, bool regenerateNow){complexity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setMelodyLength(float v, bool regenerateNow){melodyLength=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setPauseChance(float v, bool regenerateNow){pauseChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setLeapChance(float v, bool regenerateNow){leapChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setGhostChance(float v, bool regenerateNow){ghostChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setArpRate(int v){arpRate=juce::jlimit(1,8,v);regenerate();}
 void MidiForgeAudioProcessor::setVoicingWidth(float v){voicingWidth=juce::jlimit(0.f,1.f,v);regenerate();}
 void MidiForgeAudioProcessor::setChordExtensions(bool v){chordExtensions=v;regenerate();}
 void MidiForgeAudioProcessor::setInversions(bool v){inversions=v;regenerate();}
-void MidiForgeAudioProcessor::setMotifStrength(float v){motifStrength=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setVariationAmount(float v){variationAmount=juce::jlimit(0.f,1.f,v);regenerateVariations();}
-void MidiForgeAudioProcessor::setFillAmount(float v){fillAmount=juce::jlimit(0.f,1.f,v);regenerate();}
-void MidiForgeAudioProcessor::setEnergy(float v){energy=juce::jlimit(0.f,1.f,v);regenerate();}
+void MidiForgeAudioProcessor::setMotifStrength(float v, bool regenerateNow){motifStrength=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setVariationAmount(float v, bool regenerateNow){variationAmount=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerateVariations();}
+void MidiForgeAudioProcessor::setFillAmount(float v, bool regenerateNow){fillAmount=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
+void MidiForgeAudioProcessor::setEnergy(float v, bool regenerateNow){energy=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setChordsEnabled(bool v){chordsEnabled=v;}
 void MidiForgeAudioProcessor::setBassEnabled(bool v){bassEnabled=v;}
 void MidiForgeAudioProcessor::setMelodyEnabled(bool v){melodyEnabled=v;}
@@ -2953,6 +2953,10 @@ o.writeInt(soundTarget);
 o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
 o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
 o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
+// 0.46: persist newer UI/learning state while remaining backward-compatible.
+o.writeBool(leadStyleSoundCloud);
+o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
+o.writeBool(tasteEnabled);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -2972,6 +2976,14 @@ if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
 if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
+// 0.46: older preset states simply stop before these optional bytes.
+if (i.getNumBytesRemaining() >= 1) leadStyleSoundCloud = i.readBool();
+if (i.getNumBytesRemaining() >= 4)
+{
+    lockChordsLayer = i.readBool(); lockBassLayer = i.readBool();
+    lockMelodyLayer = i.readBool(); lockArpLayer = i.readBool();
+}
+if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
 regenerate();
 chooseVariation (savedSelection);
 }

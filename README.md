@@ -1,5 +1,12 @@
 # MIDI Forge fixed project
 
+## 0.46 Performance / State
+- Slider-driven generation is debounced for 250 ms, so dragging a control no longer runs the full 1000-candidate search on every mouse tick.
+- The duplicate MIDI export entry was removed; the main EXPORT .MID action is now the single UI path.
+- Fixed Section Mode setter so the selected enum value is no longer discarded.
+- Persisted SoundCloud lead mode, Smart Locks and Taste ML enable state in plugin state, while keeping older saved states backward-compatible.
+- Added visible plugin version **0.46.0**.
+
 Fixes:
 - JUCE VST3-only compatibility (`JUCE_VST3_CAN_REPLACE_VST2=0`)
 - Song enum/type name collision
