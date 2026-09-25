@@ -21,7 +21,7 @@ void scheduleRegeneration (bool preserveSelection);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 juce::Label title, sectionLabel, variationInfoLabel, versionLabel;
-uint64_t regenerationDueMs = 0;
+juce::int64 regenerationDueMs = 0;
 uint32_t scheduledGenerationNonce = 0;
 bool regenerationPending = false;
 bool preserveSelectionOnRegenerate = false;
