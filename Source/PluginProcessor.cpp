@@ -2709,7 +2709,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 case EnergeticMood:   judgeMoodTension = -0.02f; break;
                 default:              judgeMoodTension =  0.0f;  break;
             }
-        {
+
             std::array<float, 4> barTension {};
             std::array<int, 4> barCount {};
             std::array<std::vector<int>, 4> chordPcs;
