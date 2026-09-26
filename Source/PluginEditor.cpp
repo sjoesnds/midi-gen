@@ -67,7 +67,7 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.57.0", juce::dontSendNotification);
+versionLabel.setText("v0.58.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -121,10 +121,18 @@ quantizeButton.onClick = [this]
 };
 resetViewButton.onClick = [this] { pianoRoll.resetView(); };
 phraseButton.onClick = [this] { pianoRoll.selectPhrase(); };
+barButton.onClick = [this] { pianoRoll.selectBar(); };
 transposeDownButton.onClick = [this] { pianoRoll.transposeSelected (-12); };
 transposeUpButton.onClick = [this] { pianoRoll.transposeSelected (12); };
 snapScaleButton.onClick = [this] { pianoRoll.snapSelectedToScale(); };
 humanizeSelectionButton.onClick = [this] { pianoRoll.humanizeSelected(); };
+duplicateButton.onClick = [this] { pianoRoll.duplicateSelected(); };
+reverseButton.onClick = [this] { pianoRoll.reverseSelected(); };
+doubleTimeButton.onClick = [this] { pianoRoll.scaleTimeSelected (true); };
+halfTimeButton.onClick = [this] { pianoRoll.scaleTimeSelected (false); };
+rotateButton.onClick = [this] { pianoRoll.rotateSelected(); };
+normalizeVelocityButton.onClick = [this] { pianoRoll.normalizeVelocitySelected(); };
+frameSelectionButton.onClick = [this] { pianoRoll.frameSelection(); };
 selectionLabel.setText ("SEL 0", juce::dontSendNotification);
 selectionLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
 selectionLabel.setFont (juce::Font (11.0f));
@@ -132,11 +140,27 @@ selectionLabel.setJustificationType (juce::Justification::centredLeft);
 addAndMakeVisible (quantizeButton);
 addAndMakeVisible (resetViewButton);
 addAndMakeVisible (phraseButton);
+addAndMakeVisible (barButton);
 addAndMakeVisible (transposeDownButton);
 addAndMakeVisible (transposeUpButton);
 addAndMakeVisible (snapScaleButton);
 addAndMakeVisible (humanizeSelectionButton);
+addAndMakeVisible (duplicateButton);
+addAndMakeVisible (reverseButton);
+addAndMakeVisible (doubleTimeButton);
+addAndMakeVisible (halfTimeButton);
+addAndMakeVisible (rotateButton);
+addAndMakeVisible (normalizeVelocityButton);
+addAndMakeVisible (frameSelectionButton);
 addAndMakeVisible (selectionLabel);
+
+duplicateButton.setTooltip ("Duplicate the selected phrase inside the loop");
+reverseButton.setTooltip ("Reverse selected notes in time");
+doubleTimeButton.setTooltip ("Compress selected timing to 2x speed");
+halfTimeButton.setTooltip ("Expand selected timing to half speed");
+rotateButton.setTooltip ("Rotate selected phrase by one quarter");
+normalizeVelocityButton.setTooltip ("Set selected velocities to their average");
+frameSelectionButton.setTooltip ("Zoom and pan to the current selection");
 mode.setVisible(false);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
@@ -344,7 +368,7 @@ g.drawFittedText("PART DENSITY / MUSICAL DNA",20,146,860,18,juce::Justification:
 g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
 g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
 g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
-g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "PIANO ROLL 2.0  -  multi-select / phrase tools / scale-safe editing",20,452,860,18,juce::Justification::left,1);
+g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "LOOP EDITOR 3.0  -  Alt-drag marquee / phrase+bar select / DUP REV 2X HALF ROT VEL FRAME",20,452,860,18,juce::Justification::left,1);
 g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left,1);
 }
 void MidiForgeAudioProcessorEditor::resized()
@@ -419,13 +443,23 @@ pianoGridBox.setBounds(20,447,62,22);
 quantizeButton.setBounds(88,447,80,22);
 resetViewButton.setBounds(174,447,82,22);
 phraseButton.setBounds(262,447,78,22);
-transposeDownButton.setBounds(346,447,48,22);
-transposeUpButton.setBounds(400,447,48,22);
-snapScaleButton.setBounds(454,447,64,22);
-humanizeSelectionButton.setBounds(524,447,82,22);
-selectionLabel.setBounds(614,447,170,22);
-pianoRoll.setBounds(left,472,contentW,190);
-drumGrid.setBounds(left,472,contentW,190);
+barButton.setBounds(346,447,48,22);
+transposeDownButton.setBounds(400,447,48,22);
+transposeUpButton.setBounds(454,447,48,22);
+snapScaleButton.setBounds(508,447,64,22);
+humanizeSelectionButton.setBounds(578,447,82,22);
+selectionLabel.setBounds(668,447,120,22);
+
+duplicateButton.setBounds(20,473,48,22);
+reverseButton.setBounds(72,473,48,22);
+doubleTimeButton.setBounds(124,473,48,22);
+halfTimeButton.setBounds(176,473,54,22);
+rotateButton.setBounds(234,473,48,22);
+normalizeVelocityButton.setBounds(286,473,72,22);
+frameSelectionButton.setBounds(362,473,64,22);
+
+pianoRoll.setBounds(left,500,contentW,162);
+drumGrid.setBounds(left,500,contentW,162);
 drumViewBtn.setBounds(850,112,120,22);
 
 // Bottom action rows — always visible in the default 800px editor.
