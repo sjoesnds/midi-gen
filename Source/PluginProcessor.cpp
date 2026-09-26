@@ -4708,15 +4708,14 @@ chooseVariation (0);
 }
 void MidiForgeAudioProcessor::regenerateVariations()
 {
-refreshHostBpm();
-{
-int keep = 0;
-{
-const juce::ScopedLock sl (variationsLock);
-keep = selectedVariation;
-}
-buildVariationBank();
-chooseVariation (keep);
+    refreshHostBpm();
+    int keep = 0;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        keep = selectedVariation;
+    }
+    buildVariationBank();
+    chooseVariation (keep);
 }
 void MidiForgeAudioProcessor::chooseVariation(int index)
 {
