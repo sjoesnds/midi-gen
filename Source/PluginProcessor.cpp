@@ -1106,6 +1106,134 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minHits) : prof.minHits)
                           * (1.0f - 0.34f * fastTempo)));
 
+    // 0.58.3 Context-Aware Generation: melody now reads the musical space that
+    // already exists in this bar before choosing its own rhythm and register.
+    // Chords, bass, drums and arp become soft constraints rather than separate
+    // generators competing for the same grid.
+    struct MelodyContext
+    {
+        std::array<float, 16> chordCover {};
+        std::array<float, 16> bassCover {};
+        std::array<float, 16> drumCover {};
+        std::array<float, 16> arpCover {};
+        float backdropDensity = 0.0f;
+        float chordDensity = 0.0f;
+        float bassDensity = 0.0f;
+        float drumDensity = 0.0f;
+        float arpDensity = 0.0f;
+        float chordPitchCenter = -1.0f;
+    } context;
+
+    {
+        float chordPitchSum = 0.0f;
+        float chordPitchWeight = 0.0f;
+        std::array<bool, 16> chordHit {};
+        std::array<bool, 16> bassHit {};
+        std::array<bool, 16> drumHit {};
+        std::array<bool, 16> arpHit {};
+
+        const int barStart = barOffset * 16;
+        const int barEnd = barStart + 16;
+
+        for (const auto& ev : s.notes)
+        {
+            if (ev.step < barStart || ev.step >= barEnd)
+                continue;
+
+            const int localStart = juce::jlimit (0, 15, ev.step - barStart);
+            const int localEnd = juce::jlimit (localStart + 1, 16,
+                                               localStart + juce::jmax (1, ev.length));
+
+            float* coverage = nullptr;
+            std::array<bool, 16>* onsetMask = nullptr;
+
+            if (ev.channel == 1)
+            {
+                coverage = context.chordCover.data();
+                onsetMask = &chordHit;
+                chordPitchSum += (float) ev.note * (float) juce::jmax (1, ev.length);
+                chordPitchWeight += (float) juce::jmax (1, ev.length);
+            }
+            else if (ev.channel == 2)
+            {
+                coverage = context.bassCover.data();
+                onsetMask = &bassHit;
+            }
+            else if (ev.channel == 4)
+            {
+                coverage = context.arpCover.data();
+                onsetMask = &arpHit;
+            }
+            else if (ev.channel == 5)
+            {
+                coverage = context.drumCover.data();
+                onsetMask = &drumHit;
+            }
+
+            if (coverage != nullptr && onsetMask != nullptr)
+            {
+                (*onsetMask)[(size_t) localStart] = true;
+                for (int step = localStart; step < localEnd; ++step)
+                    coverage[(size_t) step] = 1.0f;
+            }
+        }
+
+        int chordSteps = 0, bassSteps = 0, drumSteps = 0, arpSteps = 0;
+        for (int step = 0; step < 16; ++step)
+        {
+            chordSteps += chordHit[(size_t) step] ? 1 : 0;
+            bassSteps += bassHit[(size_t) step] ? 1 : 0;
+            drumSteps += drumHit[(size_t) step] ? 1 : 0;
+            arpSteps += arpHit[(size_t) step] ? 1 : 0;
+            const float busy = juce::jlimit (0.0f, 1.0f,
+                0.34f * context.chordCover[(size_t) step]
+              + 0.30f * context.bassCover[(size_t) step]
+              + 0.20f * context.drumCover[(size_t) step]
+              + 0.16f * context.arpCover[(size_t) step]);
+            context.backdropDensity += busy;
+        }
+
+        context.chordDensity = (float) chordSteps / 16.0f;
+        context.bassDensity = (float) bassSteps / 16.0f;
+        context.drumDensity = (float) drumSteps / 16.0f;
+        context.arpDensity = (float) arpSteps / 16.0f;
+        context.backdropDensity /= 16.0f;
+        if (chordPitchWeight > 0.0f)
+            context.chordPitchCenter = chordPitchSum / chordPitchWeight;
+    }
+
+    const float contextSyncBias =
+        (melodyType == HookMelody || melodyType == VocalLikeMelody) ? 0.10f
+        : (melodyType == SparseLeadMelody ? -0.08f : 0.0f);
+    const float contextGapBias =
+        (melodyType == SparseLeadMelody || genre == Ambient) ? 0.16f : 0.06f;
+
+    auto contextStepWeight = [&](int step) -> float
+    {
+        const float chord = context.chordCover[(size_t) step];
+        const float bass = context.bassCover[(size_t) step];
+        const float drums = context.drumCover[(size_t) step];
+        const float arp = context.arpCover[(size_t) step];
+        const float busy = juce::jlimit (0.0f, 1.0f,
+            0.34f * chord + 0.30f * bass + 0.20f * drums + 0.16f * arp);
+
+        // Fill genuine gaps first, but preserve intentional anchors on strong
+        // beats and for hook/vocal-like lines.
+        float weight = 1.0f + contextGapBias * (1.0f - busy * 2.0f);
+        if (step % 4 == 0)
+            weight += 0.06f + 0.06f * contextSyncBias;
+        if (chord > 0.0f)
+            weight += contextSyncBias;
+        if (bass > 0.0f)
+            weight += 0.035f * (1.0f + contextSyncBias);
+        if (busy > 0.78f && step % 4 != 0)
+            weight *= 0.62f;
+        if (busy < 0.20f)
+            weight *= 1.08f;
+
+        return juce::jlimit (0.52f, 1.24f, weight);
+    };
+
     // 0.26 Melody Engine 3.0: give every 4-bar phrase a compositional grammar.
     // A = statement, A' = variation, B = contrast/peak, A'' = return/cadence.
     // The grammar changes the destination of notes rather than merely adding
@@ -1348,6 +1476,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         else if (slowTempo > 0.05f && sixteenth)
             positionDensity = juce::jlimit (0.20f, 0.98f, positionDensity + 0.10f * slowTempo);
 
+        // 0.58.3: avoid stacking the melody onto a fully occupied slice of the
+        // backdrop, while still allowing deliberate chord/bass alignment.
+        positionDensity *= contextStepWeight (x);
+
         if ((float)posRank(x) / 1000.0f < positionDensity)
             chosen.push_back(x);
     }
@@ -1359,7 +1491,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         for (int x : positions)
         {
             if (std::find(chosen.begin(), chosen.end(), x) != chosen.end()) continue;
-            const uint32_t rk = posRank(x);
+            const uint32_t rk = (uint32_t) juce::jlimit (
+                0, 1000000,
+                juce::roundToInt ((float) posRank (x) / contextStepWeight (x)));
             if (rk < bestRank) { bestRank = rk; bestPos = x; }
         }
         if (bestPos < 0) break;
@@ -1770,6 +1904,24 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
             note = foldIntoLane(note, melLo, melHi);
             note = juce::jlimit(melLo, melHi, snapToScale(note));
+        }
+
+        // 0.58.3: when the chord voicing already occupies the lead's middle
+        // register, bias the melody toward a clear upper voice instead of
+        // repeatedly landing inside the chord stack.
+        if (context.chordPitchCenter >= 0.0f)
+        {
+            const float leadCentre = 0.5f * (float) (melLo + melHi);
+            if (std::abs (context.chordPitchCenter - leadCentre) < 9.0f)
+            {
+                int target = juce::roundToInt (context.chordPitchCenter + 9.0f);
+                if (target > melHi)
+                    target = juce::roundToInt (context.chordPitchCenter - 8.0f);
+                target = juce::jlimit (melLo, melHi, snapToScale (target));
+                note = juce::jlimit (melLo, melHi,
+                    snapToScale (juce::roundToInt (0.72f * (float) note
+                                                  + 0.28f * (float) target)));
+            }
         }
 
         // 0.48 Harmonic anticipation: on the end of a four-bar cell, a late
@@ -2267,6 +2419,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float leap = 0.3f;
         float reg = 0.5f;
         float surprise = 0.3f;
+        float context = 0.5f;
         float loop = 0.5f;
         float groove = 0.5f;
         float memory = 0.5f;
@@ -2276,7 +2429,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -2286,6 +2439,73 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const int totalSteps = juce::jmax(1, sec.bars * 16);
         f.density = juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 6));
         f.space = 1.0f - juce::jlimit(0.0f, 1.0f, (float)m.size() / (float)juce::jmax(1, sec.bars * 9));
+
+        // 0.58.3 Context Judge: reward a melody that occupies useful gaps,
+        // shares a few meaningful accents with the backing, and stays out of
+        // the same register as dense chord voicings.
+        {
+            std::array<float, 16> occupied {};
+            float chordCenter = 0.0f, chordWeight = 0.0f;
+
+            for (const auto& n : sec.notes)
+            {
+                if (n.channel == 3 || n.step / 16 < 0 || n.step / 16 >= sec.bars)
+                    continue;
+
+                const int start = juce::jlimit (0, sec.bars * 16 - 1, n.step);
+                const int end = juce::jmin (sec.bars * 16, start + juce::jmax (1, n.length));
+                for (int step = start; step < end; ++step)
+                {
+                    const int local = step % 16;
+                    const float w = n.channel == 1 ? 0.46f
+                                  : n.channel == 2 ? 0.28f
+                                  : n.channel == 4 ? 0.16f
+                                                    : n.channel == 5 ? 0.10f : 0.04f;
+                    occupied[(size_t) local] = juce::jlimit (0.0f, 1.0f,
+                        occupied[(size_t) local] + w);
+
+                    if (n.channel == 1)
+                    {
+                        chordCenter += (float) n.note * (float) juce::jmax (1, n.length);
+                        chordWeight += (float) juce::jmax (1, n.length);
+                    }
+                }
+            }
+
+            int shared = 0;
+            int open = 0;
+            for (auto* n : m)
+            {
+                const float occ = occupied[(size_t) (n->step % 16)];
+                if (occ >= 0.40f) ++shared;
+                if (occ <= 0.18f) ++open;
+            }
+
+            const float syncRatio = m.empty() ? 0.0f : (float) shared / (float) m.size();
+            const float gapRatio = m.empty() ? 0.0f : (float) open / (float) m.size();
+            const float targetSync =
+                (melodyType == HookMelody || melodyType == VocalLikeMelody) ? 0.48f
+                : (melodyType == SparseLeadMelody ? 0.28f : 0.39f);
+            const float syncFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (syncRatio - targetSync) / 0.48f);
+            const float gapTarget = (melodyType == SparseLeadMelody || genre == Ambient) ? 0.58f : 0.44f;
+            const float gapFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (gapRatio - gapTarget) / 0.52f);
+
+            float registerFit = 0.62f;
+            if (chordWeight > 0.0f && !m.empty())
+            {
+                chordCenter /= chordWeight;
+                float melodyMean = 0.0f;
+                for (auto* n : m) melodyMean += (float) n->note;
+                melodyMean /= (float) m.size();
+                const float separation = std::abs (melodyMean - chordCenter);
+                registerFit = juce::jlimit (0.0f, 1.0f, separation / 14.0f);
+            }
+
+            f.context = juce::jlimit (0.0f, 1.0f,
+                0.45f * syncFit + 0.35f * gapFit + 0.20f * registerFit);
+        }
 
         if (m.size() >= 2)
         {
@@ -3614,6 +3834,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // rest still benefit from recognizable identity without being forced
         // into literal repetition.
         quality += 0.18f * motifMemory;
+        quality += 0.075f * f.context;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
 
@@ -3945,7 +4166,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         candidates.push_back({std::move(flat), quality, identity, archetype,
                               f.density, f.space, f.rhythmIdentity, f.motifIdentity,
-                              f.leap, f.registerScore, f.surprise, f.loopQuality,
+                              f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
                               grooveQuality, motifMemory});
     }
 

@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.58.2**
+**Current version: 0.58.3**
+
+### Context-Aware Generation — 0.58.3
+- Melody generation now reads the musical material already present in the current bar before selecting its own onsets.
+- Chords, bass, drums and existing arps contribute a soft occupancy map, so the melody preferentially fills genuine gaps instead of stacking on every layer.
+- Hook/Vocal-like roles retain more intentional anchor alignment, while Sparse Lead and ambient contexts favor open space.
+- Chord-voicing register is measured before melody placement; when the lead lane overlaps the chord stack, the melody receives a soft upper-voice separation bias.
+- The candidate Judge now scores backing/lead interplay: meaningful shared accents, use of open space and register separation all influence MAGIC selection.
+- The feature remains loop-centric and deterministic; it does not add song/arrangement generation.
 
 ## What it does
 
