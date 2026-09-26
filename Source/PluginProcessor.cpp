@@ -4688,12 +4688,27 @@ void MidiForgeAudioProcessor::evolveSelected()
     mutateSelected (0.22f);
 }
 
+void MidiForgeAudioProcessor::refreshHostBpm()
+{
+    if (auto* ph = getPlayHead())
+    {
+        if (auto pos = ph->getPosition())
+        {
+            if (auto bpm = pos->getBpm())
+                currentBpm.store (juce::jlimit (40.0, 240.0, *bpm));
+        }
+    }
+}
+
 void MidiForgeAudioProcessor::regenerate()
 {
+refreshHostBpm();
 buildVariationBank();
 chooseVariation (0);
 }
 void MidiForgeAudioProcessor::regenerateVariations()
+{
+refreshHostBpm();
 {
 int keep = 0;
 {
