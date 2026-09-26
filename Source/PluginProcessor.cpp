@@ -4938,6 +4938,88 @@ void MidiForgeAudioProcessor::buildVariationBank()
         "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK"
     };
 
+    // 0.60 Loop Forge: final integration pass after generation, judging,
+    // diversity and transformation. A transformed loop must survive one
+    // last coherence check before entering the final variation bank.
+    auto loopForgeScore = [&] (const Section& sec)
+    {
+        if (sec.notes.empty()) return -1.0f;
+
+        const auto f = melodyFeatures (sec, generationSeed);
+        const float motif = motifMemoryScore (sec);
+        const float groove = grooveQualityScore (sec);
+        int melodyCount = 0;
+        int chordCount = 0;
+        int bassCount = 0;
+        int offbeatMelody = 0;
+        int scaleSafe = 0;
+
+        for (const auto& n : sec.notes)
+        {
+            if (n.channel == 3)
+            {
+                ++melodyCount;
+                if ((n.step % 4) != 0) ++offbeatMelody;
+                if (n.note == snapToScale (n.note)) ++scaleSafe;
+            }
+            else if (n.channel == 1) ++chordCount;
+            else if (n.channel == 2) ++bassCount;
+        }
+
+        const float densityHealth = melodyCount > 0
+            ? juce::jlimit (0.0f, 1.0f, 1.0f - std::abs (f.density - 0.50f) / 0.65f)
+            : (melodyType == SparseLeadMelody ? 0.65f : 0.20f);
+        const float rhythmicIntent = melodyCount > 0
+            ? juce::jlimit (0.0f, 1.0f,
+                0.55f * f.rhythmIdentity
+                + 0.25f * ((float) offbeatMelody / (float) melodyCount)
+                + 0.20f * groove)
+            : 0.35f;
+        const float scaleSafety = melodyCount > 0
+            ? (float) scaleSafe / (float) melodyCount : 1.0f;
+        const float layerPresence =
+            ((chordCount > 0 || !chordsEnabled) ? 0.5f : 0.0f)
+            + ((bassCount > 0 || !bassEnabled) ? 0.5f : 0.0f);
+
+        return
+            0.24f * f.loopQuality
+            + 0.16f * f.context
+            + 0.14f * f.tensionArc
+            + 0.10f * f.phraseArc
+            + 0.12f * motif
+            + 0.10f * groove
+            + 0.06f * densityHealth
+            + 0.04f * rhythmicIntent
+            + 0.02f * scaleSafety
+            + 0.02f * layerPresence;
+    };
+
+    auto finalizeLoop = [&] (Section& sec)
+    {
+        for (auto& n : sec.notes)
+        {
+            if (n.channel == 3)
+            {
+                n.note = foldIntoLane (snapToScale (n.note), 34, 108);
+                n.velocity = juce::jlimit (30, 122, n.velocity);
+            }
+            else
+            {
+                n.velocity = juce::jlimit (25, 122, n.velocity);
+            }
+            n.length = juce::jlimit (1, 16, n.length);
+        }
+
+        removeDuplicateNotes (sec.notes);
+        cleanMelodyLine (sec.notes);
+        std::sort (sec.notes.begin(), sec.notes.end(),
+                   [] (const NoteEvent& a, const NoteEvent& b)
+                   {
+                       if (a.step != b.step) return a.step < b.step;
+                       if (a.channel != b.channel) return a.channel < b.channel;
+                       return a.note < b.note;
+                   });
+    };
     // Use the strongest final discovery as the transformation source. MAGIC 3
     // still contributes the archetype search/diversity; 0.56 turns that discovery
     // into a focused family of standalone loop alternatives.
@@ -4994,6 +5076,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
                            if (a.channel != b.channel) return a.channel < b.channel;
                            return a.note < b.note;
                        });
+
+            // Final Forge gate: transformations are valuable only when they
+            // preserve the musical coherence established by the Judge stack.
+            // Keep the pre-finalized form when cleanup materially hurts it.
+            const Section beforeForge = flat;
+            const float beforeForgeScore = loopForgeScore (beforeForge);
+            finalizeLoop (flat);
+            const float afterForgeScore = loopForgeScore (flat);
+            if (afterForgeScore + 0.055f < beforeForgeScore)
+                flat = beforeForge;
 
             result.push_back (std::move (flat));
         }
