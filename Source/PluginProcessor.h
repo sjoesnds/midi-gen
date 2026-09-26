@@ -318,6 +318,7 @@ PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
 void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void buildVariationBank();
+void refreshHostBpm();
 Section mergedSelectedSong() const;
 void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias);
 JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessor)
