@@ -3010,6 +3010,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 + 0.10f * f.phraseArc);
         }
 
+
         // Taste Learning 2.0 features.
         if (!m.empty())
         {
@@ -4258,6 +4259,248 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 + 0.15f * balance;
             quality += 0.16f * musicalCoherence;
         }
+
+        // 0.59 Musical Judge 2.0:
+        // Evaluate the loop as one musical statement instead of a sum of mostly
+        // independent metrics. The judge explicitly balances identity, tension,
+        // novelty, contour, groove, harmony, register, layer interaction, seam
+        // continuity and density trajectory, then adds a small anti-boredom gate.
+        {
+            const int barsN = juce::jmax (1, flat.bars);
+            std::vector<std::vector<const NoteEvent*>> melodyBars ((size_t) barsN);
+            std::vector<std::vector<int>> chordPcs ((size_t) barsN);
+            std::vector<std::vector<const NoteEvent*>> bassBars ((size_t) barsN);
+
+            for (const auto& n : flat.notes)
+            {
+                const int b = juce::jlimit (0, barsN - 1, n.step / 16);
+                if (n.channel == 1)
+                {
+                    const int pc = (n.note % 12 + 12) % 12;
+                    if (std::find (chordPcs[(size_t) b].begin(),
+                                   chordPcs[(size_t) b].end(), pc) == chordPcs[(size_t) b].end())
+                        chordPcs[(size_t) b].push_back (pc);
+                }
+                else if (n.channel == 2)
+                {
+                    bassBars[(size_t) b].push_back (&n);
+                }
+                else if (n.channel == 3)
+                {
+                    melodyBars[(size_t) b].push_back (&n);
+                }
+            }
+
+            for (auto& v : melodyBars)
+                std::stable_sort (v.begin(), v.end(),
+                    [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+            for (auto& v : bassBars)
+                std::stable_sort (v.begin(), v.end(),
+                    [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+
+            // 1) Identity: keep a recognizable idea, but not literal copying.
+            const float identityScore = juce::jlimit (0.0f, 1.0f,
+                0.56f * motifMemory + 0.24f * f.motifIdentity + 0.20f * f.phraseMemory);
+
+            // 2) Repetition vs novelty: reward a useful middle ground instead
+            // of always preferring either maximum repetition or maximum chaos.
+            const float novelty = juce::jlimit (0.0f, 1.0f,
+                0.48f * f.variety + 0.30f * f.surprise + 0.22f * f.contour);
+            const float identityNoveltyBalance = 1.0f
+                - juce::jlimit (0.0f, 1.0f,
+                    std::abs ((0.62f * identityScore + 0.38f * novelty) - 0.58f) / 0.58f);
+
+            // 3) Tension/release and phrase contour.
+            const float tensionRelease = juce::jlimit (0.0f, 1.0f,
+                0.62f * f.tensionArc + 0.38f * f.phraseArc);
+
+            float barPitch[8] = {};
+            int barPitchCount[8] = {};
+            int barMelodyCount[8] = {};
+            for (int b = 0; b < juce::jmin (8, barsN); ++b)
+            {
+                for (const auto* n : melodyBars[(size_t) b])
+                {
+                    barPitch[b] += (float) n->note;
+                    ++barPitchCount[b];
+                    ++barMelodyCount[b];
+                }
+            }
+
+            float contourScore = 0.50f;
+            float densityTrajectory = 0.50f;
+            if (barsN >= 4)
+            {
+                for (int b = 0; b < 4; ++b)
+                    if (barPitchCount[b] > 0) barPitch[b] /= (float) barPitchCount[b];
+
+                const float peakRise = barPitch[2] - barPitch[0];
+                const float returnDrop = barPitch[2] - barPitch[3];
+                const float riseFit = juce::jlimit (0.0f, 1.0f,
+                    1.0f - std::abs (peakRise - 2.0f) / 9.0f);
+                const float releaseFit = juce::jlimit (0.0f, 1.0f,
+                    1.0f - std::abs (returnDrop - 1.0f) / 8.0f);
+
+                const float localTurn = std::abs (barPitch[1] - barPitch[0])
+                                      + std::abs (barPitch[2] - barPitch[1]);
+                const float usefulTurn = juce::jlimit (0.0f, 1.0f, localTurn / 8.0f);
+                contourScore = juce::jlimit (0.0f, 1.0f,
+                    0.46f * riseFit + 0.34f * releaseFit + 0.20f * usefulTurn);
+
+                const float peakDensity = (float) barMelodyCount[2];
+                const float firstDensity = (float) barMelodyCount[0];
+                const float returnDensity = (float) barMelodyCount[3];
+                const float peakLift = juce::jlimit (0.0f, 1.0f,
+                    (peakDensity - firstDensity + 1.0f) / 5.0f);
+                const float returnFit = juce::jlimit (0.0f, 1.0f,
+                    1.0f - std::abs (returnDensity - peakDensity * 0.78f) / 4.0f);
+                densityTrajectory = 0.58f * peakLift + 0.42f * returnFit;
+            }
+
+            // 4) Harmony: stable chord tones on important material, with enough
+            // non-chord color to avoid turning every melody into an arpeggio.
+            float harmonicSum = 0.0f;
+            float harmonicWeight = 0.0f;
+            for (int b = 0; b < barsN; ++b)
+            {
+                const auto& cp = chordPcs[(size_t) b];
+                if (cp.empty()) continue;
+                for (const auto* n : melodyBars[(size_t) b])
+                {
+                    const int pc = (n->note % 12 + 12) % 12;
+                    const bool chordTone = std::find (cp.begin(), cp.end(), pc) != cp.end();
+                    const float strongBeat = ((n->step % 4) == 0) ? 1.20f : 0.82f;
+                    const float lengthWeight = 0.80f + 0.20f
+                        * juce::jlimit (0.0f, 1.0f, (float) juce::jmax (1, n->length) / 8.0f);
+                    harmonicSum += (chordTone ? 1.0f : 0.58f) * strongBeat * lengthWeight;
+                    harmonicWeight += strongBeat * lengthWeight;
+                }
+            }
+            const float harmonyScore = harmonicWeight > 0.0f
+                ? juce::jlimit (0.0f, 1.0f, harmonicSum / harmonicWeight)
+                : 0.55f;
+
+            // 5) Register balance: the lead should sit above the harmonic bed,
+            // but not so far away that the loop stops feeling like one object.
+            float melodyMean = 0.0f;
+            int melodyCount = 0;
+            float chordMean = 0.0f;
+            int chordCount = 0;
+            float bassMean = 0.0f;
+            int bassCount = 0;
+            for (int b = 0; b < barsN; ++b)
+            {
+                for (const auto* n : melodyBars[(size_t) b]) { melodyMean += n->note; ++melodyCount; }
+                for (const auto& n : flat.notes)
+                    if (n.channel == 1 && n.step / 16 == b) { chordMean += n.note; ++chordCount; }
+                for (const auto* n : bassBars[(size_t) b]) { bassMean += n->note; ++bassCount; }
+            }
+            const float leadMean = melodyCount > 0 ? melodyMean / (float) melodyCount : 72.0f;
+            const float bedMean = chordCount > 0 ? chordMean / (float) chordCount : leadMean - 12.0f;
+            const float bassCenter = bassCount > 0 ? bassMean / (float) bassCount : bedMean - 18.0f;
+            const float leadChordGap = std::abs (leadMean - bedMean);
+            const float leadBassGap = std::abs (leadMean - bassCenter);
+            const float chordGapFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+                std::abs (leadChordGap - 11.0f) / 18.0f);
+            const float bassGapFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+                std::abs (leadBassGap - 22.0f) / 24.0f);
+            const float registerBalance = juce::jlimit (0.0f, 1.0f,
+                0.62f * chordGapFit + 0.38f * bassGapFit);
+
+            // 6) Melody/bass relationship: a good pair shares a few anchors but
+            // does not mirror every movement. Score both rhythmic support and
+            // directional independence between bar-level movements.
+            float sharedAccentRatio = 0.0f;
+            int sharedCount = 0;
+            int totalMelody = 0;
+            for (int b = 0; b < barsN; ++b)
+            {
+                for (const auto* mNote : melodyBars[(size_t) b])
+                {
+                    ++totalMelody;
+                    bool nearBass = false;
+                    for (const auto* bNote : bassBars[(size_t) b])
+                    {
+                        if (std::abs (mNote->step - bNote->step) <= 1) { nearBass = true; break; }
+                    }
+                    if (nearBass) ++sharedCount;
+                }
+            }
+            sharedAccentRatio = totalMelody > 0 ? (float) sharedCount / (float) totalMelody : 0.0f;
+            const float sharedAccentFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (sharedAccentRatio - 0.52f) / 0.48f);
+
+            int motionComparisons = 0;
+            int independentMotion = 0;
+            for (int b = 1; b < barsN; ++b)
+            {
+                if (melodyBars[(size_t) b].empty() || melodyBars[(size_t) (b - 1)].empty()
+                    || bassBars[(size_t) b].empty() || bassBars[(size_t) (b - 1)].empty())
+                    continue;
+
+                const int md = melodyBars[(size_t) b].front()->note
+                            - melodyBars[(size_t) (b - 1)].front()->note;
+                const int bd = bassBars[(size_t) b].front()->note
+                            - bassBars[(size_t) (b - 1)].front()->note;
+                if (md == 0 || bd == 0 || (md > 0) != (bd > 0))
+                    ++independentMotion;
+                ++motionComparisons;
+            }
+            const float motionFit = motionComparisons > 0
+                ? juce::jlimit (0.0f, 1.0f,
+                    1.0f - std::abs ((float) independentMotion / (float) motionComparisons - 0.62f) / 0.62f)
+                : 0.55f;
+            const float layerRelationship = juce::jlimit (0.0f, 1.0f,
+                0.58f * sharedAccentFit + 0.42f * motionFit);
+
+            // 7) Seam: the last phrase event should be able to hand the loop back
+            // to the first event without a giant register discontinuity.
+            float seamScore = juce::jlimit (0.0f, 1.0f, f.seam);
+            if (melodyCount >= 2)
+            {
+                const NoteEvent* first = nullptr;
+                const NoteEvent* last = nullptr;
+                for (const auto* n : melodyBars.front())
+                    if (first == nullptr) { first = n; break; }
+                for (auto it = melodyBars.rbegin(); it != melodyBars.rend() && last == nullptr; ++it)
+                    if (! it->empty()) last = it->back();
+
+                if (first != nullptr && last != nullptr)
+                {
+                    const int loopInterval = std::abs (first->note - last->note);
+                    const float pitchClosure = 1.0f
+                        - juce::jlimit (0.0f, 1.0f, std::abs ((float) loopInterval - 3.0f) / 9.0f);
+                    seamScore = juce::jlimit (0.0f, 1.0f, 0.65f * f.seam + 0.35f * pitchClosure);
+                }
+            }
+
+            // 8) Holistic "musical statement" score.
+            const float musicalStatement =
+                0.12f * identityScore
+                + 0.10f * tensionRelease
+                + 0.10f * identityNoveltyBalance
+                + 0.10f * contourScore
+                + 0.10f * f.grooveQuality
+                + 0.14f * harmonyScore
+                + 0.08f * registerBalance
+                + 0.10f * layerRelationship
+                + 0.07f * seamScore
+                + 0.09f * densityTrajectory;
+
+            // 9) Anti-boredom gate: technically correct loops with strong identity
+            // but weak novelty, contour and surprise get a controlled penalty.
+            const float staleIdentity = juce::jlimit (0.0f, 1.0f,
+                (identityScore - 0.70f) / 0.30f);
+            const float lowNovelty = juce::jlimit (0.0f, 1.0f,
+                (0.34f - novelty) / 0.34f);
+            const float weakArc = juce::jlimit (0.0f, 1.0f,
+                (0.42f - juce::jmax (f.phraseArc, f.tensionArc)) / 0.42f);
+            const float boringPenalty = staleIdentity * lowNovelty * (0.55f + 0.45f * weakArc);
+
+            quality += 0.20f * juce::jlimit (0.0f, 1.0f, musicalStatement);
+            quality -= 0.065f * boringPenalty;
+        }
+
 
         // 0.40 Taste ML: the features of the whole loop are collected here; the
         // model scores every candidate after the pool statistics are known (below).
