@@ -1907,7 +1907,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // keep their long notes and never get fills.
     if ((cycle == 3 || barOffset == bars - 1) && prof.minLen < 3 && fillAmount > 0.02f && !chosen.empty())
     {
-        const float chance = juce::jlimit(0.0f, 0.95f, fillAmount * 2.2f);
+        const float chance = juce::jlimit (0.0f, 0.95f,
+            fillAmount * 2.2f * (1.0f - 0.48f * fastTempo));
         const bool doFill = (float)(hash32(identitySeed ^ 0x0F111A5Eu ^ (uint32_t)(barOffset / 4) * 0x9e3779b9u) % 1000u) / 1000.0f < chance;
         int nFill = 1 + (fillAmount > 0.30f ? 1 : 0) + (fillAmount > 0.60f ? 1 : 0);
         const int lastStep = chosen.back();
