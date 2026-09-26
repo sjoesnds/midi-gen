@@ -1090,9 +1090,44 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // A = statement, A' = variation, B = contrast/peak, A'' = return/cadence.
     // The grammar changes the destination of notes rather than merely adding
     // random pitch offsets, so a loop develops an audible arc.
-    const int phraseStyle = (int)(hash32(identitySeed ^ 0x4f1bbcd3u) % 6u);
-    const float phraseStrength = juce::jlimit(0.35f, 0.92f,
-        0.45f + 0.30f * dnaMotif + 0.15f * (1.0f - dnaSurprise));
+    // 0.58.1 Melody Diversity 2.0: expand the melodic search space instead of
+    // merely adding more random seeds. Each loop now receives an independent
+    // contour language, interval language, tension profile and register behavior.
+    // These axes deliberately sit outside the genre labels, so the same genre can
+    // produce soft, tense, angular, chant-like or wide-register material.
+    const int phraseStyle = (int)(hash32(identitySeed ^ 0x4f1bbcd3u) % 12u);
+    const int intervalLanguage = (int)(hash32(identitySeed ^ 0x5e2d58d8u) % 10u);
+    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u) % 8u);
+    const int registerProfile = (int)(hash32(identitySeed ^ 0x94d049bbu) % 8u);
+    const int rhythmicLanguage = (int)(hash32(identitySeed ^ 0x2545f491u) % 10u);
+
+    const float poolTension = juce::jlimit(0.05f, 0.88f,
+        0.10f
+        + 0.34f * ((float)tensionProfile / 7.0f)
+        + 0.18f * moodTension
+        + 0.12f * dnaSurprise
+        + 0.08f * ((float)eraNovelty[juce::jlimit(0,5,era)])
+        + 0.10f * dnaLeap);
+
+    const float poolLeapChance = juce::jlimit(0.04f, 0.82f,
+        leapChance
+        + 0.16f * poolTension
+        + 0.10f * ((intervalLanguage == 2 || intervalLanguage == 5 || intervalLanguage == 7) ? 1.0f : 0.0f)
+        + 0.05f * dnaLeap);
+
+    const bool wideIntervalLanguage =
+        intervalLanguage == 2 || intervalLanguage == 3 || intervalLanguage == 5
+        || intervalLanguage == 6 || intervalLanguage == 7;
+
+    const bool highRegisterLanguage =
+        registerProfile == 2 || registerProfile == 5 || registerProfile == 7;
+
+    const float phraseStrength = juce::jlimit(0.30f, 0.95f,
+        0.38f
+        + 0.22f * dnaMotif
+        + 0.18f * poolTension
+        + 0.10f * (1.0f - dnaSurprise)
+        + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f));
 
     auto phraseTargetOffset = [&](int noteIndex, int noteCount) -> int
     {
@@ -1101,22 +1136,51 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
         // Six broad contour grammars. They operate in scale degrees, keeping
         // the result scale-safe while creating different phrase shapes.
-        static const int contours[6][5] =
+        static const int contours[12][5] =
         {
             { 0,  1,  2,  1,  0 }, // rise / settle
             { 0,  2,  1,  3,  0 }, // hook peak
             { 1,  0, -1,  1,  0 }, // fall / return
             { 0, -1,  1,  2,  0 }, // delayed rise
             { 0,  2,  3,  1, -1 }, // high point / release
-            { 0, -2,  0,  2,  0 }  // dip / rebound
+            { 0, -2,  0,  2,  0 },  // dip / rebound
+            { 0,  3, -1,  2,  0 }, // leap / answer
+            { 1, -1,  2, -2,  1 }, // angular zigzag
+            { 0,  0,  3,  0, -1 }, // plateau / spike
+            { 0, -2, -3,  1,  2 }, // descending valley
+            { 0,  1,  0, -2,  2 }, // question / answer
+            { 0, -1, -3, -1,  1 }  // dark fall / rebound
         };
         int slot = juce::jlimit(0, 4, (int)std::floor(pos * 4.999f));
-        return contours[phraseStyle][slot];
+        int value = contours[phraseStyle][slot];
+
+        // Secondary contour language adds shape that is not tied to the phrase
+        // grammar itself. This is what stops every "B" bar from feeling like the
+        // same cheerful rise-and-resolve template.
+        switch (intervalLanguage)
+        {
+            case 1: value += ((noteIndex & 1) ? 1 : -1); break;                    // thirds
+            case 2: value += ((noteIndex % 3 == 1) ? 2 : 0); break;               // fourth/fifth pushes
+            case 3: value += ((noteIndex % 4 == 2) ? -3 : (noteIndex % 4 == 3 ? 2 : 0)); break;
+            case 4: value += ((noteIndex % 4 == 0) ? 1 : (noteIndex % 4 == 2 ? -1 : 0)); break;
+            case 5: value += ((noteIndex & 1) ? 4 : -2); break;                   // octave-oriented degree jump
+            case 6: value += ((noteIndex % 5 == 2) ? 3 : (noteIndex % 5 == 4 ? -2 : 0)); break;
+            case 7: value += (noteIndex > noteCount / 2 ? -2 : 2); break;         // falling response
+            case 8: value += ((noteIndex % 3 == 0) ? 3 : -1); break;              // anchor + drift
+            case 9: value += ((noteIndex + phraseStyle) % 4 == 0 ? -3 : 1); break;
+            default: break;
+        }
+
+        if (highRegisterLanguage && noteIndex == noteCount / 2)
+            value += 2;
+
+        return value;
     };
     const int archetype = (int) (hash32(generationSeed
                                         ^ (uint32_t) variationSalt * 0x27d4eb2du
                                         ^ (uint32_t) genre * 0x165667b1u
-                                        ^ (uint32_t)(dnaRhythmBias + 17) * 0x9e3779b9u) % 16u);
+                                        ^ (uint32_t)(dnaRhythmBias + 17) * 0x9e3779b9u
+                                        ^ (uint32_t) intervalLanguage * 0x6c8e9cf5u) % 24u);
 
     // Rhythm is intentionally sparse.  These are positions, not mandatory
     // notes: later filtering creates breathing room and phrase punctuation.
@@ -1159,6 +1223,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {0, 4, 9, 12, -1,-1,-1,-1,-1,-1},
         {0, 2, 8, 10, 14, -1,-1,-1,-1,-1},
         {1, 6, 8, 13, -1,-1,-1,-1,-1,-1},
+        // 0.58.1 additional melodic rhythm languages: asymmetric starts, rests,
+        // late answers and pickup-heavy cells. They are still grid-safe.
+        {1, 4, 7, 10, 14, -1,-1,-1,-1,-1},
+        {0, 3, 7, 9, 14, -1,-1,-1,-1,-1},
+        {0, 1, 6, 10, 13, -1,-1,-1,-1,-1},
+        {2, 5, 8, 12, 15, -1,-1,-1,-1,-1},
+        {0, 2, 5, 11, 14, -1,-1,-1,-1,-1},
+        {1, 5, 8, 12, 15, -1,-1,-1,-1,-1},
+        {0, 3, 8, 10, 14, -1,-1,-1,-1,-1},
+        {2, 6, 9, 12, 15, -1,-1,-1,-1,-1},
+        {0, 4, 7, 8, 13, -1,-1,-1,-1,-1},
+        {1, 4, 6, 11, 14, -1,-1,-1,-1,-1},
+        {0, 5, 9, 10, 15, -1,-1,-1,-1,-1},
+        {2, 3, 8, 12, 14, -1,-1,-1,-1,-1},
+
         // 0.39.1 additional grooves (on the 8th/16th grid): pickups, late starts, long-short shapes
         {2, 4, 8, 10, 14, -1,-1,-1,-1,-1},
         {0, 2, 6, 10, 12, 14, -1,-1,-1,-1},
@@ -1191,7 +1270,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int eligibleN = (int)eligible.size();
     // Genre DNA nudges the rhythmic family without hard-locking it.
     int rhythmType = eligible[(size_t)((((int)(hash32(identitySeed ^ 0x51ed270bu) % (uint32_t)eligibleN)
-                                          + dnaRhythmBias + (int)(dnaSync * 3.0f)) % eligibleN + eligibleN) % eligibleN)];
+                                          + dnaRhythmBias
+                                          + (int)(dnaSync * 3.0f)
+                                          + rhythmicLanguage * 2) % eligibleN + eligibleN) % eligibleN)];
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -1315,23 +1396,37 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         { 2, 5, 3, 1, 4, -1 }, { 5, 2, 2, 0, 4, -1 },
         { 1, 4, 0, 3, 5, -1 }, { 3, 0, 2, 6, 4, -1 },
         { 0, 2, 5, 3, 1, -1 }, { 6, 3, 1, 4, 0, -1 },
-        { 2, 0, 5, 5, 3, -1 }, { 4, 6, 2, 1, 5, -1 }
+        { 2, 0, 5, 5, 3, -1 }, { 4, 6, 2, 1, 5, -1 },
+
+        // 0.58.1: second-generation motif vocabulary. More negative/rebound,
+        // wider interval and off-centre shapes are intentionally represented.
+        { 0, 1, 4, 2, -1, 3 }, { 3, 1, 5, 0, 4, -1 },
+        { 5, 4, 2, 6, 1, 3 }, { 0, 3, 1, -2, 2, -1 },
+        { 2, -1, 3, 0, 5, 1 }, { 4, 0, -1, 4, 2, -1 },
+        { 1, 5, 2, 0, 6, 2 }, { 6, 2, 4, 1, -1, 3 },
+        { 0, 5, 2, -2, 1, 4 }, { 3, 6, 1, 4, 0, -2 },
+        { 0, -2, 2, 5, 1, 4 }, { 5, 1, -2, 3, 0, 4 },
+        { 2, 6, 3, -1, 4, 1 }, { 0, 4, 6, 1, 5, -2 },
+        { 4, -1, 2, 6, 0, 3 }, { 1, 3, -2, 5, 2, 6 }
     };
 
     const int motifType = (int)(hash32(identitySeed ^ (uint32_t)(archetype * 0x51ed270bu)
-                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % 16u);
+                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % 32u);
     const int motifShift = (int)((identitySeed >> 16) % (uint32_t)scaleCount);
 
-    const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 4u);
+    const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 8u);
     const int motifRotation = (int)(hash32(identitySeed ^ 0x1b873593u) % 5u);
 
     auto motifDegree = [&](int index) -> int
     {
         int pos = (index + motifRotation) % 5;
-        if (motifTransform == 1) pos = 4 - pos;
+        if (motifTransform == 1 || motifTransform == 4) pos = 4 - pos;
         int raw = motifs[motifType][pos];
         if (motifTransform == 2) raw = 4 - raw;
         if (motifTransform == 3 && (pos & 1)) raw += 2;
+        if (motifTransform == 5 && pos == 2) raw += 3;
+        if (motifTransform == 6 && (pos == 1 || pos == 4)) raw -= 2;
+        if (motifTransform == 7 && (pos & 1)) raw = -raw;
         return degree + raw + motifShift - 2;
     };
 
@@ -1417,24 +1512,55 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     std::vector<int> dPlan(chosen.size());
     {
-        const int big = (scaleCount >= 7) ? 5 : 4;
+        const int big = wideIntervalLanguage ? ((scaleCount >= 7) ? 7 : 6)
+                                             : ((scaleCount >= 7) ? 5 : 4);
         std::vector<int> raw(chosen.size());
         for (size_t i = 0; i < chosen.size(); ++i)
         {
             raw[i] = planDegree(i);
             // Octave displacement (formerly `note += 12`) is part of the plan.
-            if (((identitySeed >> ((i * 7) & 23)) & 1u) != 0u && archetype >= 2)
-                raw[i] += scaleCount;
+            const uint32_t rh = hash32(identitySeed ^ (uint32_t)(i * 313 + 73));
+            const bool octaveLift =
+                (registerProfile == 1 && (i & 1u))
+                || (registerProfile == 2 && i == chosen.size() / 2)
+                || (registerProfile == 3 && (rh % 100u) < 34u)
+                || (registerProfile == 5 && (i % 3u == 1))
+                || (registerProfile == 6 && (rh % 100u) < 20u);
+
+            if ((octaveLift || ((rh >> 4) & 1u) != 0u)
+                && (archetype >= 2 || highRegisterLanguage))
+            {
+                const int registerDirection = ((rh >> 9) & 1u) ? 1 : -1;
+                raw[i] += registerDirection * scaleCount;
+            }
         }
         for (size_t i = 0; i < chosen.size(); ++i)
         {
             if (i == 0) { dPlan[i] = raw[i]; continue; }
             int delta = raw[i] - raw[i - 1];
+
+            // Interval languages intentionally preserve different motion vocabularies.
+            // The old generator collapsed almost everything into small scalar moves.
+            const uint32_t ih = hash32(identitySeed ^ (uint32_t)(i * 197 + 13));
+            const float roll = (float)(ih % 1000u) / 1000.0f;
+            if (wideIntervalLanguage && i > 0 && (roll < 0.42f * poolTension || intervalLanguage == 3))
+            {
+                const int direction = (ih & 1u) ? 1 : -1;
+                if (intervalLanguage == 2)
+                    delta = direction * (3 + (int)(ih % 3u));       // 3..5 scale degrees
+                else if (intervalLanguage == 5)
+                    delta = direction * ((ih & 2u) ? scaleCount : scaleCount + 2);
+                else if (intervalLanguage == 7)
+                    delta = direction * (4 + (int)(ih % 4u));       // angular leap
+                else
+                    delta = direction * (3 + (int)(ih % 4u));
+            }
+
             if (std::abs(delta) >= big)
             {
                 const bool deliberateLeap =
-                    (float)(hash32(identitySeed ^ (uint32_t)(i * 197 + 13)) % 1000u) / 1000.0f < leapChance;
-                if (!deliberateLeap)   // nearest octave equivalent: same pitch class, smaller interval
+                    roll < poolLeapChance;
+                if (!deliberateLeap && !wideIntervalLanguage)   // preserve wide motion only for the languages that asked for it
                     delta -= scaleCount * (int)std::lround((double)delta / (double)scaleCount);
             }
             // Weak beats prefer thirds over skips (strong beats keep their harmonic anchor).
@@ -1516,9 +1642,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Controlled leap: some archetypes need a recognizable interval,
             // otherwise the generator falls back to scalar motion too often.
             interval = note - last;
-            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6)
-                && (((int)i + (int)(identitySeed & 7u)) % 5 == 2))
-                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f < leapChance * 0.45f);
+            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage)
+                && (((int)i + (int)(identitySeed & 7u)) % (wideIntervalLanguage ? 4 : 5) == (wideIntervalLanguage ? 2 : 2)))
+                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f < poolLeapChance * 0.62f);
             if (wantsLeap && std::abs(interval) < 4)
             {
                 const int dir = ((hash32(identitySeed ^ (uint32_t)i) & 1u) ? 1 : -1);
@@ -1573,13 +1699,42 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             }
         }
 
-        // Harmonic anchor on strong positions, but leave weak positions free.
-        if ((x == 0 || x == 8) && !chordTone(note))
+        // Harmonic gravity is now a spectrum instead of a hard safety rail.
+        // Low-tension languages still resolve strongly; high-tension languages
+        // may deliberately place a non-chord scale tone on beat 1/3 and resolve later.
+        if (x == 0 || x == 8)
         {
-            const int root = pitchForDegree(degree, octave);
-            const int third = pitchForDegree(degree + 2, octave);
-            if ((hash32(identitySeed ^ (uint32_t)(x + 101)) % 100u) < 82u)
-                note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
+            const uint32_t ah = hash32(identitySeed ^ (uint32_t)(x + 101));
+            const float anchorRoll = (float)(ah % 1000u) / 1000.0f;
+            const float tensionChance = juce::jlimit(0.04f, 0.62f,
+                0.06f + 0.48f * poolTension + 0.06f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f));
+
+            if (anchorRoll < tensionChance)
+            {
+                int bestTension = note;
+                int bestDist = 1000;
+                for (int td : { degree + 1, degree + 3, degree + 5, degree + 6 })
+                {
+                    const int base = pitchForDegree(td, octave);
+                    for (int oct = -2; oct <= 2; ++oct)
+                    {
+                        const int cand = base + oct * 12;
+                        if (cand < melLo || cand > melHi) continue;
+                        if (chordTone(cand)) continue;
+                        const int dist = std::abs(cand - note);
+                        if (dist < bestDist) { bestDist = dist; bestTension = cand; }
+                    }
+                }
+                note = bestTension;
+            }
+            else if (!chordTone(note))
+            {
+                const int root = pitchForDegree(degree, octave);
+                const int third = pitchForDegree(degree + 2, octave);
+                if ((ah % 100u) < (uint32_t)(50.0f + 40.0f * (1.0f - poolTension)))
+                    note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
+            }
+
             note = foldIntoLane(note, melLo, melHi);
             note = juce::jlimit(melLo, melHi, snapToScale(note));
         }
@@ -1601,7 +1756,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // unless it is a deliberate leap, move the note to the octave nearest the
         // previous note.  Pitch class - and so the harmony - is untouched.
         if ((barOffset > 0 || !generated.empty()) && std::abs(note - previous) >= 8
-            && (float)(hash32(identitySeed ^ (uint32_t)(i * 197 + 13)) % 1000u) / 1000.0f >= leapChance)
+            && (float)(hash32(identitySeed ^ (uint32_t)(i * 197 + 13)) % 1000u) / 1000.0f >= poolLeapChance)
         {
             int bestNote = note;
             for (int k = -3; k <= 3; ++k)
@@ -1614,14 +1769,19 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         }
 
         // Sound profile: singable/playable interval limit for this kind of sound.
-        if (prof.maxLeap > 0 && (!generated.empty() || barOffset > 0)
-            && std::abs(note - previous) > prof.maxLeap)
+        const int effectiveMaxLeap = prof.maxLeap > 0
+            ? juce::jmin(16, prof.maxLeap + (wideIntervalLanguage ? 3 : 0)
+                                      + ((tensionProfile >= 6) ? 2 : 0))
+            : 0;
+        if (effectiveMaxLeap > 0 && (!generated.empty() || barOffset > 0)
+            && std::abs(note - previous) > effectiveMaxLeap)
         {
             int cand = note;
-            while (cand - previous > prof.maxLeap && cand - 12 >= melLo) cand -= 12;
-            while (previous - cand > prof.maxLeap && cand + 12 <= melHi) cand += 12;
-            if (std::abs(cand - previous) > prof.maxLeap)
-                cand = juce::jlimit(melLo, melHi, snapToScale(previous + (note > previous ? prof.maxLeap : -prof.maxLeap)));
+            while (cand - previous > effectiveMaxLeap && cand - 12 >= melLo) cand -= 12;
+            while (previous - cand > effectiveMaxLeap && cand + 12 <= melHi) cand += 12;
+            if (std::abs(cand - previous) > effectiveMaxLeap)
+                cand = juce::jlimit(melLo, melHi,
+                    snapToScale(previous + (note > previous ? effectiveMaxLeap : -effectiveMaxLeap)));
             note = cand;
         }
 
@@ -1889,8 +2049,40 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
 
             const int root = inLane (degreeToPitch (degree, octave));
             const int third = inLane (degreeToPitch (degree + 2, octave));
-            last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
-            last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
+
+            // 0.58.1: cadence is no longer mandatory on every loop. A controlled
+            // minority of phrases ends on a tense scale tone and lets the loop
+            // resolve on the next cycle instead of sounding permanently "nice".
+            const uint32_t cadenceHash = hash32 (generationSeed
+                ^ (uint32_t) (barOffset * 97 + melodyType * 31 + 0xCADA));
+            const float unresolvedChance = juce::jlimit (0.10f, 0.36f,
+                0.10f + 0.14f * dnaSurprise + 0.10f * ((cadenceHash >> 8) % 100u) / 100.0f);
+
+            if ((float) (cadenceHash % 1000u) / 1000.0f < unresolvedChance)
+            {
+                int tension = last.note;
+                int bestDist = 1000;
+                for (int td : { degree + 1, degree + 3, degree + 6 })
+                {
+                    const int raw = degreeToPitch (td, octave);
+                    for (int k = -2; k <= 2; ++k)
+                    {
+                        const int cand = inLane (raw + k * 12);
+                        if (std::abs (cand - last.note) < bestDist)
+                        {
+                            bestDist = std::abs (cand - last.note);
+                            tension = cand;
+                        }
+                    }
+                }
+                last.note = tension;
+                last.length = juce::jlimit (1, 3, juce::jmax (last.length, 1));
+            }
+            else
+            {
+                last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
+                last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
+            }
             last.velocity = juce::jlimit (40, 118, last.velocity + 3);
         }
     }
