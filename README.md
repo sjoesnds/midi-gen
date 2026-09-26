@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.57.0**
+**Current version: 0.58.0**
 
 ## What it does
 
@@ -72,6 +72,24 @@ The Taste ML layer now combines long-term learning with a bounded short-term pre
 Class-balanced training prevents repeated LIKE or DISLIKE feedback from dominating the opposite signal. A recent liked/disliked prototype follows the latest ratings with exponential decay, then contributes a deliberately small reranking bonus on the next generation.
 
 Confidence is also balanced-aware: the model trusts histories with evidence on both sides more than equally large one-sided histories. Existing saved Taste ML data remains compatible; older models load with the new short-term layer initialized empty.
+
+
+### Loop Editor 3.0 — 0.58
+
+The piano roll is now a focused loop editor rather than only a note inspector.
+
+The editor adds:
+
+- **Alt-drag marquee selection** for rectangular multi-note selection.
+- **BAR** and existing **PHRASE** selection for fast musical regions.
+- **FRAME** to zoom/pan directly to the current selection.
+- **DUP** to duplicate a selected region inside the current loop.
+- **REV** to reverse the selected material in time while preserving note lengths.
+- **2X / HALF** to compress or expand selected timing.
+- **ROT** to rotate selected material by a quarter of its local region.
+- **VEL 100** to normalize the selected velocities to their current average.
+
+All destructive editor operations use the existing edit history, so they participate in Undo/Redo. The transformations stay inside the selected loop and do not introduce any song/arrangement architecture.
 
 
 ### Groove Engine — 0.54
