@@ -1292,7 +1292,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         roleTension + roleTensionVariation);
 
     const float tensionPulse = (phraseRole == 2)
-        ? 0.12f * juce::jlimit (0.0f, 1.0f, (float) (chosen.size()) / 6.0f)
+        ? 0.12f * phraseTension
         : 0.0f;
 
     auto phraseTargetOffset = [&](int noteIndex, int noteCount) -> int
@@ -2004,13 +2004,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             note = bestNote;
         }
 
-        // Phrase tension affects articulation too: the peak uses shorter
-        // fragments and the return bar allows more sustain.
-        if (phraseRole == 2 && phraseTension > 0.58f && (h % 100u) < 42u)
-            len = juce::jmax (1, len - 1);
-        else if (phraseRole == 3 && phraseTension < 0.62f && (h % 100u) < 36u)
-            len = juce::jmin (4, len + 1);
-
         // Sound profile: singable/playable interval limit for this kind of sound.
         const int effectiveMaxLeap = prof.maxLeap > 0
             ? juce::jmin(16, prof.maxLeap + (wideIntervalLanguage ? 3 : 0)
@@ -2047,6 +2040,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmin(4, len + 1);
         if (soundCloud)
             len = (h % 100u < 60u) ? 2 : 1;
+
+        // Phrase tension affects articulation too: the peak uses shorter
+        // fragments and the return bar allows more sustain.
+        if (phraseRole == 2 && phraseTension > 0.58f && (h % 100u) < 42u)
+            len = juce::jmax (1, len - 1);
+        else if (phraseRole == 3 && phraseTension < 0.62f && (h % 100u) < 36u)
+            len = juce::jmin (4, len + 1);
 
         // Sparse grooves leave more air; driving grooves connect pulses.
         if (rhythmType >= 4 && rhythmType <= 7 && (h % 100u) < (uint32_t)(25.0f * dnaGroove))
@@ -2696,6 +2696,20 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // compare the loop against the intended A/A'/B/A'' curve.
         if (m.size() >= 4 && sec.bars >= 4)
         {
+            float judgeMoodTension = 0.0f;
+            switch (mood)
+            {
+                case DarkMood:        judgeMoodTension =  0.24f; break;
+                case MelancholicMood: judgeMoodTension =  0.18f; break;
+                case EuphoricMood:    judgeMoodTension = -0.08f; break;
+                case AggressiveMood:  judgeMoodTension =  0.12f; break;
+                case DreamyMood:      judgeMoodTension =  0.04f; break;
+                case NostalgicMood:   judgeMoodTension =  0.10f; break;
+                case MysteriousMood:  judgeMoodTension =  0.22f; break;
+                case EnergeticMood:   judgeMoodTension = -0.02f; break;
+                default:              judgeMoodTension =  0.0f;  break;
+            }
+        {
             std::array<float, 4> barTension {};
             std::array<int, 4> barCount {};
             std::array<std::vector<int>, 4> chordPcs;
@@ -2744,7 +2758,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 if (barCount[(size_t) b] == 0) continue;
                 const float actual = barTension[(size_t) b] / (float) barCount[(size_t) b];
                 const float target = juce::jlimit (0.08f, 0.94f,
-                    targets[b] + 0.10f * moodTension + 0.08f * dnaSurprise);
+                    targets[b] + 0.10f * judgeMoodTension + 0.08f * dnaSurprise);
                 error += std::abs (actual - target);
                 ++compared;
             }
