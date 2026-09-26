@@ -36,8 +36,11 @@ bool preserveSelectionOnRegenerate = false;
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
  juce::ComboBox pianoGridBox;
  juce::TextButton quantizeButton{"QUANTIZE"}, resetViewButton{"RESET VIEW"};
- juce::TextButton phraseButton{"PHRASE"}, transposeDownButton{"-12"}, transposeUpButton{"+12"},
+ juce::TextButton phraseButton{"PHRASE"}, barButton{"BAR"}, transposeDownButton{"-12"}, transposeUpButton{"+12"},
                   snapScaleButton{"SCALE"}, humanizeSelectionButton{"HUMANIZE"};
+ juce::TextButton duplicateButton{"DUP"}, reverseButton{"REV"}, doubleTimeButton{"2X"},
+                  halfTimeButton{"HALF"}, rotateButton{"ROT"}, normalizeVelocityButton{"VEL 100"},
+                  frameSelectionButton{"FRAME"};
  juce::Label selectionLabel;
  juce::TextButton mutateButton{"MUTATE"}, evolveButton{"EVOLVE"};
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
@@ -229,6 +232,14 @@ bool preserveSelectionOnRegenerate = false;
              g.fillRect (px, 0.0f, juce::jmax (1.5f, stepW * 0.25f), (float) getHeight());
          }
 
+         if (dragMode == DragMode::marquee)
+         {
+             g.setColour (juce::Colours::white.withAlpha (0.18f));
+             g.fillRect (marqueeRect);
+             g.setColour (juce::Colours::white.withAlpha (0.85f));
+             g.drawRect (marqueeRect, 1.0f);
+         }
+
          g.setColour (juce::Colours::white.withAlpha (0.65f));
          g.setFont (11.0f);
          const juce::String help = "LMB move/add  Ctrl/Shift=multi-select  drag=group  RMB delete  Ctrl+A  Ctrl+C/V  Ctrl+Z/Y  wheel=scroll  Ctrl+wheel=zoom";
@@ -320,6 +331,18 @@ bool preserveSelectionOnRegenerate = false;
          }
          else
          {
+             if (modifiers.isAltDown())
+             {
+                 clearSelection();
+                 dragMode = DragMode::marquee;
+                 dragStartSelection.clear();
+                 dragStartNotes.clear();
+                 marqueeRect = { e.position.x, e.position.y, 0.0f, 0.0f };
+                 dragOrigin = e.position;
+                 repaint();
+                 return;
+             }
+
              selectedIndices.clear();
              const int step = snapStep (xToStep (e.position.x));
              const int note = yToPitch (e.position.y);
@@ -340,6 +363,34 @@ bool preserveSelectionOnRegenerate = false;
 
      void mouseDrag (const juce::MouseEvent& e) override
      {
+         if (dragMode == DragMode::marquee)
+         {
+             const float x0 = juce::jmin (dragOrigin.x, e.position.x);
+             const float y0 = juce::jmin (dragOrigin.y, e.position.y);
+             const float x1 = juce::jmax (dragOrigin.x, e.position.x);
+             const float y1 = juce::jmax (dragOrigin.y, e.position.y);
+             marqueeRect = juce::Rectangle<float> (x0, y0, x1 - x0, y1 - y0);
+
+             const auto notes = processor.getVisibleNotes();
+             selectedIndices.clear();
+             for (int i = 0; i < (int) notes.size(); ++i)
+             {
+                 const auto& n = notes[(size_t) i];
+                 if (n.channel == 5) continue;
+                 const float x = 34.0f + (float) (n.step - viewStartStep) * stepWidthAtCursor();
+                 const float w = juce::jmax (4.0f, (float) n.length * stepWidthAtCursor() - 2.0f);
+                 const float y = pitchToY (n.note, viewLowNote, noteSpan);
+                 const juce::Rectangle<float> noteRect (x, y, w, juce::jmax (3.0f, pitchRowHeight (noteSpan) - 2.0f));
+                 if (marqueeRect.intersects (noteRect))
+                     selectedIndices.push_back (i);
+             }
+
+             selectedNote = selectedIndices.empty() ? -1 : selectedIndices.front();
+             updateHistoryButtons();
+             repaint();
+             return;
+         }
+
          if (dragMode == DragMode::none || dragStartSelection.empty())
              return;
 
@@ -392,6 +443,15 @@ bool preserveSelectionOnRegenerate = false;
 
      void mouseUp (const juce::MouseEvent&) override
      {
+         if (dragMode == DragMode::marquee)
+         {
+             dragMode = DragMode::none;
+             marqueeRect = {};
+             updateHistoryButtons();
+             repaint();
+             return;
+         }
+
          if (dragMode != DragMode::none)
              commitEditHistory();
          dragMode = DragMode::none;
@@ -500,7 +560,7 @@ bool preserveSelectionOnRegenerate = false;
      }
 
  private:
-     enum class DragMode { none, move, resize, newNote };
+     enum class DragMode { none, move, resize, newNote, marquee };
 
      static bool isBlackKey (int midiNote)
      {
@@ -627,6 +687,227 @@ bool preserveSelectionOnRegenerate = false;
 
      bool hasSelection() const { return ! selectedIndices.empty(); }
      int getSelectionCount() const { return (int) selectedIndices.size(); }
+
+     void selectBar()
+     {
+         const auto notes = processor.getVisibleNotes();
+         int baseStep = viewStartStep;
+         if (selectedNote >= 0 && selectedNote < (int) notes.size())
+             baseStep = notes[(size_t) selectedNote].step;
+
+         const int barStart = (juce::jmax (0, baseStep) / 16) * 16;
+         const int barEnd = barStart + 16;
+         selectedIndices.clear();
+         selectedNote = -1;
+
+         for (int i = 0; i < (int) notes.size(); ++i)
+         {
+             const auto& n = notes[(size_t) i];
+             if (n.channel != 5 && n.step >= barStart && n.step < barEnd)
+                 selectedIndices.push_back (i);
+         }
+
+         if (! selectedIndices.empty())
+             selectedNote = selectedIndices.front();
+
+         updateHistoryButtons();
+         repaint();
+     }
+
+     std::vector<int> operationIndices() const
+     {
+         const auto notes = processor.getVisibleNotes();
+         if (! selectedIndices.empty())
+             return selectedIndices;
+
+         std::vector<int> all;
+         all.reserve (notes.size());
+         for (int i = 0; i < (int) notes.size(); ++i)
+             if (notes[(size_t) i].channel != 5)
+                 all.push_back (i);
+         return all;
+     }
+
+     void duplicateSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int span = juce::jmax (1, end - start);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         if (start + span >= totalSteps)
+             return;
+
+         beginEditHistory();
+         const auto original = notes;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) original.size()) continue;
+             auto n = original[(size_t) i];
+             n.step += span;
+             if (n.step >= totalSteps) continue;
+             n.length = juce::jmin (n.length, totalSteps - n.step);
+             if (n.length > 0) notes.push_back (n);
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void reverseSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         beginEditHistory();
+         const auto original = notes;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) original.size()) continue;
+             const auto& src = original[(size_t) i];
+             auto& dst = notes[(size_t) i];
+             dst.step = juce::jlimit (start, juce::jmax (start, end - src.length),
+                                      start + end - (src.step + src.length));
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void scaleTimeSelected (bool faster)
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         beginEditHistory();
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             auto& n = notes[(size_t) i];
+             if (faster)
+             {
+                 n.step = start + (n.step - start) / 2;
+                 n.length = juce::jmax (1, n.length / 2);
+             }
+             else
+             {
+                 n.step = juce::jmin (totalSteps - 1, start + (n.step - start) * 2);
+                 n.length = juce::jmax (1, juce::jmin (totalSteps - n.step, n.length * 2));
+             }
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+         juce::ignoreUnused (end);
+     }
+
+     void rotateSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int span = juce::jmax (1, end - start);
+         const int shift = juce::jmax (1, span / 4);
+
+         beginEditHistory();
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             auto& n = notes[(size_t) i];
+             const int local = n.step - start;
+             n.step = start + ((local + shift) % span);
+             n.step = juce::jmin (n.step, end - 1);
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void normalizeVelocitySelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int sum = 0;
+         int count = 0;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+             {
+                 sum += notes[(size_t) i].velocity;
+                 ++count;
+             }
+         if (count == 0) return;
+
+         const int target = juce::jlimit (1, 127, juce::roundToInt ((float) sum / (float) count));
+         beginEditHistory();
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 notes[(size_t) i].velocity = target;
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void frameSelection()
+     {
+         const auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int minStep = 100000;
+         int maxStep = 0;
+         int minPitch = 127;
+         int maxPitch = 0;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             const auto& n = notes[(size_t) i];
+             minStep = juce::jmin (minStep, n.step);
+             maxStep = juce::jmax (maxStep, n.step + n.length);
+             minPitch = juce::jmin (minPitch, n.note);
+             maxPitch = juce::jmax (maxPitch, n.note);
+         }
+
+         if (minStep > maxStep) return;
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int targetSteps = juce::jlimit (4, totalSteps, maxStep - minStep + 2);
+         viewStartStep = juce::jlimit (0, juce::jmax (0, totalSteps - targetSteps), minStep - 1);
+         zoom = juce::jlimit (0.5f, 4.0f, (float) totalSteps / (float) targetSteps);
+
+         const int pitchCenter = (minPitch + maxPitch) / 2;
+         viewLowNote = juce::jlimit (0, 127 - noteSpan, pitchCenter - noteSpan / 2);
+         repaint();
+     }
 
      void selectPhrase()
      {
@@ -887,6 +1168,7 @@ bool preserveSelectionOnRegenerate = false;
      const int noteSpan = 60;
      DragMode dragMode = DragMode::none;
      juce::Point<float> dragOrigin;
+     juce::Rectangle<float> marqueeRect;
      MidiForgeAudioProcessor::VisibleNote dragStartNote { 0, 2, 60, 100, 3 };
      std::optional<MidiForgeAudioProcessor::VisibleNote> clipboard;
      std::vector<int> selectedIndices;
