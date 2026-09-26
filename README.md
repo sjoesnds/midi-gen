@@ -2,8 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.59.1**
+**Current version: 0.60.0**
 
+### Loop Forge — 0.60.0
+- Adds a final integration pass after MAGIC, Musical Judge, Taste ML, Diversity Gate and Loop Transformations.
+- Every transformed loop is re-checked after transformation and Smart Locks are restored.
+- The Forge score combines Loop Quality, Context, Phrase Tension, Phrase Arc, Motif Memory, Groove, density health, rhythmic intent and layer presence.
+- A deterministic cleanup keeps melody notes scale-safe, removes duplicates and normalizes final MIDI ranges.
+- When final cleanup materially reduces the coherence score, the pre-cleanup loop is retained.
+- Loop-centric only; no song/arrangement system is introduced.
 ### Judge Diversity Gate — 0.59.1
 - The final eight variations now pass through a behavioral diversity gate after the Musical Judge.
 - Diversity compares density, space, rhythm, motif behavior, leaps, register, surprise, context, loop quality, groove, memory, phrase arc and tension.
