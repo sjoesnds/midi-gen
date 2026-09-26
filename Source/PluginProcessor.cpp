@@ -1277,6 +1277,24 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         + 0.10f * (1.0f - dnaSurprise)
         + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f));
 
+    // 0.58.4 Phrase Tension Engine: tension is now an explicit four-bar target,
+    // not only an incidental result of contour/leaps. The engine creates a
+    // controlled A -> A' -> B -> A'' pressure curve while allowing unresolved
+    // loops to hand energy into the next cycle.
+    const int phraseRole = cycle & 3;
+    const float roleBaseTension[] = { 0.24f, 0.42f, 0.78f, 0.50f };
+    const float roleTension = roleBaseTension[phraseRole];
+    const float roleTensionVariation =
+        (((float) tensionProfile / 7.0f) - 0.5f) * 0.22f
+        + moodTension * 0.16f
+        + dnaSurprise * 0.12f;
+    const float phraseTension = juce::jlimit (0.08f, 0.94f,
+        roleTension + roleTensionVariation);
+
+    const float tensionPulse = (phraseRole == 2)
+        ? 0.12f * juce::jlimit (0.0f, 1.0f, (float) (chosen.size()) / 6.0f)
+        : 0.0f;
+
     auto phraseTargetOffset = [&](int noteIndex, int noteCount) -> int
     {
         if (noteCount <= 0) return 0;
@@ -1480,6 +1498,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // backdrop, while still allowing deliberate chord/bass alignment.
         positionDensity *= contextStepWeight (x);
 
+        // 0.58.4: high-tension bars prefer delayed/offbeat entries and more air
+        // immediately after a strong hit; the return bar moves back toward
+        // grounded downbeats and longer breathing room.
+        if (phraseRole == 2)
+        {
+            if ((x % 4) != 0) positionDensity *= 1.0f + 0.22f * phraseTension;
+            if ((x % 4) == 0) positionDensity *= 0.92f - 0.10f * phraseTension;
+            if (x <= 1) positionDensity *= 0.90f;
+        }
+        else if (phraseRole == 3 && (x % 4) == 0)
+        {
+            positionDensity *= 1.04f + 0.08f * (1.0f - phraseTension);
+        }
+
         if ((float)posRank(x) / 1000.0f < positionDensity)
             chosen.push_back(x);
     }
@@ -1653,6 +1685,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // B receives the strongest contour deviation; A' and A'' retain the
         // identity of the statement but move its destination slightly.
         const int contour = phraseTargetOffset((int)i, (int)chosen.size());
+
+        // Explicit tension trajectory: B widens the melodic destination around
+        // the midpoint, A'' eases the register back down for the loop return.
+        if (phraseRole == 2)
+        {
+            const int tensionOffset = (i < chosen.size() / 2)
+                ? juce::roundToInt (phraseTension * 1.5f)
+                : juce::roundToInt (phraseTension * 2.4f);
+            d += ((i & 1u) != 0u ? -tensionOffset : tensionOffset);
+        }
+        else if (phraseRole == 3 && i >= chosen.size() / 2)
+        {
+            d -= juce::roundToInt ((1.0f - phraseTension) * 0.8f);
+        }
+
         float contourWeight = (cycle == 2 ? phraseStrength
                                : (cycle == 1 ? phraseStrength * 0.62f
                                              : phraseStrength * 0.48f));
@@ -1873,8 +1920,12 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {
             const uint32_t ah = hash32(identitySeed ^ (uint32_t)(x + 101));
             const float anchorRoll = (float)(ah % 1000u) / 1000.0f;
-            const float tensionChance = juce::jlimit(0.04f, 0.62f,
-                0.06f + 0.48f * poolTension + 0.06f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f));
+            const float tensionChance = juce::jlimit(0.04f, 0.78f,
+                0.06f
+                + 0.42f * poolTension
+                + 0.20f * phraseTension
+                + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
+                + tensionPulse);
 
             if (anchorRoll < tensionChance)
             {
@@ -1952,6 +2003,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             }
             note = bestNote;
         }
+
+        // Phrase tension affects articulation too: the peak uses shorter
+        // fragments and the return bar allows more sustain.
+        if (phraseRole == 2 && phraseTension > 0.58f && (h % 100u) < 42u)
+            len = juce::jmax (1, len - 1);
+        else if (phraseRole == 3 && phraseTension < 0.62f && (h % 100u) < 36u)
+            len = juce::jmin (4, len + 1);
 
         // Sound profile: singable/playable interval limit for this kind of sound.
         const int effectiveMaxLeap = prof.maxLeap > 0
@@ -2429,7 +2487,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         struct F {
             float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
-            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
+            float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, tensionArc=0, stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f, noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
         };
         F f;
         std::vector<const NoteEvent*> m;
@@ -2631,6 +2689,69 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 f.phraseArc = hasPeak ? (hasContrast ? 1.0f : 0.78f)
                                       : (hasContrast ? 0.50f : 0.18f);
             }
+        }
+
+        // 0.58.4 Phrase Tension Judge: estimate tension per bar from
+        // non-chord destinations, offbeat activity and interval pressure, then
+        // compare the loop against the intended A/A'/B/A'' curve.
+        if (m.size() >= 4 && sec.bars >= 4)
+        {
+            std::array<float, 4> barTension {};
+            std::array<int, 4> barCount {};
+            std::array<std::vector<int>, 4> chordPcs;
+
+            for (const auto& n : sec.notes)
+            {
+                const int b = juce::jlimit (0, 3, n.step / 16);
+                if (n.channel == 1)
+                {
+                    const int pc = (n.note % 12 + 12) % 12;
+                    if (std::find (chordPcs[(size_t) b].begin(),
+                                   chordPcs[(size_t) b].end(), pc) == chordPcs[(size_t) b].end())
+                        chordPcs[(size_t) b].push_back (pc);
+                }
+            }
+
+            std::vector<const NoteEvent*> sortedMelody = m;
+            std::sort (sortedMelody.begin(), sortedMelody.end(),
+                       [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+
+            for (size_t i = 0; i < sortedMelody.size(); ++i)
+            {
+                const auto* n = sortedMelody[i];
+                const int b = juce::jlimit (0, 3, n->step / 16);
+                const int pc = (n->note % 12 + 12) % 12;
+                bool chordTone = false;
+                for (const int chordPc : chordPcs[(size_t) b])
+                    if (pc == chordPc) { chordTone = true; break; }
+
+                float t = chordTone ? 0.18f : 0.72f;
+                if ((n->step % 4) != 0) t += 0.10f;
+                if (i > 0 && std::abs (n->note - sortedMelody[i - 1]->note) >= 5)
+                    t += 0.14f;
+                if (n->step % 16 >= 12)
+                    t += 0.05f;
+
+                barTension[(size_t) b] += juce::jlimit (0.0f, 1.0f, t);
+                ++barCount[(size_t) b];
+            }
+
+            const float targets[4] = { 0.24f, 0.42f, 0.78f, 0.50f };
+            float error = 0.0f;
+            int compared = 0;
+            for (int b = 0; b < 4; ++b)
+            {
+                if (barCount[(size_t) b] == 0) continue;
+                const float actual = barTension[(size_t) b] / (float) barCount[(size_t) b];
+                const float target = juce::jlimit (0.08f, 0.94f,
+                    targets[b] + 0.10f * moodTension + 0.08f * dnaSurprise);
+                error += std::abs (actual - target);
+                ++compared;
+            }
+
+            f.tensionArc = compared > 0
+                ? 1.0f - juce::jlimit (0.0f, 1.0f, (error / (float) compared) / 0.42f)
+                : 0.50f;
         }
 
         // Penalise endless scalar walking. Two-step alternation is especially
@@ -3835,6 +3956,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // into literal repetition.
         quality += 0.18f * motifMemory;
         quality += 0.075f * f.context;
+        quality += 0.095f * f.tensionArc;
         quality += 0.045f*melodyFit + 0.045f*rhythmFit + 0.045f*motifFit;
         quality += 0.030f*registerFit + 0.025f*surpriseFit;
 
