@@ -40,6 +40,7 @@ bool acceptsMidi() const override { return true; }
 bool producesMidi() const override { return true; }
 bool isMidiEffect() const override { return false; }
 double getTailLengthSeconds() const override { return 0.0; }
+double getHostBpm() const { return currentBpm.load(); }
 int getNumPrograms() override { return 1; }
 int getCurrentProgram() override { return 0; }
 void setCurrentProgram(int) override {}
@@ -317,6 +318,7 @@ PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
 void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 void buildVariationBank();
+void refreshHostBpm();
 Section mergedSelectedSong() const;
 void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias);
 JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessor)

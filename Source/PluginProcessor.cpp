@@ -1083,8 +1083,28 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     registerLane(2, melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
-    const int minNotes = sparseAllowed ? juce::jmin(2, prof.minNotes) : prof.minNotes;
-    const int minHits = sparseAllowed ? juce::jmin(2, prof.minHits) : prof.minHits;
+
+    // 0.58.2 BPM-adaptive melody context. currentBpm is refreshed from the DAW
+    // playhead in processBlock, so tempo changes are reflected on the next GENERATE
+    // without changing an existing loop underneath the user.
+    const double hostBpm = juce::jlimit (40.0, 240.0, currentBpm.load());
+    const float slowTempo = juce::jlimit (0.0f, 1.0f, (120.0f - (float) hostBpm) / 70.0f);
+    const float fastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 120.0f) / 75.0f);
+    const float veryFastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 160.0f) / 50.0f);
+
+    const float tempoDensityMul = juce::jlimit (0.68f, 1.24f,
+        1.0f + 0.20f * slowTempo - 0.30f * fastTempo - 0.08f * veryFastTempo);
+    const float tempoSpaceBonus = juce::jlimit (0.0f, 0.20f,
+        0.14f * fastTempo + 0.06f * veryFastTempo);
+    const float tempoLegatoBoost = juce::jlimit (0.0f, 0.22f,
+        0.16f * fastTempo + 0.06f * veryFastTempo);
+
+    const int minNotes = juce::jmax (2,
+        juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minNotes) : prof.minNotes)
+                          * (1.0f - 0.32f * fastTempo)));
+    const int minHits = juce::jmax (2,
+        juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minHits) : prof.minHits)
+                          * (1.0f - 0.34f * fastTempo)));
 
     // 0.26 Melody Engine 3.0: give every 4-bar phrase a compositional grammar.
     // A = statement, A' = variation, B = contrast/peak, A'' = return/cadence.
@@ -1272,7 +1292,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     int rhythmType = eligible[(size_t)((((int)(hash32(identitySeed ^ 0x51ed270bu) % (uint32_t)eligibleN)
                                           + dnaRhythmBias
                                           + (int)(dnaSync * 3.0f)
-                                          + rhythmicLanguage * 2) % eligibleN + eligibleN) % eligibleN)];
+                                          + rhythmicLanguage * 2
+                                          + juce::roundToInt (fastTempo * 5.0f)
+                                          - juce::roundToInt (slowTempo * 2.0f)) % eligibleN + eligibleN) % eligibleN)];
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -1309,15 +1331,26 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // Always guarantee at least one real rest.  Unlike the previous generator,
     // density is not allowed to turn a melody into a continuous stream.
-    const float density = juce::jlimit(0.25f, 0.95f, prof.densityMul *
+    const float density = juce::jlimit(0.20f, 0.95f, prof.densityMul *
         (0.64f + 0.30f * melodyDensity + 0.12f * e
         + 0.16f * (dnaDensity - 0.50f) - 0.10f * (dnaSpace - 0.50f)
-        - 0.60f * (pauseChance - 0.10f)));
+        - 0.60f * (pauseChance - 0.10f)
+        - tempoSpaceBonus)
+        * tempoDensityMul);
     std::vector<int> chosen;
     auto posRank = [&](int x) { return hash32(identitySeed ^ (uint32_t)(x * 97 + 31)) % 1000u; };
     for (int x : positions)
-        if ((float)posRank(x) / 1000.0f < density)
+    {
+        const bool sixteenth = (x & 1) != 0;
+        float positionDensity = density;
+        if (fastTempo > 0.05f && sixteenth)
+            positionDensity *= juce::jlimit (0.42f, 1.0f, 1.0f - 0.48f * fastTempo);
+        else if (slowTempo > 0.05f && sixteenth)
+            positionDensity = juce::jlimit (0.20f, 0.98f, positionDensity + 0.10f * slowTempo);
+
+        if ((float)posRank(x) / 1000.0f < positionDensity)
             chosen.push_back(x);
+    }
     // Never fall below a playable number of notes: bring back the most
     // "important" removed positions (deterministic per loop identity).
     while ((int)chosen.size() < minNotes && chosen.size() < positions.size())
@@ -1856,7 +1889,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {
             const int nextX = (i + 1 < chosen.size()) ? chosen[i + 1] : 16;
             const int gap = juce::jmax(1, nextX - x);
-            const float legatoAmt = (prof.legato < 0.0f) ? melodyLength : prof.legato;
+            const float legatoAmt = juce::jlimit (0.0f, 1.0f,
+                ((prof.legato < 0.0f) ? melodyLength : prof.legato) + tempoLegatoBoost);
             const int sustained = 1 + (int) std::round(legatoAmt * (float) (gap - 1));
             len = juce::jmax(len, juce::jmin(sustained, gap));
             len = juce::jmin(len, prof.maxLen);
@@ -1873,7 +1907,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // keep their long notes and never get fills.
     if ((cycle == 3 || barOffset == bars - 1) && prof.minLen < 3 && fillAmount > 0.02f && !chosen.empty())
     {
-        const float chance = juce::jlimit(0.0f, 0.95f, fillAmount * 2.2f);
+        const float chance = juce::jlimit (0.0f, 0.95f,
+            fillAmount * 2.2f * (1.0f - 0.48f * fastTempo));
         const bool doFill = (float)(hash32(identitySeed ^ 0x0F111A5Eu ^ (uint32_t)(barOffset / 4) * 0x9e3779b9u) % 1000u) / 1000.0f < chance;
         int nFill = 1 + (fillAmount > 0.30f ? 1 : 0) + (fillAmount > 0.60f ? 1 : 0);
         const int lastStep = chosen.back();
@@ -3550,6 +3585,26 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
+
+        // 0.58.2 BPM Judge: the same note density does not feel equally musical
+        // at 90 and 190 BPM. Reward candidates whose density and available space
+        // match the current DAW tempo, so MAGIC does not re-select overly busy
+        // patterns after the BPM-aware generator has produced them.
+        {
+            const double bpm = juce::jlimit (40.0, 240.0, currentBpm.load());
+            const float fast = juce::jlimit (0.0f, 1.0f, ((float)bpm - 120.0f) / 75.0f);
+            const float slow = juce::jlimit (0.0f, 1.0f, (120.0f - (float)bpm) / 70.0f);
+            const float targetDensity = juce::jlimit (0.16f, 0.82f,
+                0.74f - 0.28f * fast + 0.12f * slow);
+            const float targetSpace = juce::jlimit (0.18f, 0.90f,
+                0.38f + 0.24f * fast - 0.08f * slow);
+            const float densityFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.density - targetDensity) / 0.55f);
+            const float spaceFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.space - targetSpace) / 0.62f);
+            quality += 0.055f * densityFit + 0.035f * spaceFit;
+        }
+
         // Loop Quality 2.0: judge the circular behavior of the whole loop while
         // keeping the existing MAGIC DNA/archetype system in control.
         quality += 0.22f*f.loopQuality;
@@ -4633,20 +4688,34 @@ void MidiForgeAudioProcessor::evolveSelected()
     mutateSelected (0.22f);
 }
 
+void MidiForgeAudioProcessor::refreshHostBpm()
+{
+    if (auto* ph = getPlayHead())
+    {
+        if (auto pos = ph->getPosition())
+        {
+            if (auto bpm = pos->getBpm())
+                currentBpm.store (juce::jlimit (40.0, 240.0, *bpm));
+        }
+    }
+}
+
 void MidiForgeAudioProcessor::regenerate()
 {
+refreshHostBpm();
 buildVariationBank();
 chooseVariation (0);
 }
 void MidiForgeAudioProcessor::regenerateVariations()
 {
-int keep = 0;
-{
-const juce::ScopedLock sl (variationsLock);
-keep = selectedVariation;
-}
-buildVariationBank();
-chooseVariation (keep);
+    refreshHostBpm();
+    int keep = 0;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        keep = selectedVariation;
+    }
+    buildVariationBank();
+    chooseVariation (keep);
 }
 void MidiForgeAudioProcessor::chooseVariation(int index)
 {
