@@ -1122,6 +1122,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool highRegisterLanguage =
         registerProfile == 2 || registerProfile == 5 || registerProfile == 7;
 
+    const float phraseStrength = juce::jlimit(0.30f, 0.95f,
+        0.38f
+        + 0.22f * dnaMotif
+        + 0.18f * poolTension
+        + 0.10f * (1.0f - dnaSurprise)
+        + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f));
+
     auto phraseTargetOffset = [&](int noteIndex, int noteCount) -> int
     {
         if (noteCount <= 0) return 0;
