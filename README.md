@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.58.4**
+**Current version: 0.59.0**
 
 ### Phrase Tension Engine — 0.58.4
 - Gives each four-bar loop an explicit A → A' → B → A'' tension target instead of relying only on contour and cadence side effects.
