@@ -2481,6 +2481,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float loop = 0.5f;
         float groove = 0.5f;
         float memory = 0.5f;
+        float phraseArc = 0.5f;
+        float tension = 0.5f;
     };
 
     auto melodyFeatures = [&](const Section& sec, uint32_t identity)
@@ -3428,6 +3430,47 @@ void MidiForgeAudioProcessor::buildVariationBank()
         }
         return juce::jlimit(0.0f,1.0f,0.32f*(samePitch/(float)n)+0.30f*(sameRhythm/(float)n)
                                       +0.18f*sameIntervals+0.20f*lengthSim);
+    };
+
+    // 0.59.1 Judge Diversity Gate: compare behavioral fingerprints as well as
+    // literal note similarity. This stops the final eight from becoming eight
+    // versions of the same musical behavior just because their archetype labels
+    // differ.
+    auto behaviorDistance = [] (const Candidate& a, const Candidate& b)
+    {
+        const float d[] =
+        {
+            std::abs (a.density - b.density),
+            std::abs (a.space - b.space),
+            std::abs (a.rhythm - b.rhythm),
+            std::abs (a.motif - b.motif),
+            std::abs (a.leap - b.leap),
+            std::abs (a.reg - b.reg),
+            std::abs (a.surprise - b.surprise),
+            std::abs (a.context - b.context),
+            std::abs (a.loop - b.loop),
+            std::abs (a.groove - b.groove),
+            std::abs (a.memory - b.memory),
+            std::abs (a.phraseArc - b.phraseArc),
+            std::abs (a.tension - b.tension)
+        };
+
+        // Tension, surprise, rhythm and density carry slightly more weight:
+        // they are the dimensions most likely to make two otherwise similar
+        // loops feel like different musical behaviors.
+        const float w[] =
+        {
+            0.09f, 0.06f, 0.12f, 0.08f, 0.09f, 0.06f, 0.12f,
+            0.06f, 0.08f, 0.08f, 0.06f, 0.05f, 0.13f
+        };
+
+        float sum = 0.0f, weight = 0.0f;
+        for (size_t i = 0; i < sizeof (d) / sizeof (d[0]); ++i)
+        {
+            sum += d[i] * w[i];
+            weight += w[i];
+        }
+        return weight > 0.0f ? juce::jlimit (0.0f, 1.0f, sum / weight) : 0.0f;
     };
 
     int mLo = 62, mHi = 86;
@@ -4546,7 +4589,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         candidates.push_back({std::move(flat), quality, identity, archetype,
                               f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                               f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
-                              grooveQuality, motifMemory});
+                              grooveQuality, motifMemory, f.phraseArc, f.tensionArc});
     }
 
     // Standardise against this search pool (kept for training the ratings of the
@@ -4591,26 +4634,85 @@ void MidiForgeAudioProcessor::buildVariationBank()
     std::vector<bool> used(candidates.size(),false);
     std::array<bool,8> usedArchetypes {};
 
-    // Pick one winner from each archetype. Similarity still matters inside and
-    // across archetypes, but MAGIC 3 cannot collapse the final bank into one style.
-    for(int slot=0;slot<8;++slot)
+    // 0.59.1 Diversity Gate: keep one winner per archetype, but require the
+    // candidate to differ in both note-level identity and behavioral fingerprint.
+    // A hard floor is attempted first; if a slot would otherwise become empty,
+    // the gate relaxes rather than returning fewer than eight variations.
+    auto minDiversityToSelected = [&] (const Candidate& candidate)
     {
-        int best=-1;
-        float bestScore=-1000.0f;
-        for(size_t i=0;i<candidates.size();++i)
+        if (selected.empty()) return 1.0f;
+
+        float minimum = 1.0f;
+        for (const auto& s : selected)
         {
-            if(used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
-            float score=candidates[i].quality;
-            float maxSim=0.0f;
-            for(const auto& s:selected)
-                maxSim=juce::jmax(maxSim,similarity(candidates[i].section,s.section));
-            score-=0.78f*maxSim;
-            if(score>bestScore){bestScore=score;best=(int)i;}
+            const float sim = similarity (candidate.section, s.section);
+            const float behavior = behaviorDistance (candidate, s);
+            const float combined = 0.58f * (1.0f - sim) + 0.42f * behavior;
+            minimum = juce::jmin (minimum, juce::jlimit (0.0f, 1.0f, combined));
         }
-        if(best<0) break;
-        used[(size_t)best]=true;
-        usedArchetypes[(size_t) candidates[(size_t) best].archetype]=true;
-        selected.push_back(std::move(candidates[(size_t)best]));
+        return minimum;
+    };
+
+    for (int slot = 0; slot < 8; ++slot)
+    {
+        int best = -1;
+        float bestScore = -1000.0f;
+        const float diversityFloor = slot < 3 ? 0.23f : 0.20f;
+
+        // Pass 1: hard-ish gate. Musical score still dominates; diversity only
+        // prevents near-clones from occupying multiple variation slots.
+        for (size_t i = 0; i < candidates.size(); ++i)
+        {
+            if (used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
+            const float diversity = minDiversityToSelected (candidates[i]);
+            if (diversity < diversityFloor) continue;
+
+            float maxSim = 0.0f;
+            for (const auto& s : selected)
+                maxSim = juce::jmax (maxSim, similarity (candidates[i].section, s.section));
+
+            const float score = candidates[i].quality
+                              - 0.70f * maxSim
+                              + 0.13f * diversity;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = (int) i;
+            }
+        }
+
+        // Pass 2: controlled relaxation. This is only reached when the hard gate
+        // would make the bank incomplete; the chosen candidate still pays a
+        // diversity penalty and therefore does not bypass the gate for free.
+        if (best < 0)
+        {
+            float relaxedBest = -1000.0f;
+            for (size_t i = 0; i < candidates.size(); ++i)
+            {
+                if (used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
+                const float diversity = minDiversityToSelected (candidates[i]);
+                float maxSim = 0.0f;
+                for (const auto& s : selected)
+                    maxSim = juce::jmax (maxSim, similarity (candidates[i].section, s.section));
+
+                const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
+                const float score = candidates[i].quality
+                                  - 0.82f * maxSim
+                                  - gatePenalty
+                                  + 0.08f * diversity;
+                if (score > relaxedBest)
+                {
+                    relaxedBest = score;
+                    best = (int) i;
+                    bestScore = score;
+                }
+            }
+        }
+
+        if (best < 0) break;
+        used[(size_t) best] = true;
+        usedArchetypes[(size_t) candidates[(size_t) best].archetype] = true;
+        selected.push_back (std::move (candidates[(size_t) best]));
     }
 
     // 0.56 Loop Transformation: MAGIC 3 discovers multiple strong archetypal
