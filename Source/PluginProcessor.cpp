@@ -3585,6 +3585,26 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f*f.seam;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
+
+        // 0.58.2 BPM Judge: the same note density does not feel equally musical
+        // at 90 and 190 BPM. Reward candidates whose density and available space
+        // match the current DAW tempo, so MAGIC does not re-select overly busy
+        // patterns after the BPM-aware generator has produced them.
+        {
+            const double bpm = juce::jlimit (40.0, 240.0, currentBpm.load());
+            const float fast = juce::jlimit (0.0f, 1.0f, ((float)bpm - 120.0f) / 75.0f);
+            const float slow = juce::jlimit (0.0f, 1.0f, (120.0f - (float)bpm) / 70.0f);
+            const float targetDensity = juce::jlimit (0.16f, 0.82f,
+                0.74f - 0.28f * fast + 0.12f * slow);
+            const float targetSpace = juce::jlimit (0.18f, 0.90f,
+                0.38f + 0.24f * fast - 0.08f * slow);
+            const float densityFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.density - targetDensity) / 0.55f);
+            const float spaceFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.space - targetSpace) / 0.62f);
+            quality += 0.055f * densityFit + 0.035f * spaceFit;
+        }
+
         // Loop Quality 2.0: judge the circular behavior of the whole loop while
         // keeping the existing MAGIC DNA/archetype system in control.
         quality += 0.22f*f.loopQuality;
