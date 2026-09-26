@@ -365,9 +365,11 @@ bool preserveSelectionOnRegenerate = false;
      {
          if (dragMode == DragMode::marquee)
          {
-             marqueeRect = juce::Rectangle<float> (dragOrigin.x, dragOrigin.y,
-                                                    e.position.x - dragOrigin.x,
-                                                    e.position.y - dragOrigin.y).getNormalized();
+             const float x0 = juce::jmin (dragOrigin.x, e.position.x);
+             const float y0 = juce::jmin (dragOrigin.y, e.position.y);
+             const float x1 = juce::jmax (dragOrigin.x, e.position.x);
+             const float y1 = juce::jmax (dragOrigin.y, e.position.y);
+             marqueeRect = juce::Rectangle<float> (x0, y0, x1 - x0, y1 - y0);
 
              const auto notes = processor.getVisibleNotes();
              selectedIndices.clear();
@@ -379,7 +381,7 @@ bool preserveSelectionOnRegenerate = false;
                  const float w = juce::jmax (4.0f, (float) n.length * stepWidthAtCursor() - 2.0f);
                  const float y = pitchToY (n.note, viewLowNote, noteSpan);
                  const juce::Rectangle<float> noteRect (x, y, w, juce::jmax (3.0f, pitchRowHeight (noteSpan) - 2.0f));
-                 if (marqueeRect.intersects (noteRect, true))
+                 if (marqueeRect.intersects (noteRect))
                      selectedIndices.push_back (i);
              }
 
