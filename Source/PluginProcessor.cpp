@@ -1216,6 +1216,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {0, 4, 9, 12, -1,-1,-1,-1,-1,-1},
         {0, 2, 8, 10, 14, -1,-1,-1,-1,-1},
         {1, 6, 8, 13, -1,-1,-1,-1,-1,-1},
+        // 0.58.1 additional melodic rhythm languages: asymmetric starts, rests,
+        // late answers and pickup-heavy cells. They are still grid-safe.
+        {1, 4, 7, 10, 14, -1,-1,-1,-1,-1},
+        {0, 3, 7, 9, 14, -1,-1,-1,-1,-1},
+        {0, 1, 6, 10, 13, -1,-1,-1,-1,-1},
+        {2, 5, 8, 12, 15, -1,-1,-1,-1,-1},
+        {0, 2, 5, 11, 14, -1,-1,-1,-1,-1},
+        {1, 5, 8, 12, 15, -1,-1,-1,-1,-1},
+        {0, 3, 8, 10, 14, -1,-1,-1,-1,-1},
+        {2, 6, 9, 12, 15, -1,-1,-1,-1,-1},
+        {0, 4, 7, 8, 13, -1,-1,-1,-1,-1},
+        {1, 4, 6, 11, 14, -1,-1,-1,-1,-1},
+        {0, 5, 9, 10, 15, -1,-1,-1,-1,-1},
+        {2, 3, 8, 12, 14, -1,-1,-1,-1,-1},
+
         // 0.39.1 additional grooves (on the 8th/16th grid): pickups, late starts, long-short shapes
         {2, 4, 8, 10, 14, -1,-1,-1,-1,-1},
         {0, 2, 6, 10, 12, 14, -1,-1,-1,-1},
@@ -1248,7 +1263,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int eligibleN = (int)eligible.size();
     // Genre DNA nudges the rhythmic family without hard-locking it.
     int rhythmType = eligible[(size_t)((((int)(hash32(identitySeed ^ 0x51ed270bu) % (uint32_t)eligibleN)
-                                          + dnaRhythmBias + (int)(dnaSync * 3.0f)) % eligibleN + eligibleN) % eligibleN)];
+                                          + dnaRhythmBias
+                                          + (int)(dnaSync * 3.0f)
+                                          + rhythmicLanguage * 2) % eligibleN + eligibleN) % eligibleN)];
 
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
@@ -2025,8 +2042,40 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
 
             const int root = inLane (degreeToPitch (degree, octave));
             const int third = inLane (degreeToPitch (degree + 2, octave));
-            last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
-            last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
+
+            // 0.58.1: cadence is no longer mandatory on every loop. A controlled
+            // minority of phrases ends on a tense scale tone and lets the loop
+            // resolve on the next cycle instead of sounding permanently "nice".
+            const uint32_t cadenceHash = hash32 (generationSeed
+                ^ (uint32_t) (barOffset * 97 + melodyType * 31 + 0xCADA));
+            const float unresolvedChance = juce::jlimit (0.10f, 0.36f,
+                0.10f + 0.14f * dnaSurprise + 0.10f * ((cadenceHash >> 8) % 100u) / 100.0f);
+
+            if ((float) (cadenceHash % 1000u) / 1000.0f < unresolvedChance)
+            {
+                int tension = last.note;
+                int bestDist = 1000;
+                for (int td : { degree + 1, degree + 3, degree + 6 })
+                {
+                    const int raw = degreeToPitch (td, octave);
+                    for (int k = -2; k <= 2; ++k)
+                    {
+                        const int cand = inLane (raw + k * 12);
+                        if (std::abs (cand - last.note) < bestDist)
+                        {
+                            bestDist = std::abs (cand - last.note);
+                            tension = cand;
+                        }
+                    }
+                }
+                last.note = tension;
+                last.length = juce::jlimit (1, 3, juce::jmax (last.length, 1));
+            }
+            else
+            {
+                last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
+                last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
+            }
             last.velocity = juce::jlimit (40, 118, last.velocity + 3);
         }
     }
