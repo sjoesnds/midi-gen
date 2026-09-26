@@ -67,10 +67,14 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.58.1", juce::dontSendNotification);
+versionLabel.setText("v0.58.2", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
+tempoLabel.setText("DAW BPM --", juce::dontSendNotification);
+tempoLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
+tempoLabel.setFont(juce::Font(11.0f));
+addAndMakeVisible(tempoLabel);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (31.0f, juce::Font::bold));
 sectionLabel.setText("COMPOSITION ENGINE",juce::dontSendNotification);
@@ -380,6 +384,7 @@ const int contentW = W - 40;
 // Header
 title.setBounds(left,14,360,32);
 versionLabel.setBounds(660,20,70,22);
+tempoLabel.setBounds(738,20,110,22);
 sectionLabel.setBounds(23,48,500,18);
 
 // Source / harmony
@@ -515,6 +520,11 @@ void MidiForgeAudioProcessorEditor::timerCallback()
             pianoRoll.resetEditHistory();
         }
     }
+
+const double bpm = processor.getHostBpm();
+const juce::String bpmText = "DAW BPM " + juce::String (juce::roundToInt (bpm));
+if (tempoLabel.getText() != bpmText)
+    tempoLabel.setText (bpmText, juce::dontSendNotification);
 
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
