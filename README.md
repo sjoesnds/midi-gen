@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.60.0**
+**Current version: 0.61.0**
+
+### Tempo Feel Engine — 0.61.0
+- Makes BPM a temporal context rather than a density penalty.
+- Keeps musical density comparatively stable as tempo rises instead of heavily thinning melodies above 120-160 BPM.
+- Increases the use of 1/16/offbeat positions at faster tempos so 170-220 BPM can produce genuinely fast-feeling melodies.
+- Shortens ordinary lead note occupancy at fast tempos while preserving long-register pad behavior.
+- The Musical Judge now evaluates note-rate, 1/16 usage and offbeat activity in addition to density/space, preventing MAGIC from re-ranking fast patterns back into slow-feeling loops.
+- The system remains loop-centric and adds no new UI controls.
 
 ### Loop Forge — 0.60.0
 - Adds a final integration pass after MAGIC, Musical Judge, Taste ML, Diversity Gate and Loop Transformations.
