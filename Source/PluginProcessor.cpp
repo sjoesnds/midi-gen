@@ -2406,6 +2406,10 @@ if(melodyEnabled)
 if(arpEnabled && !solo)
 addArp(section,bar,deg,targetEnergy,r);
 }
+
+// 0.64: develop each complete four-bar phrase after all layers are known.
+for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
+    applyMotifDevelopment (section, phraseStart, variationSalt);
 }
 void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int variationSalt)
 {
@@ -2526,6 +2530,219 @@ void MidiForgeAudioProcessor::applyHumanPerformance (Section& section) const
     removeDuplicateNotes (section.notes);
 }
 
+void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const
+{
+    // 0.64 Motif Development Engine:
+    // Turn the four-bar identity into a controlled A -> A' -> B -> A'' arc.
+    // This is a structural pass, not a new random generator: rhythm/pitch
+    // fingerprints remain anchored to the first bar while each later role gets
+    // a deliberate development grammar.
+    if (!melodyEnabled || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
+        return;
+
+    const PhraseMotif motif = extractPhraseMotif (section, phraseStartBar);
+    if (motif.relativePitches.size() < 2)
+        return;
+
+    auto mix32 = [] (uint32_t x)
+    {
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    };
+
+    enum DevelopmentStrategy
+    {
+        RepeatAlter = 0,
+        RhythmicReduction,
+        RhythmicExpansion,
+        IntervalExpansion,
+        Inversion,
+        Fragmentation,
+        CallResponse,
+        Return
+    };
+
+    const uint32_t h = mix32 (generationSeed
+                              ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
+                              ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
+    const auto strategy = (DevelopmentStrategy) (h % 8u);
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<size_t> out;
+        for (size_t i = 0; i < section.notes.size(); ++i)
+        {
+            const auto& n = section.notes[i];
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (i);
+        }
+
+        std::stable_sort (out.begin(), out.end(),
+            [&] (size_t a, size_t b)
+            {
+                if (section.notes[a].step != section.notes[b].step)
+                    return section.notes[a].step < section.notes[b].step;
+                return section.notes[a].note < section.notes[b].note;
+            });
+        return out;
+    };
+
+    // Structural rhythm development: reduce or fragment B first. Then the pitch
+    // pass below operates on the final note list, keeping every transformation
+    // internally coherent.
+    if (strategy == RhythmicReduction || strategy == Fragmentation)
+    {
+        for (int role = 1; role <= 2; ++role)
+        {
+            const int bar = phraseStartBar + role;
+            auto notes = collectBar (bar);
+            if (notes.size() <= 3)
+                continue;
+
+            const size_t originalCount = notes.size();
+            std::vector<size_t> toErase;
+            for (size_t k = 0; k < originalCount; ++k)
+            {
+                const bool reduce = strategy == RhythmicReduction && (k % 3u) == 1u;
+                const bool fragment = strategy == Fragmentation
+                                   && k >= ((originalCount + 1u) / 2u);
+                const size_t minimum = strategy == Fragmentation ? 2u : 3u;
+
+                if ((reduce || fragment)
+                    && originalCount - toErase.size() > minimum)
+                    toErase.push_back (notes[k]);
+            }
+
+            for (size_t k = toErase.size(); k-- > 0; )
+                section.notes.erase (section.notes.begin() + (long long) toErase[k]);
+        }
+    }
+
+    // Rhythmic expansion adds at most one connective note to A' and B.
+    if (strategy == RhythmicExpansion)
+    {
+        for (int role = 1; role <= 2; ++role)
+        {
+            const int bar = phraseStartBar + role;
+            const auto notes = collectBar (bar);
+            if (notes.size() < 2)
+                continue;
+
+            for (size_t k = 0; k + 1 < notes.size(); ++k)
+            {
+                const auto& a = section.notes[notes[k]];
+                const auto& b = section.notes[notes[k + 1]];
+                if (b.step - a.step < 3)
+                    continue;
+
+                const int step = a.step + (b.step - a.step) / 2;
+                const int rawPitch = juce::roundToInt (0.5f * ((float) a.note + (float) b.note));
+                const int note = juce::jlimit (30, 108, snapToScale (rawPitch));
+                const int velocity = juce::jlimit (44, 112, (a.velocity + b.velocity) / 2 - 3);
+                section.notes.push_back ({ step, 1, note, velocity, 3, false });
+                break;
+            }
+        }
+    }
+
+    for (int role = 1; role <= 3; ++role)
+    {
+        auto notes = collectBar (phraseStartBar + role);
+        if (notes.empty())
+            continue;
+
+        const int firstNote = section.notes[notes.front()].note;
+        const float roleBlend = role == 1 ? 0.64f : role == 2 ? 0.86f : 0.74f;
+
+        for (size_t i = 0; i < notes.size(); ++i)
+        {
+            auto& cur = section.notes[notes[i]];
+            const size_t src = i % motif.relativePitches.size();
+            const int refRel = motif.relativePitches[src];
+            const int rawCurrent = cur.note;
+
+            float rel = (float) refRel;
+            switch (strategy)
+            {
+                case RepeatAlter:
+                    break;
+
+                case RhythmicReduction:
+                    rel *= (role == 2 ? 0.92f : 1.0f);
+                    break;
+
+                case RhythmicExpansion:
+                    rel *= (role == 2 ? 1.08f : 1.0f);
+                    break;
+
+                case IntervalExpansion:
+                    rel *= (role == 1 ? 1.22f : role == 2 ? 1.48f : 1.10f);
+                    break;
+
+                case Inversion:
+                    rel = -rel;
+                    if (role == 2)
+                        rel += ((i & 1u) == 0u ? 2.0f : -2.0f);
+                    break;
+
+                case Fragmentation:
+                    rel *= (role == 2 ? 0.82f : 1.0f);
+                    break;
+
+                case CallResponse:
+                    if (role == 2)
+                        rel += 4.0f;
+                    else if (role == 3)
+                        rel *= 0.94f;
+                    break;
+
+                case Return:
+                    rel *= (role == 1 ? 0.96f : role == 2 ? 0.76f : 1.0f);
+                    break;
+            }
+
+            int desired = firstNote + juce::roundToInt (rel);
+
+            if (strategy == CallResponse && role == 1 && i + 1 == notes.size())
+                desired -= 3;
+            if (strategy == CallResponse && role == 2 && i + 1 == notes.size())
+                desired += 5;
+            if (strategy == RepeatAlter && role == 1 && i == notes.size() / 2)
+                desired += ((h & 1u) != 0u ? 2 : -2);
+            if (strategy == Return && role == 2 && i == 0)
+                desired += ((h & 2u) != 0u ? 3 : -3);
+            if (strategy == Fragmentation && role == 3 && i == notes.size() / 2)
+                desired += 2;
+
+            desired = juce::jlimit (30, 108, snapToScale (desired));
+            const int blended = juce::roundToInt (
+                (float) rawCurrent * (1.0f - roleBlend)
+                + (float) desired * roleBlend);
+            cur.note = juce::jlimit (30, 108, snapToScale (blended));
+        }
+
+        // Phrase roles also get a small articulation arc: question bar tightens,
+        // B has room to breathe, and A'' restores the release.
+        for (size_t i = 0; i < notes.size(); ++i)
+        {
+            auto& cur = section.notes[notes[i]];
+            if (role == 1 && (i & 1u) != 0u)
+                cur.length = juce::jmax (1, cur.length - 1);
+            else if (role == 2 && cur.length < 3 && i + 1 == notes.size())
+                cur.length = juce::jmin (4, cur.length + 1);
+            else if (role == 3 && i + 1 == notes.size())
+                cur.length = juce::jmin (4, cur.length + 1);
+        }
+    }
+
+    cleanMelodyLine (section.notes);
+    removeDuplicateNotes (section.notes);
+}
+
 void MidiForgeAudioProcessor::buildVariationBank()
 {
     // Shared genre DNA for the candidate judge. Keep these targets aligned with
@@ -2621,6 +2838,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float memory = 0.5f;
         float phraseArc = 0.5f;
         float tension = 0.5f;
+        float development = 0.5f;
         IdeaFingerprint idea {};
     };
 
@@ -4238,6 +4456,114 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
         const float motifMemory = motifMemoryScore(flat);
+
+        // 0.64 Development Judge: reward a phrase that develops an identity
+        // instead of either copying bar 1 or abandoning it completely.
+        auto developmentCoherence = [&] (const Section& sec)
+        {
+            const int barsN = juce::jmax (1, sec.bars);
+            if (barsN < 4)
+                return 0.55f;
+
+            auto similarity = [] (const std::vector<const NoteEvent*>& a,
+                                  const std::vector<const NoteEvent*>& b)
+            {
+                if (a.size() < 2 || b.size() < 2)
+                    return 0.0f;
+
+                const size_t n = juce::jmin (a.size(), b.size());
+                int onsetHits = 0, pitchHits = 0, intervalHits = 0, directionHits = 0;
+                const int aAnchor = a.front()->note;
+                const int bAnchor = b.front()->note;
+
+                for (size_t i = 0; i < n; ++i)
+                {
+                    if (std::abs ((a[i]->step % 16) - (b[i]->step % 16)) <= 1) ++onsetHits;
+                    if (std::abs ((a[i]->note - aAnchor) - (b[i]->note - bAnchor)) <= 2) ++pitchHits;
+                }
+
+                const size_t ni = juce::jmin (a.size() - 1, b.size() - 1);
+                for (size_t i = 1; i <= ni; ++i)
+                {
+                    const int ia = a[i]->note - a[i - 1]->note;
+                    const int ib = b[i]->note - b[i - 1]->note;
+                    if (ia == ib || std::abs (ia - ib) <= 1) ++intervalHits;
+                    if ((ia == 0 && ib == 0) || (ia > 0 && ib > 0) || (ia < 0 && ib < 0))
+                        ++directionHits;
+                }
+
+                const float onsetFit = (float) onsetHits / (float) n;
+                const float pitchFit = (float) pitchHits / (float) n;
+                const float intervalFit = ni > 0 ? (float) intervalHits / (float) ni : pitchFit;
+                const float directionFit = ni > 0 ? (float) directionHits / (float) ni : 0.5f;
+                const float countFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+                    (float) std::abs ((int) a.size() - (int) b.size()) / 5.0f);
+
+                return juce::jlimit (0.0f, 1.0f,
+                    0.30f * onsetFit
+                    + 0.30f * pitchFit
+                    + 0.22f * intervalFit
+                    + 0.08f * directionFit
+                    + 0.10f * countFit);
+            };
+
+            float sum = 0.0f;
+            int phraseCount = 0;
+            for (int start = 0; start + 3 < barsN; start += 4)
+            {
+                std::array<std::vector<const NoteEvent*>, 4> phraseBars;
+                for (const auto& n : sec.notes)
+                {
+                    if (n.channel != 3) continue;
+                    const int local = n.step / 16 - start;
+                    if (local >= 0 && local < 4)
+                        phraseBars[(size_t) local].push_back (&n);
+                }
+
+                for (auto& v : phraseBars)
+                    std::stable_sort (v.begin(), v.end(),
+                        [] (const NoteEvent* a, const NoteEvent* b)
+                        {
+                            if (a->step != b->step) return a->step < b->step;
+                            return a->note < b->note;
+                        });
+
+                if (phraseBars[0].size() < 2
+                    || phraseBars[1].empty()
+                    || phraseBars[2].empty()
+                    || phraseBars[3].empty())
+                    continue;
+
+                const float aPrime = similarity (phraseBars[0], phraseBars[1]);
+                const float bContrast = similarity (phraseBars[0], phraseBars[2]);
+                const float aReturn = similarity (phraseBars[0], phraseBars[3]);
+
+                const float aPrimeFit = 1.0f
+                    - juce::jlimit (0.0f, 1.0f, std::abs (aPrime - 0.70f) / 0.55f);
+                const float bFit = 1.0f
+                    - juce::jlimit (0.0f, 1.0f, std::abs (bContrast - 0.38f) / 0.45f);
+                const float returnFit = 1.0f
+                    - juce::jlimit (0.0f, 1.0f, std::abs (aReturn - 0.68f) / 0.50f);
+
+                const float contrastOrdering = juce::jlimit (0.0f, 1.0f,
+                    0.5f + 1.2f * (aPrime - bContrast));
+                const float returnOrdering = juce::jlimit (0.0f, 1.0f,
+                    0.5f + 1.0f * (aReturn - bContrast));
+
+                sum += 0.30f * aPrimeFit
+                     + 0.34f * bFit
+                     + 0.26f * returnFit
+                     + 0.05f * contrastOrdering
+                     + 0.05f * returnOrdering;
+                ++phraseCount;
+            }
+
+            return phraseCount > 0
+                ? juce::jlimit (0.0f, 1.0f, sum / (float) phraseCount)
+                : 0.55f;
+        };
+
+        const float development = developmentCoherence (flat);
         float quality=0.0f;
         // Magic DNA 2.0: candidate features are judged against the same
         // musical universe created by MAGIC. The generic judge remains
@@ -4258,6 +4584,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.06f*f.phraseMemory;
         quality += 0.06f*f.phraseArc;
         quality += 0.07f*f.seam;
+        quality += 0.13f * development;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
@@ -4920,7 +5247,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             candidates.push_back({std::move(flat), quality, identity, archetype,
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
-                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, idea});
+                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development, idea});
         }
     }
 
