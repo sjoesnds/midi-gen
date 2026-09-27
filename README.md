@@ -2,7 +2,17 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.64.0**
+**Current version: 0.65.0**
+
+### Musical Quality & Phrase Intelligence — 0.65.0
+- **Contextual Development** chooses Repeat/Alter, reduction, expansion, inversion, fragmentation, call/response or return from the phrase's actual density, motif identity, contour, tension, groove and loop state.
+- **Chord-aware development** softly steers developed notes toward the real voicing of their destination bar instead of blindly snapping transformed pitches to the scale.
+- **Cadence-aware closure** lets A'' resolve toward the loop-start harmony while preserving part of the developed contour, with a longer final release.
+- **Structural invariant repair** preserves beat-1 bass anchors, beat-1 kicks and the E1–D3 808 lane after archetype/transform passes.
+- **808 kick lock** repairs missing kick matches rather than rewriting the 808 rhythm.
+- **Register guard** only trims pathological octave-leap density in ordinary profiles; Riff, Experimental, Cinematic and 808 languages keep their wider ranges.
+- **Legacy state hygiene** resets newly added optional fields before reading them, so old presets cannot inherit stale UI state from a previous processor instance.
+
 
 ### Motif Development Engine — 0.64.0
 
