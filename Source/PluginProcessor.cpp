@@ -814,7 +814,7 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
 
     const auto composerPlan = midiforge::ComposerGrammar::makePlan (
         section.bars, energy, complexity, melodyType, mood, genre,
-        hash32 (identity ^ 0xC071PROSu));
+        hash32 (identity ^ 0xC0719F0u));
 
     std::vector<int> prosodyScalePitches;
     prosodyScalePitches.reserve (56);
