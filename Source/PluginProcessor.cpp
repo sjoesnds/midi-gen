@@ -4688,7 +4688,8 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
         {
             const int start = bar * 16;
             const int rootPitch = !prog.empty()
-                ? foldIntoLane (degreeToPitch (prog[(size_t) (bar % (int) prog.size())], 2), 28, 52)
+                ? foldIntoLane (degreeToPitch (prog[(size_t) (bar % (int) prog.size())], 2),
+                                28, solo808 ? 50 : 52)
                 : 28;
 
             if (bassEnabled && !solo808)
