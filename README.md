@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.67.0**
+**Current version: 0.68.0**
+
+### Harmonic Intelligence 2.0 — 0.68.0
+- Adds a post-expression harmony pass that uses the actual chord voicings as destinations instead of only the scale.
+- Strong and sustained melody notes are grounded toward active chord tones, while weak notes retain passing/color-tone freedom.
+- Late-bar notes can anticipate the next chord and phrase seams use soft voice-leading gravity.
+- Root notes are not blindly preferred; thirds and fifths receive context-aware preference to avoid turning the melody into a scale-safe arpeggio.
+- Adds a harmonic Judge covering anchor stability, anticipation, resolutions, voice-leading and chord/color-tone balance.
+- Adds Piano-only QA for harmonic anchoring, smooth phrase transitions and retained non-chord color.
+- 808/Sub Lead remains outside the post-process.
 
 ### Expressive Melody Engine — 0.67.0
 - Separates rhythmic grammar from melodic expression: Rhythm Grammar chooses phrase timing, while the new expression pass shapes contour, peaks, answers, sustain and velocity.
