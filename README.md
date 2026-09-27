@@ -2,7 +2,23 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.63.0**
+**Current version: 0.64.0**
+
+### Motif Development Engine — 0.64.0
+
+The phrase engine now develops a motif as a deliberate four-bar statement instead of relying only on recurrence or diversity pressure. Each four-bar phrase keeps the first bar as its identity anchor and assigns one development grammar to A' / B / A'':
+- Repeat + Alter
+- Rhythmic Reduction
+- Rhythmic Expansion
+- Interval Expansion
+- Inversion
+- Fragmentation
+- Call → Response
+- Return
+
+The development pass is scale-safe and preserves the generator's existing harmony, register and groove systems. It runs before the final MAGIC archetype/groove processing, so the new phrase logic stays inside the existing search-and-judge pipeline.
+
+The MAGIC judge now includes a **Development Coherence** signal that evaluates A↔A' similarity, A↔B contrast, A↔A'' return, and the ordering between contrast and return. The score is deliberately soft so unconventional but strong phrases are not rejected.
 
 ### Melodic Memory 3.0 — 0.63.0
 - Adds a transposition-safe idea fingerprint for every MAGIC candidate using onset rhythm, relative pitch contour and interval shape.
