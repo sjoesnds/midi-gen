@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.70.0**
+**Current version: 0.71.0**
+
+### Melodic Prosody — 0.71.0
+- Adds note-level melodic intent: **Anchor**, **Pickup**, **Approach**, **Connect**, **Accent**, **Peak** and **Release**.
+- Large intervals are treated as destinations: approach notes move toward the following target instead of remaining as arbitrary leaps.
+- Peak notes receive a small controlled register lift and stronger accent; pickup notes become lighter/shorter; release notes settle and breathe.
+- Prosody reads the 0.70 Composer Grammar role, so note-level intention follows the macro phrase arc instead of fighting it.
+- Prosody runs before Harmonic Intelligence, allowing the harmony layer to resolve intentional gestures onto the active chord while preserving passing motion.
+- Adds a Prosody Judge for approach direction, peak placement, release behavior and accent hierarchy.
+- No new UI controls and no non-MIDI features.
 
 ### Composer Grammar — 0.70.0
 - Adds a dedicated macro-level composition planner instead of another independent post-processing layer.
