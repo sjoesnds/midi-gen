@@ -4755,8 +4755,10 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
             }
         }
 
-        // When drums are enabled, keep a one-voice 808 genuinely kick-locked.
-        // We prefer adding a matching kick to moving the musical bass phrase.
+        // When drums are enabled, keep a one-voice 808 genuinely kick-locked
+        // in both directions: every 808 onset has a kick and every kick has a
+        // corresponding 808 onset. We add the missing side instead of shifting
+        // an existing musical phrase.
         if (solo808 && drumsEnabled)
         {
             std::vector<int> kickSteps;
@@ -4770,6 +4772,13 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
             {
                 return std::find (kickSteps.begin(), kickSteps.end(), step) != kickSteps.end();
             };
+            const auto has808At = [&] (int step)
+            {
+                for (const auto& n : sec.notes)
+                    if (n.channel == 3 && n.step == step)
+                        return true;
+                return false;
+            };
 
             const size_t noteCountBefore = sec.notes.size();
             for (size_t i = 0; i < noteCountBefore; ++i)
@@ -4779,6 +4788,36 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
                     continue;
                 sec.notes.push_back ({ n.step, 1, 36, 104, 5, false });
                 kickSteps.push_back (n.step);
+            }
+
+            std::vector<int> missing808;
+            for (const int kickStep : kickSteps)
+                if (!has808At (kickStep))
+                    missing808.push_back (kickStep);
+
+            for (const int step : missing808)
+            {
+                const int bar = juce::jlimit (0, juce::jmax (0, sec.bars - 1), step / 16);
+                const int degree = !prog.empty()
+                    ? prog[(size_t) (bar % (int) prog.size())]
+                    : 0;
+                const int targetRoot = foldIntoLane (degreeToPitch (degree, 2), 28, 50);
+
+                int note = targetRoot;
+                int nearest = 999;
+                for (const auto& n : sec.notes)
+                {
+                    if (n.channel != 3)
+                        continue;
+                    const int dist = std::abs (n.step - step);
+                    if (dist < nearest)
+                    {
+                        nearest = dist;
+                        note = n.note;
+                    }
+                }
+                note = foldIntoLane (note, 28, 50);
+                sec.notes.push_back ({ step, 1, note, 104, 3, false });
             }
         }
 
