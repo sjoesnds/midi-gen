@@ -2537,7 +2537,8 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
     // This is a structural pass, not a new random generator: rhythm/pitch
     // fingerprints remain anchored to the first bar while each later role gets
     // a deliberate development grammar.
-    if (!melodyEnabled || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
+    if (!melodyEnabled || soundProfileFor(soundTarget).soloLine
+        || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
         return;
 
     const PhraseMotif motif = extractPhraseMotif (section, phraseStartBar);
