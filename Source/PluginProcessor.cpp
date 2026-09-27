@@ -2592,6 +2592,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
             previousSelected = variations[(size_t) selectedVariation];
     }
 
+    struct IdeaFingerprint
+    {
+        std::array<int, 7> onsets {};
+        std::array<int, 7> relativePitches {};
+        std::array<int, 6> intervals {};
+        int count = 0;
+        int intervalCount = 0;
+        int family = 0;
+    };
+
     struct Candidate
     {
         Section section;
@@ -2611,6 +2621,144 @@ void MidiForgeAudioProcessor::buildVariationBank()
         float memory = 0.5f;
         float phraseArc = 0.5f;
         float tension = 0.5f;
+        IdeaFingerprint idea {};
+    };
+
+    // 0.63 Melodic Memory 3.0: capture the actual musical idea of the
+    // candidate separately from its general quality/behavior. The fingerprint
+    // is transposition-safe and small enough to compare across the 1000-candidate
+    // search without adding a second generator.
+    auto makeIdeaFingerprint = [&](const Section& sec)
+    {
+        IdeaFingerprint fp;
+        const int barsN = juce::jmax (1, sec.bars);
+
+        const NoteEvent* anchor = nullptr;
+        std::vector<const NoteEvent*> notes;
+        for (int bar = 0; bar < barsN && notes.size() < 2; ++bar)
+        {
+            notes.clear();
+            const int start = bar * 16;
+            const int end = start + 16;
+            for (const auto& n : sec.notes)
+                if (n.channel == 3 && n.step >= start && n.step < end)
+                    notes.push_back (&n);
+            std::stable_sort (notes.begin(), notes.end(),
+                [] (const NoteEvent* a, const NoteEvent* b)
+                {
+                    if (a->step != b->step) return a->step < b->step;
+                    return a->note < b->note;
+                });
+            if (notes.size() >= 2)
+                anchor = notes.front();
+        }
+
+        if (notes.size() < 2)
+        {
+            notes.clear();
+            for (const auto& n : sec.notes)
+                if (n.channel == 3) notes.push_back (&n);
+            std::stable_sort (notes.begin(), notes.end(),
+                [] (const NoteEvent* a, const NoteEvent* b)
+                {
+                    if (a->step != b->step) return a->step < b->step;
+                    return a->note < b->note;
+                });
+            if (!notes.empty()) anchor = notes.front();
+        }
+
+        if (anchor == nullptr)
+            return fp;
+
+        const size_t count = juce::jmin<size_t> (7, notes.size());
+        fp.count = (int) count;
+        for (size_t i = 0; i < count; ++i)
+        {
+            fp.onsets[i] = notes[i]->step - anchor->step;
+            fp.relativePitches[i] = juce::jlimit (-24, 24, notes[i]->note - anchor->note);
+            if (i > 0)
+                fp.intervals[i - 1] = juce::jlimit (-12, 12, notes[i]->note - notes[i - 1]->note);
+        }
+        fp.intervalCount = juce::jmax (0, fp.count - 1);
+
+        int repeats = 0;
+        int positive = 0;
+        int negative = 0;
+        int wide = 0;
+        for (int i = 0; i < fp.intervalCount; ++i)
+        {
+            const int iv = fp.intervals[(size_t) i];
+            if (iv == 0) ++repeats;
+            if (iv > 0) ++positive;
+            if (iv < 0) ++negative;
+            if (std::abs (iv) >= 7) ++wide;
+        }
+
+        const bool zigzag = positive > 0 && negative > 0
+                          && positive + negative >= juce::jmax (2, fp.intervalCount - 1);
+        const bool pickup = fp.count > 0 && (fp.onsets[0] % 16) != 0;
+        if (repeats >= juce::jmax (1, fp.intervalCount / 2))
+            fp.family = 0; // repeated/chant identity
+        else if (wide >= juce::jmax (1, fp.intervalCount / 3))
+            fp.family = 1; // wide-leap identity
+        else if (zigzag)
+            fp.family = 2; // angular/answering identity
+        else if (positive >= negative + 2)
+            fp.family = 3; // rising identity
+        else if (negative >= positive + 2)
+            fp.family = 4; // falling identity
+        else if (pickup)
+            fp.family = 5; // pickup-led identity
+        else if (fp.count >= 5 && (fp.onsets[2] - fp.onsets[1]) >= 4)
+            fp.family = 6; // long-gap / conversational identity
+        else
+            fp.family = 7; // balanced identity
+
+        return fp;
+    };
+
+    auto ideaSimilarity = [] (const IdeaFingerprint& a, const IdeaFingerprint& b)
+    {
+        if (a.count < 2 || b.count < 2)
+            return 0.0f;
+
+        const int n = juce::jmin (a.count, b.count);
+        int onsetHits = 0;
+        int pitchHits = 0;
+        int intervalHits = 0;
+        int directionHits = 0;
+
+        for (int i = 0; i < n; ++i)
+        {
+            if (std::abs (a.onsets[(size_t) i] - b.onsets[(size_t) i]) <= 1) ++onsetHits;
+            if (std::abs (a.relativePitches[(size_t) i] - b.relativePitches[(size_t) i]) <= 2) ++pitchHits;
+        }
+
+        const int ni = juce::jmin (a.intervalCount, b.intervalCount);
+        for (int i = 0; i < ni; ++i)
+        {
+            const int ia = a.intervals[(size_t) i];
+            const int ib = b.intervals[(size_t) i];
+            if (ia == ib || std::abs (ia - ib) <= 1) ++intervalHits;
+            if ((ia == 0 && ib == 0) || (ia > 0 && ib > 0) || (ia < 0 && ib < 0))
+                ++directionHits;
+        }
+
+        const float lengthFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f, (float) std::abs (a.count - b.count) / 4.0f);
+        const float onsetFit = (float) onsetHits / (float) n;
+        const float pitchFit = (float) pitchHits / (float) n;
+        const float intervalFit = ni > 0 ? (float) intervalHits / (float) ni : pitchFit;
+        const float directionFit = ni > 0 ? (float) directionHits / (float) ni : 0.5f;
+        const float familyFit = a.family == b.family ? 1.0f : 0.0f;
+
+        return juce::jlimit (0.0f, 1.0f,
+            0.24f * onsetFit
+            + 0.25f * pitchFit
+            + 0.25f * intervalFit
+            + 0.10f * directionFit
+            + 0.08f * lengthFit
+            + 0.08f * familyFit);
     };
 
     auto melodyFeatures = [&](const Section& sec, uint32_t identity)
@@ -4767,10 +4915,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         archetypeFit += 0.12f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.space - archetypeTargetsSpace[archetype])));
         quality += 0.19f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
-        candidates.push_back({std::move(flat), quality, identity, archetype,
-                              f.density, f.space, f.rhythmIdentity, f.motifIdentity,
-                              f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
-                              grooveQuality, motifMemory, f.phraseArc, f.tensionArc});
+        {
+            const IdeaFingerprint idea = makeIdeaFingerprint (flat);
+            candidates.push_back({std::move(flat), quality, identity, archetype,
+                                  f.density, f.space, f.rhythmIdentity, f.motifIdentity,
+                                  f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
+                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, idea});
+        }
     }
 
     // Standardise against this search pool (kept for training the ratings of the
@@ -4819,6 +4970,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // candidate to differ in both note-level identity and behavioral fingerprint.
     // A hard floor is attempted first; if a slot would otherwise become empty,
     // the gate relaxes rather than returning fewer than eight variations.
+    // 0.63 Melodic Memory 3.0: selected variations become an explicit
+    // memory bank of used musical ideas. Note-level similarity alone is not
+    // enough: transposed or rhythm-preserving copies should also count as reuse.
+    auto ideaNoveltyToSelected = [&] (const Candidate& candidate)
+    {
+        if (selected.empty()) return 1.0f;
+        float maxIdeaSimilarity = 0.0f;
+        for (const auto& s : selected)
+            maxIdeaSimilarity = juce::jmax (maxIdeaSimilarity,
+                                            ideaSimilarity (candidate.idea, s.idea));
+        return 1.0f - maxIdeaSimilarity;
+    };
+
     auto minDiversityToSelected = [&] (const Candidate& candidate)
     {
         if (selected.empty()) return 1.0f;
@@ -4828,7 +4992,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
         {
             const float sim = similarity (candidate.section, s.section);
             const float behavior = behaviorDistance (candidate, s);
-            const float combined = 0.58f * (1.0f - sim) + 0.42f * behavior;
+            const float ideaDistance = 1.0f - ideaSimilarity (candidate.idea, s.idea);
+            const float combined = 0.48f * (1.0f - sim)
+                                 + 0.30f * behavior
+                                 + 0.22f * ideaDistance;
             minimum = juce::jmin (minimum, juce::jlimit (0.0f, 1.0f, combined));
         }
         return minimum;
@@ -4851,10 +5018,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
             float maxSim = 0.0f;
             for (const auto& s : selected)
                 maxSim = juce::jmax (maxSim, similarity (candidates[i].section, s.section));
+            const float ideaNovelty = ideaNoveltyToSelected (candidates[i]);
+            const float familyCollision = std::count_if (selected.begin(), selected.end(),
+                [&] (const Candidate& s) { return s.idea.family == candidates[i].idea.family; }) > 0 ? 1.0f : 0.0f;
 
             const float score = candidates[i].quality
-                              - 0.70f * maxSim
-                              + 0.13f * diversity;
+                              - 0.62f * maxSim
+                              + 0.13f * diversity
+                              + 0.11f * ideaNovelty
+                              - 0.035f * familyCollision;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -4875,12 +5047,17 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 float maxSim = 0.0f;
                 for (const auto& s : selected)
                     maxSim = juce::jmax (maxSim, similarity (candidates[i].section, s.section));
+                const float ideaNovelty = ideaNoveltyToSelected (candidates[i]);
+                const float familyCollision = std::count_if (selected.begin(), selected.end(),
+                    [&] (const Candidate& s) { return s.idea.family == candidates[i].idea.family; }) > 0 ? 1.0f : 0.0f;
 
                 const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
                 const float score = candidates[i].quality
-                                  - 0.82f * maxSim
+                                  - 0.76f * maxSim
                                   - gatePenalty
-                                  + 0.08f * diversity;
+                                  + 0.08f * diversity
+                                  + 0.075f * ideaNovelty
+                                  - 0.025f * familyCollision;
                 if (score > relaxedBest)
                 {
                     relaxedBest = score;
@@ -4896,6 +5073,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         selected.push_back (std::move (candidates[(size_t) best]));
     }
 
+    // A candidate may be excellent on paper but still be the same musical
+    // thought as a selected slot. Idea Memory remains a soft selection pressure:
+    // it never alters a candidate's intrinsic musical quality.
     // 0.56 Loop Transformation: MAGIC 3 discovers multiple strong archetypal
     // candidates first, then this stage picks the strongest discovered loop and
     // turns it into a coherent family of standalone transformations. The musical
