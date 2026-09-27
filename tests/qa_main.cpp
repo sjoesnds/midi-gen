@@ -10,6 +10,7 @@
 // Statistical checks get one retry with fresh loops (MAGIC is random); invariants never retry.
 #include "PluginProcessor.h"
 #include "RhythmGrammar.h"
+#include "ComposerGrammar.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -690,6 +691,59 @@ int main()
         report ("Long-form phrase memory avoids literal copies",
                 checked >= 42 && (double) nonLiteral / checked >= 0.98,
                 fmt ("%.0f/%0.f phrases were not literal 4-bar copies", (double) nonLiteral, (double) checked));
+    }
+
+    // ------------------------------------------------------------------ 2f. Composer Grammar 0.70
+    {
+        const auto p4 = midiforge::ComposerGrammar::makePlan (
+            16, 0.72f, 0.66f, 0, 4, 0, 0x12345678u);
+        const auto p12 = midiforge::ComposerGrammar::makePlan (
+            12, 0.70f, 0.62f, 0, 4, 0, 0x12345678u);
+        const auto p4b = midiforge::ComposerGrammar::makePlan (
+            16, 0.72f, 0.66f, 0, 4, 0, 0x9abcdef0u);
+
+        const bool fourBarArc =
+            p4.phrases.size() == 4
+            && p4.phrases[0].role == midiforge::ComposerGrammar::Statement
+            && p4.phrases[1].role == midiforge::ComposerGrammar::Develop
+            && (p4.phrases[2].role == midiforge::ComposerGrammar::Peak
+                || p4.phrases[2].role == midiforge::ComposerGrammar::Contrast)
+            && p4.phrases[3].role == midiforge::ComposerGrammar::Return;
+
+        const bool twelveBarArc =
+            p12.phrases.size() == 3
+            && p12.phrases.front().role == midiforge::ComposerGrammar::Statement
+            && p12.phrases.back().role == midiforge::ComposerGrammar::Return
+            && p12.phrases[1].tension > p12.phrases[0].tension;
+
+        bool deterministic = p4.phrases.size() == p4b.phrases.size();
+        if (deterministic)
+        {
+            for (size_t i = 0; i < p4.phrases.size(); ++i)
+                if (p4.phrases[i].role != p4b.phrases[i].role)
+                    deterministic = false;
+        }
+
+        bool identityVariation = false;
+        const size_t n = std::min (p4.phrases.size(), p4b.phrases.size());
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (std::abs (p4.phrases[i].registerLift - p4b.phrases[i].registerLift) > 0.001f
+                || std::abs (p4.phrases[i].tension - p4b.phrases[i].tension) > 0.001f)
+            {
+                identityVariation = true;
+                break;
+            }
+        }
+
+        report ("Composer Grammar creates a 16-bar macro arc",
+                fourBarArc, "statement -> develop -> peak/contrast -> return");
+        report ("Composer Grammar creates a 12-bar rise and return",
+                twelveBarArc, "statement -> contrast/peak -> return");
+        report ("Composer Grammar keeps role structure deterministic",
+                deterministic, "same inputs keep the same role sequence");
+        report ("Composer Grammar identity changes micro-expression",
+                identityVariation, "different identity seeds alter plan targets");
     }
 
     // ------------------------------------------------------------------ 3. profiles behave differently
