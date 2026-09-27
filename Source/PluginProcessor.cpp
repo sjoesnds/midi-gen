@@ -162,6 +162,7 @@ void MidiForgeAudioProcessor::setMelodyDensity(float v, bool regenerateNow){melo
 void MidiForgeAudioProcessor::setArpDensity(float v, bool regenerateNow){arpDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setSwing(float v){swing=juce::jlimit(0.f,.75f,v);}
 void MidiForgeAudioProcessor::setHumanize(float v){humanize=juce::jlimit(0.f,1.f,v);}
+void MidiForgeAudioProcessor::setHumanizeEnabled(bool on){if(humanizeEnabled==on)return;humanizeEnabled=on;regenerate();}
 void MidiForgeAudioProcessor::setComplexity(float v, bool regenerateNow){complexity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setMelodyLength(float v, bool regenerateNow){melodyLength=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setPauseChance(float v, bool regenerateNow){pauseChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
@@ -2099,7 +2100,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // 0.22 Humanization: vary accents and sustain in a musically bounded
         // way. Timing stays on the chosen grid; "human" here means phrasing
         // and dynamics, not random off-grid MIDI.
-        const float human = juce::jlimit(0.0f, 1.0f, humanize);
+        const float human = humanizeEnabled ? juce::jlimit(0.0f, 1.0f, humanize) : 0.0f;
         const int accent = juce::jlimit(-10, 10, (int)std::round((float)((int)(h % 9u) - 4) * (2.0f + 7.0f * human)));
         if (x % 4 == 0) velocity += 2;
         if (cycle == 2 && (x % 8) == 4) velocity += 3;
@@ -2422,6 +2423,107 @@ buildSection(sec,i,prog,r,inherited,variationSalt);
 song.sections.push_back(std::move(sec));
 }
 }
+void MidiForgeAudioProcessor::applyHumanPerformance (Section& section) const
+{
+    if (!humanizeEnabled || humanize <= 0.001f)
+        return;
+
+    std::vector<size_t> melody;
+    melody.reserve (section.notes.size());
+    for (size_t i = 0; i < section.notes.size(); ++i)
+        if (section.notes[i].channel == 3)
+            melody.push_back (i);
+
+    std::stable_sort (melody.begin(), melody.end(),
+                      [&] (size_t a, size_t b)
+                      {
+                          return section.notes[a].step < section.notes[b].step;
+                      });
+
+    if (melody.size() < 2)
+        return;
+
+    const float amount = juce::jlimit (0.0f, 1.0f, humanize);
+
+    // Humanize is deliberately phrase-aware and opt-in. It does not randomize
+    // every note: only selected anchors, pickups and resolutions are allowed to
+    // move by one 16th step, preserving the electronic grid while breaking
+    // machine-like repetition.
+    for (size_t k = 0; k < melody.size(); ++k)
+    {
+        auto& cur = section.notes[melody[k]];
+        const int barStart = (cur.step / 16) * 16;
+        const int barEnd = barStart + 16;
+        const int prevStep = (k > 0) ? section.notes[melody[k - 1]].step : cur.step;
+        const int nextStep = (k + 1 < melody.size()) ? section.notes[melody[k + 1]].step : barEnd;
+
+        const uint32_t h = hash32 (generationSeed
+                                    ^ (uint32_t) (cur.step * 131 + cur.note * 17 + (int) k * 53)
+                                    ^ 0x6B8B4567u);
+        const float roll = (float) (h % 1000u) / 1000.0f;
+
+        int move = 0;
+
+        // Strong-beat anticipation: the player occasionally arrives one 16th
+        // early when there is enough space after the previous note.
+        const float anticipationChance = 0.22f * amount;
+        if (cur.step > barStart && (cur.step % 4) == 0
+            && nextStep > cur.step + 1
+            && cur.step > prevStep + 1
+            && roll < anticipationChance)
+        {
+            move = -1;
+        }
+        else
+        {
+            // Delayed resolution: phrase-ending/offbeat notes may lean late
+            // instead of every note receiving the same timing error.
+            const bool phraseRelease = ((cur.step % 16) >= 12)
+                                     || (k + 1 == melody.size());
+            const float delayChance = (phraseRelease ? 0.18f : 0.08f) * amount;
+            if (phraseRelease && cur.step < barEnd - 1
+                && nextStep > cur.step + 1
+                && roll > 0.72f
+                && roll < 0.72f + delayChance)
+                move = 1;
+        }
+
+        if (move != 0)
+        {
+            const int candidate = juce::jlimit (barStart, barEnd - 1, cur.step + move);
+            if (candidate > prevStep && candidate < nextStep)
+                cur.step = candidate;
+        }
+
+        // Repeated notes are treated as a phrase pulse rather than identical
+        // machine hits: alternate a little of their velocity and release.
+        if (k > 0)
+        {
+            const auto& prev = section.notes[melody[k - 1]];
+            if (prev.note == cur.note)
+            {
+                const bool lighterRepeat = ((h >> 9) & 1u) != 0u;
+                cur.velocity = juce::jlimit (40, 118,
+                    cur.velocity + (lighterRepeat ? -5 : 3));
+                if (lighterRepeat)
+                    cur.length = juce::jmax (1, cur.length - 1);
+            }
+        }
+
+        // Human performance also slightly reshapes sustain, but never beyond
+        // the next onset or the sound profile's musical boundaries.
+        if ((h % 1000u) < (uint32_t) juce::roundToInt (90.0f * amount)
+            && cur.length < 4)
+        {
+            const int available = juce::jmax (1, nextStep - cur.step);
+            cur.length = juce::jmin (cur.length + 1, available);
+        }
+    }
+
+    cleanMelodyLine (section.notes);
+    removeDuplicateNotes (section.notes);
+}
+
 void MidiForgeAudioProcessor::buildVariationBank()
 {
     // Shared genre DNA for the candidate judge. Keep these targets aligned with
@@ -5736,8 +5838,9 @@ if (dueCount > 0)
     if ((local % 2) == 1)
         offset = (int) (swing * sampleRate * 60.0
                         / juce::jmax (20.0, currentBpm.load()) / 8.0);
-    const int velBias = (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f)
-                               * 14.0f * humanize);
+    const int velBias = humanizeEnabled
+        ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * humanize)
+        : 0;
     for (int n = 0; n < dueCount; ++n)
         emitNote (dueNotes[(size_t) n], out, offset, velBias);
 }
@@ -5791,6 +5894,8 @@ o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
 o.writeBool(leadStyleSoundCloud);
 o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
 o.writeBool(tasteEnabled);
+// 0.62: Humanize is an opt-in performance layer; append the flag for backward compatibility.
+o.writeBool(humanizeEnabled);
 }
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
@@ -5818,6 +5923,9 @@ if (i.getNumBytesRemaining() >= 4)
     lockMelodyLayer = i.readBool(); lockArpLayer = i.readBool();
 }
 if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
+// Older states stop before this byte, so legacy presets remain Humanize OFF.
+humanizeEnabled = false;
+if (i.getNumBytesRemaining() >= 1) humanizeEnabled = i.readBool();
 regenerate();
 chooseVariation (savedSelection);
 }
