@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForge VERSION 0.65.0)
+project(MidiForge VERSION 0.66.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -25,6 +25,8 @@ juce_add_plugin(MidiForge
 target_sources(MidiForge PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginProcessor.h
+    Source/RhythmGrammar.cpp
+    Source/RhythmGrammar.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
 )
