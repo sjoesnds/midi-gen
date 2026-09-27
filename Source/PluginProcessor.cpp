@@ -1084,27 +1084,40 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
 
-    // 0.58.2 BPM-adaptive melody context. currentBpm is refreshed from the DAW
-    // playhead in processBlock, so tempo changes are reflected on the next GENERATE
-    // without changing an existing loop underneath the user.
+    // 0.61 Tempo Feel Engine: BPM changes the *time feel* of the same musical
+    // language instead of simply deleting notes at faster tempos. The old engine
+    // progressively reduced density above 120 BPM and then suppressed 1/16-note
+    // positions again above ~160 BPM, which made fast DAW tempos sound like the
+    // generator had a practical ceiling around 150-160 BPM.
     const double hostBpm = juce::jlimit (40.0, 240.0, currentBpm.load());
-    const float slowTempo = juce::jlimit (0.0f, 1.0f, (120.0f - (float) hostBpm) / 70.0f);
-    const float fastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 120.0f) / 75.0f);
-    const float veryFastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 160.0f) / 50.0f);
+    const float slowTempo = juce::jlimit (0.0f, 1.0f, (120.0f - (float) hostBpm) / 60.0f);
+    const float fastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 120.0f) / 60.0f);
+    const float veryFastTempo = juce::jlimit (0.0f, 1.0f, ((float) hostBpm - 170.0f) / 50.0f);
 
-    const float tempoDensityMul = juce::jlimit (0.68f, 1.24f,
-        1.0f + 0.20f * slowTempo - 0.30f * fastTempo - 0.08f * veryFastTempo);
-    const float tempoSpaceBonus = juce::jlimit (0.0f, 0.20f,
-        0.14f * fastTempo + 0.06f * veryFastTempo);
-    const float tempoLegatoBoost = juce::jlimit (0.0f, 0.22f,
-        0.16f * fastTempo + 0.06f * veryFastTempo);
+    // Keep bar-level musical density almost stable across BPM. At high tempos
+    // the engine changes subdivision usage and sustain instead of throwing away
+    // the melody's identity.
+    const float tempoDensityMul = juce::jlimit (0.92f, 1.10f,
+        1.0f + 0.08f * slowTempo + 0.05f * fastTempo + 0.03f * veryFastTempo);
+    const float tempoSpaceBonus = juce::jlimit (0.0f, 0.10f,
+        0.045f * fastTempo + 0.02f * veryFastTempo);
+    // Faster BPMs need shorter note occupancy so the next rhythmic event remains
+    // perceptually readable. This is deliberately a reduction, not a legato boost.
+    const float tempoLegatoBoost = juce::jlimit (-0.20f, 0.08f,
+        0.04f * slowTempo - 0.12f * fastTempo - 0.08f * veryFastTempo);
+    const float tempoSixteenthBoost = juce::jlimit (0.0f, 0.42f,
+        0.05f * fastTempo + 0.28f * veryFastTempo);
+    const float tempoOffbeatBoost = juce::jlimit (0.0f, 0.24f,
+        0.04f * fastTempo + 0.12f * veryFastTempo);
+    const int tempoLengthCap = juce::jlimit (2, 8,
+        juce::roundToInt (6.0f - 2.0f * fastTempo - 1.5f * veryFastTempo));
 
     const int minNotes = juce::jmax (2,
         juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minNotes) : prof.minNotes)
-                          * (1.0f - 0.32f * fastTempo)));
+                          * (1.0f + 0.12f * fastTempo + 0.08f * veryFastTempo)));
     const int minHits = juce::jmax (2,
         juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minHits) : prof.minHits)
-                          * (1.0f - 0.34f * fastTempo)));
+                          * (1.0f + 0.10f * fastTempo + 0.08f * veryFastTempo)));
 
     // 0.58.3 Context-Aware Generation: melody now reads the musical space that
     // already exists in this bar before choosing its own rhythm and register.
@@ -1453,7 +1466,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
-    const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5;
+    const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
+        || fastTempo > 0.58f;
     for (auto& x : positions)
     {
         if ((x & 1) != 0 && !allowsOffGrid)
@@ -1490,9 +1504,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         const bool sixteenth = (x & 1) != 0;
         float positionDensity = density;
         if (fastTempo > 0.05f && sixteenth)
-            positionDensity *= juce::jlimit (0.42f, 1.0f, 1.0f - 0.48f * fastTempo);
+            positionDensity *= juce::jlimit (1.0f, 1.0f + tempoSixteenthBoost, 1.0f + tempoSixteenthBoost);
         else if (slowTempo > 0.05f && sixteenth)
             positionDensity = juce::jlimit (0.20f, 0.98f, positionDensity + 0.10f * slowTempo);
+
+        // Fast tempos deliberately become more articulate around offbeats instead
+        // of becoming simply emptier. This makes 170-220 BPM retain a usable pulse.
+        if (fastTempo > 0.05f && (x % 4) != 0)
+            positionDensity *= 1.0f + tempoOffbeatBoost;
 
         // 0.58.3: avoid stacking the melody onto a fully occupied slice of the
         // backdrop, while still allowing deliberate chord/bass alignment.
@@ -2104,6 +2123,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const int sustained = 1 + (int) std::round(legatoAmt * (float) (gap - 1));
             len = juce::jmax(len, juce::jmin(sustained, gap));
             len = juce::jmin(len, prof.maxLen);
+            // Tempo Feel: at fast BPMs keep ordinary lead phrases readable by
+            // capping occupancy. Long-register sound profiles (pads/strings)
+            // can still exceed this cap through their explicit maxLen.
+            if (! (soundTarget == 4 && prof.maxLen >= 12))
+                len = juce::jmin (len, tempoLengthCap);
             len = juce::jmax(len, juce::jmin(prof.minLen, gap));
             len = juce::jlimit(1, juce::jmax(1, 16 - x), len);
         }
@@ -3985,23 +4009,76 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
-        // 0.58.2 BPM Judge: the same note density does not feel equally musical
-        // at 90 and 190 BPM. Reward candidates whose density and available space
-        // match the current DAW tempo, so MAGIC does not re-select overly busy
-        // patterns after the BPM-aware generator has produced them.
+        // 0.61 Tempo Feel Judge: score the generated loop in the same temporal
+        // language that the generator used. The old judge rewarded progressively
+        // emptier loops as BPM increased, which could erase the fast-tempo work done
+        // by the generator during MAGIC re-ranking.
         {
             const double bpm = juce::jlimit (40.0, 240.0, currentBpm.load());
-            const float fast = juce::jlimit (0.0f, 1.0f, ((float)bpm - 120.0f) / 75.0f);
-            const float slow = juce::jlimit (0.0f, 1.0f, (120.0f - (float)bpm) / 70.0f);
-            const float targetDensity = juce::jlimit (0.16f, 0.82f,
-                0.74f - 0.28f * fast + 0.12f * slow);
-            const float targetSpace = juce::jlimit (0.18f, 0.90f,
-                0.38f + 0.24f * fast - 0.08f * slow);
+            const float fast = juce::jlimit (0.0f, 1.0f, ((float)bpm - 120.0f) / 60.0f);
+            const float slow = juce::jlimit (0.0f, 1.0f, (120.0f - (float)bpm) / 60.0f);
+            const float veryFast = juce::jlimit (0.0f, 1.0f, ((float)bpm - 170.0f) / 50.0f);
+
+            const float targetDensity = juce::jlimit (0.18f, 0.88f,
+                0.70f + 0.04f * slow + 0.05f * fast + 0.03f * veryFast);
+            const float targetSpace = juce::jlimit (0.20f, 0.84f,
+                0.40f - 0.04f * fast - 0.03f * veryFast + 0.04f * slow);
+
             const float densityFit = 1.0f
-                - juce::jlimit (0.0f, 1.0f, std::abs (f.density - targetDensity) / 0.55f);
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.density - targetDensity) / 0.46f);
             const float spaceFit = 1.0f
-                - juce::jlimit (0.0f, 1.0f, std::abs (f.space - targetSpace) / 0.62f);
-            quality += 0.055f * densityFit + 0.035f * spaceFit;
+                - juce::jlimit (0.0f, 1.0f, std::abs (f.space - targetSpace) / 0.56f);
+
+            // Estimate melodic note-rate from the actual loop duration. This
+            // distinguishes "same notes per bar" from "same perceived activity".
+            int melodyCount = 0;
+            const int loopBars = juce::jmax (1, flat.bars);
+            for (const auto& ev : flat.notes)
+                if (ev.channel == 3)
+                    ++melodyCount;
+            const float loopSeconds = (float)loopBars * 4.0f * 60.0f / (float)juce::jmax (40.0, bpm);
+            const float notesPerSecond = loopSeconds > 0.0f
+                ? (float)melodyCount / loopSeconds
+                : 0.0f;
+            const float targetNotesPerSecond = juce::jlimit (1.0f, 6.5f,
+                1.65f + 0.0125f * (float)bpm
+                + (melodyType == RiffMelody ? 0.45f : 0.0f)
+                + (melodyType == SparseLeadMelody ? -0.45f : 0.0f));
+            const float rateFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f,
+                    std::abs (notesPerSecond - targetNotesPerSecond)
+                    / juce::jmax (1.5f, 1.8f + 0.9f * fast));
+
+            // At fast BPM, 1/16 and offbeat activity are useful evidence of a
+            // genuinely tempo-native line. Measure them directly from the MIDI.
+            int melodySixteenths = 0;
+            int melodyOffbeats = 0;
+            for (const auto& ev : flat.notes)
+            {
+                if (ev.channel != 3) continue;
+                if ((ev.step & 1) != 0) ++melodySixteenths;
+                if ((ev.step % 4) != 0) ++melodyOffbeats;
+            }
+            const float sixteenthRatio = melodyCount > 0
+                ? (float)melodySixteenths / (float)melodyCount : 0.0f;
+            const float offbeatRatio = melodyCount > 0
+                ? (float)melodyOffbeats / (float)melodyCount : 0.0f;
+            const float targetSixteenth = juce::jlimit (0.18f, 0.82f,
+                0.24f + 0.34f * fast + 0.20f * veryFast);
+            const float targetOffbeat = juce::jlimit (0.20f, 0.82f,
+                0.32f + 0.10f * fast + 0.10f * veryFast);
+            const float subdivisionFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f,
+                    std::abs (sixteenthRatio - targetSixteenth) / 0.62f);
+            const float offbeatFit = 1.0f
+                - juce::jlimit (0.0f, 1.0f,
+                    std::abs (offbeatRatio - targetOffbeat) / 0.58f);
+
+            quality += 0.045f * densityFit
+                     + 0.028f * spaceFit
+                     + 0.042f * rateFit
+                     + 0.030f * subdivisionFit
+                     + 0.022f * offbeatFit;
         }
 
         // Loop Quality 2.0: judge the circular behavior of the whole loop while
