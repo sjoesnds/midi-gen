@@ -816,27 +816,27 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
         section.bars, energy, complexity, melodyType, mood, genre,
         hash32 (identity ^ 0xC071PROSu));
 
+    std::vector<int> prosodyScalePitches;
+    prosodyScalePitches.reserve (56);
+    const auto prosodyScale = scaleSemitones();
+    for (int oct = 1; oct <= 8; ++oct)
+        for (int p : prosodyScale)
+        {
+            const int n = 12 * oct + rootPc + p;
+            if (n >= 24 && n <= 108)
+                prosodyScalePitches.push_back (n);
+        }
+    std::sort (prosodyScalePitches.begin(), prosodyScalePitches.end());
+    prosodyScalePitches.erase (
+        std::unique (prosodyScalePitches.begin(), prosodyScalePitches.end()),
+        prosodyScalePitches.end());
+
     auto shiftScale = [&] (int midi, int steps)
     {
         if (steps == 0)
             return snapToScale (midi);
 
-        std::vector<int> scalePitches;
-        scalePitches.reserve (56);
-        const auto scale = scaleSemitones();
-
-        for (int oct = 1; oct <= 8; ++oct)
-            for (int p : scale)
-            {
-                const int n = 12 * oct + rootPc + p;
-                if (n >= 24 && n <= 108)
-                    scalePitches.push_back (n);
-            }
-
-        std::sort (scalePitches.begin(), scalePitches.end());
-        scalePitches.erase (std::unique (scalePitches.begin(), scalePitches.end()),
-                            scalePitches.end());
-
+        const auto& scalePitches = prosodyScalePitches;
         if (scalePitches.empty())
             return juce::jlimit (24, 108, midi);
 
@@ -1001,17 +1001,15 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
                 if (i + 1 < melody.size())
                 {
                     const int after = melody[i + 1]->note - cur->note;
-                    if ((nextInterval > 0 && after > 0) || (nextInterval < 0 && after < 0)
-                        || std::abs (after) <= 3)
+                    if (std::abs (after) <= 7)
                         ++approachGood;
                 }
                 break;
 
             case midiforge::MelodicProsody::Release:
                 ++releaseCount;
-                if (i == 0 || melody[i - 1]->note >= cur->note)
-                    ++releaseGood;
-                if (cur->length >= 2)
+                if ((i == 0 || melody[i - 1]->note >= cur->note)
+                    && cur->length >= 2)
                     ++releaseGood;
                 break;
 
@@ -1050,7 +1048,7 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
     const float approachFit = approachCount > 0
         ? (float) approachGood / (float) approachCount : 0.58f;
     const float releaseFit = releaseCount > 0
-        ? juce::jlimit (0.0f, 1.0f, (float) releaseGood / (float) (releaseCount + 1)) : 0.58f;
+        ? (float) releaseGood / (float) releaseCount : 0.58f;
     const float peakFit = peakCount > 0
         ? (float) peakGood / (float) peakCount : 0.56f;
     const float anchorFit = anchorCount > 0
