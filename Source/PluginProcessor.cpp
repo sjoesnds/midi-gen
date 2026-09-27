@@ -2674,7 +2674,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         fp.count = (int) count;
         for (size_t i = 0; i < count; ++i)
         {
-            fp.onsets[i] = notes[i]->step - anchor->step;
+            fp.onsets[i] = notes[i]->step % 16;
             fp.relativePitches[i] = juce::jlimit (-24, 24, notes[i]->note - anchor->note);
             if (i > 0)
                 fp.intervals[i - 1] = juce::jlimit (-12, 12, notes[i]->note - notes[i - 1]->note);
