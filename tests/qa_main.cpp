@@ -589,6 +589,109 @@ int main()
                 fmt ("%.0f/%0.f phrases keep a mixed chord/color-tone ratio", (double) mixedHarmony, (double) checked));
     }
 
+
+    // ------------------------------------------------------------------ 2e. Phrase Memory 4.0 / long-form motif development
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (12);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+
+        int checked = 0;
+        int memoryPreserved = 0;
+        int contrastPhrases = 0;
+        int nonLiteral = 0;
+
+        auto contourSimilarity = [] (const std::vector<int>& a,
+                                     const std::vector<int>& b,
+                                     bool inverse)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0;
+            const size_t n = std::min (a.size(), b.size());
+            int hits = 0;
+            for (size_t i = 1; i < n; ++i)
+            {
+                const int da = a[i] - a[i - 1];
+                const int db = b[i] - b[i - 1];
+                const bool same = inverse
+                    ? ((da > 0 && db < 0) || (da < 0 && db > 0) || (da == 0 && db == 0))
+                    : ((da > 0 && db > 0) || (da < 0 && db < 0) || (da == 0 && db == 0));
+                if (same) ++hits;
+            }
+            return (double) hits / (double) std::max<size_t> (1, n - 1);
+        };
+
+        for (int seed = 12000; seed < 12050; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<int>, 12> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 192)
+                    bars[(size_t) (n.step / 16)].push_back (n.note);
+
+            bool valid = true;
+            for (int b = 0; b < 12; ++b)
+                if (bars[(size_t) b].size() < 2)
+                    valid = false;
+            if (!valid)
+                continue;
+
+            ++checked;
+
+            double directP1 = 0.0, directP2 = 0.0, inverseP2 = 0.0;
+            for (int local = 0; local < 4; ++local)
+            {
+                directP1 += contourSimilarity (bars[(size_t) local],
+                                               bars[(size_t) (4 + local)], false);
+
+                directP2 += contourSimilarity (bars[(size_t) local],
+                                               bars[(size_t) (8 + local)], false);
+                inverseP2 += contourSimilarity (bars[(size_t) local],
+                                                bars[(size_t) (8 + local)], true);
+            }
+            directP1 /= 4.0;
+            directP2 /= 4.0;
+            inverseP2 /= 4.0;
+
+            if (directP1 >= 0.48 || directP2 >= 0.45 || inverseP2 >= 0.48)
+                ++memoryPreserved;
+
+            if (inverseP2 >= directP2 + 0.02)
+                ++contrastPhrases;
+
+            // Macro memory must not create literal bar copies.
+            bool literal = true;
+            for (int local = 0; local < 4; ++local)
+            {
+                if (bars[(size_t) local] != bars[(size_t) (8 + local)])
+                {
+                    literal = false;
+                    break;
+                }
+            }
+            if (!literal)
+                ++nonLiteral;
+        }
+
+        report ("Long-form phrase memory preserves a recognizable contour",
+                checked >= 42 && (double) memoryPreserved / checked >= 0.82,
+                fmt ("%.0f/%0.f 12-bar phrases retained macro contour", (double) memoryPreserved, (double) checked));
+
+        report ("Long-form memory can create a transformed contrast phrase",
+                checked >= 42 && (double) contrastPhrases / checked >= 0.30,
+                fmt ("%.0f/%0.f phrases show stronger inverted B/C contour", (double) contrastPhrases, (double) checked));
+
+        report ("Long-form phrase memory avoids literal copies",
+                checked >= 42 && (double) nonLiteral / checked >= 0.98,
+                fmt ("%.0f/%0.f phrases were not literal 4-bar copies", (double) nonLiteral, (double) checked));
+    }
+
     // ------------------------------------------------------------------ 3. profiles behave differently
     {
         const char* names[8] = { "Piano", "Pluck", "Synth Lead", "Bell", "Pad", "Brass", "808", "Guitar" };
