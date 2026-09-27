@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TasteModel.h"
+#include "RhythmGrammar.h"
 #include <array>
 #include <vector>
 #include <atomic>
@@ -365,6 +366,8 @@ int snapToScale(int midi) const;
 // 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).
 void registerLane (int part, int& lo, int& hi) const;
 bool rhythmHit(int stepInBar) const;
+void applyRhythmGrammar (Section& section, uint32_t identity) const;
+float rhythmGrammarScore (const Section& section) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);

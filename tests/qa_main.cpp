@@ -9,6 +9,7 @@
 //   6. project state round-trip, old-state compatibility, AUTO-NEXT
 // Statistical checks get one retry with fresh loops (MAGIC is random); invariants never retry.
 #include "PluginProcessor.h"
+#include "RhythmGrammar.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -28,10 +29,10 @@ namespace
         std::printf ("[%s] %s  %s\n", ok ? "PASS" : "FAIL", name.c_str(), detail.c_str());
         if (! ok) ++failures;
     }
-    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0)
+    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
     {
         char buf[256];
-        std::snprintf (buf, sizeof buf, f, a, b, c);
+        std::snprintf (buf, sizeof buf, f, a, b, c, d);
         return buf;
     }
 
@@ -282,6 +283,132 @@ int main()
         row ("semitone clusters per bar",   s.clusterPerBar,    s.clusterPerBar <= 0.06,   "<= 0.06");
         return ok;
     });
+
+
+    // ------------------------------------------------------------------ 2b. Rhythm Grammar / BPM-native rhythm
+    {
+        struct BpmHead : juce::AudioPlayHead
+        {
+            double bpm = 120.0;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo i;
+                i.setBpm (bpm);
+                i.setIsPlaying (true);
+                return i;
+            }
+        } head;
+
+        p.setPlayHead (&head);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.68f, false);
+
+        auto collect = [&] (double bpm, int loops)
+        {
+            head.bpm = bpm;
+            double sixteenth = 0.0;
+            double offbeat = 0.0;
+            double grammar = 0.0;
+            int melodyNotes = 0;
+
+            for (int i = 0; i < loops; ++i)
+            {
+                p.setSeed (7000 + i);
+                auto notes = p.getVisibleNotes();
+                int mel = 0, six = 0, off = 0;
+                std::vector<midiforge::RhythmGrammar::Note> rhythmNotes;
+
+                for (const auto& n : notes)
+                    if (n.channel == 3)
+                    {
+                        ++mel;
+                        if ((n.step & 1) != 0) ++six;
+                        if ((n.step % 4) != 0) ++off;
+                        rhythmNotes.push_back ({ n.step, n.length, n.velocity });
+                    }
+
+                melodyNotes += mel;
+                sixteenth += mel > 0 ? (double) six / mel : 0.0;
+                offbeat += mel > 0 ? (double) off / mel : 0.0;
+                grammar += midiforge::RhythmGrammar::score (
+                    rhythmNotes, 4, bpm, p.getRhythm(), p.getComplexity(), p.getEnergy());
+            }
+
+            return std::array<double, 4> {
+                sixteenth / loops,
+                offbeat / loops,
+                grammar / loops,
+                (double) melodyNotes / loops
+            };
+        };
+
+        const auto slow = collect (120.0, 40);
+        const auto fast = collect (200.0, 40);
+        head.bpm = 120.0;
+
+        report ("Rhythm Grammar has a healthy phrase score",
+                slow[2] >= 0.52,
+                fmt ("mean grammar score %.3f >= 0.52", slow[2]));
+        report ("Fast BPM uses more sixteenth/offbeat vocabulary",
+                fast[0] > slow[0] + 0.035 && fast[1] >= slow[1] - 0.015,
+                fmt ("sixteenth %.3f -> %.3f, offbeat %.3f -> %.3f",
+                     slow[0], fast[0], slow[1], fast[1]));
+        report ("Fast BPM does not collapse melody density",
+                fast[3] >= slow[3] * 0.82,
+                fmt ("melody notes/loop %.2f -> %.2f", slow[3], fast[3]));
+    }
+
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.68f, false);
+
+        auto onsetSimilarity = [] (const std::vector<int>& a, const std::vector<int>& b)
+        {
+            if (a.empty() || b.empty()) return 0.0;
+            int hits = 0;
+            for (const int x : a)
+            {
+                int best = 99;
+                for (const int y : b) best = std::min (best, std::abs (x - y));
+                if (best <= 1) ++hits;
+            }
+            return (double) hits / (double) std::max (a.size(), b.size());
+        };
+
+        int coherent = 0;
+        int checked = 0;
+        for (int i = 0; i < 60; ++i)
+        {
+            p.setSeed (9000 + i);
+            auto notes = p.getVisibleNotes();
+            std::array<std::vector<int>, 4> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 64)
+                    bars[(size_t) (n.step / 16)].push_back (n.step % 16);
+            for (auto& v : bars) std::sort (v.begin(), v.end());
+            if (bars[0].size() < 2 || bars[1].empty() || bars[2].empty() || bars[3].empty())
+                continue;
+
+            const double ap = onsetSimilarity (bars[0], bars[1]);
+            const double b  = onsetSimilarity (bars[0], bars[2]);
+            const double ar = onsetSimilarity (bars[0], bars[3]);
+            if (ap >= b + 0.02 && ar >= b + 0.02)
+                ++coherent;
+            ++checked;
+        }
+
+        report ("Phrase Grammar preserves A -> A' / B contrast / A'' return",
+                checked >= 40 && (double) coherent / checked >= 0.62,
+                fmt ("%.0f of %.0f four-bar phrases passed", (double) coherent, (double) checked));
+    }
 
     // ------------------------------------------------------------------ 3. profiles behave differently
     {
