@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForge VERSION 0.67.0)
+project(MidiForge VERSION 0.68.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
