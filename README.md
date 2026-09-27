@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.69.0**
+**Current version: 0.70.0**
+
+### Composer Grammar — 0.70.0
+- Adds a dedicated macro-level composition planner instead of another independent post-processing layer.
+- Four-bar cells receive explicit roles such as **Statement**, **Develop**, **Build**, **Contrast/Peak**, **Release** and **Return** according to loop length, energy and complexity.
+- The plan supplies soft targets for tension, density, register movement, sustain, velocity and cadence; the existing melody, rhythm, phrase-memory and harmony engines interpret those targets.
+- Phrase Memory 4.0 now follows the Composer role when choosing development, contrast, fragmentation and return, so long-form memory and phrase arc share one structural intention.
+- Adds a Composer Grammar Judge for macro tension, density, register movement and return/cadence behavior.
+- Adds headless QA for deterministic role planning and identity-driven micro-variation.
+- No new UI controls and no non-MIDI features.
 
 ### Phrase Memory 4.0 — 0.69.0
 - Adds long-form memory across complete four-bar phrase cells instead of only inside one A/A'/B/A'' phrase.
