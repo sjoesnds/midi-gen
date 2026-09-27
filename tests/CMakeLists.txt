@@ -18,6 +18,7 @@ target_sources(MidiForgeQA PRIVATE
     ../Source/PluginProcessor.cpp
     ../Source/RhythmGrammar.cpp
     ../Source/ComposerGrammar.cpp
+    ../Source/MelodicProsody.cpp
 )
 target_include_directories(MidiForgeQA PRIVATE ../Source)
 juce_generate_juce_header(MidiForgeQA)
