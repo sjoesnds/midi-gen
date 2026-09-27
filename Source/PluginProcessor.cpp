@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
+#include "MelodicProsody.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -783,6 +784,287 @@ float MidiForgeAudioProcessor::melodyExpressionScore (const Section& section) co
         + 0.10f * juce::jlimit (0.0f, 1.0f, (float) intervals / 12.0f));
 }
 
+
+void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t identity) const
+{
+    // 0.71 Melodic Prosody:
+    // Every melody note gets a musical function before Harmony resolves its
+    // exact pitch. This pass does not invent a second melody; it gives existing
+    // notes intentional jobs: anchor, pickup, approach, connective motion,
+    // accent, peak and release.
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
+        return;
+
+    std::vector<size_t> melody;
+    melody.reserve (section.notes.size());
+    for (size_t i = 0; i < section.notes.size(); ++i)
+        if (section.notes[i].channel == 3)
+            melody.push_back (i);
+
+    if (melody.size() < 2)
+        return;
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (section.notes[a].step != section.notes[b].step)
+                return section.notes[a].step < section.notes[b].step;
+            return section.notes[a].note < section.notes[b].note;
+        });
+
+    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
+        section.bars, energy, complexity, melodyType, mood, genre,
+        hash32 (identity ^ 0xC071PROSu));
+
+    auto shiftScale = [&] (int midi, int steps)
+    {
+        if (steps == 0)
+            return snapToScale (midi);
+
+        std::vector<int> scalePitches;
+        scalePitches.reserve (56);
+        const auto scale = scaleSemitones();
+
+        for (int oct = 1; oct <= 8; ++oct)
+            for (int p : scale)
+            {
+                const int n = 12 * oct + rootPc + p;
+                if (n >= 24 && n <= 108)
+                    scalePitches.push_back (n);
+            }
+
+        std::sort (scalePitches.begin(), scalePitches.end());
+        scalePitches.erase (std::unique (scalePitches.begin(), scalePitches.end()),
+                            scalePitches.end());
+
+        if (scalePitches.empty())
+            return juce::jlimit (24, 108, midi);
+
+        const int base = snapToScale (midi);
+        auto it = std::lower_bound (scalePitches.begin(), scalePitches.end(), base);
+        int idx = (int) std::distance (scalePitches.begin(), it);
+        if (idx >= (int) scalePitches.size())
+            idx = (int) scalePitches.size() - 1;
+        else if (*it != base && idx > 0
+                 && std::abs (scalePitches[(size_t) idx - 1] - base) <= std::abs (*it - base))
+            --idx;
+
+        idx = juce::jlimit (0, (int) scalePitches.size() - 1, idx + steps);
+        return scalePitches[(size_t) idx];
+    };
+
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        auto& n = section.notes[melody[i]];
+        const int phrase = juce::jlimit (0, (int) composerPlan.phrases.size() - 1, n.step / 64);
+        const auto composerState = composerPlan.stateFor (phrase);
+
+        const int nextStep = (i + 1 < melody.size()) ? section.notes[melody[i + 1]].step : n.step;
+        const int nextLocalStep = (i + 1 < melody.size()) ? (nextStep % 16) : -1;
+        const int localStep = n.step % 16;
+        const int nextInterval = (i + 1 < melody.size())
+            ? section.notes[melody[i + 1]].note - n.note
+            : 0;
+        const bool finalOfPhrase = (i + 1 == melody.size())
+            || (nextStep / 64 != n.step / 64);
+
+        const auto intent = midiforge::MelodicProsody::classify (
+            (int) i,
+            (int) melody.size(),
+            localStep,
+            nextLocalStep,
+            std::abs (nextInterval),
+            finalOfPhrase,
+            composerState.role,
+            composerState.tension,
+            hash32 (identity ^ 0x71A11CEu));
+
+        switch (intent.role)
+        {
+            case midiforge::MelodicProsody::Anchor:
+                n.velocity = juce::jlimit (35, 122,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
+                n.length = juce::jmin (6, n.length + 1);
+                break;
+
+            case midiforge::MelodicProsody::Accent:
+                n.velocity = juce::jlimit (35, 122,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
+                break;
+
+            case midiforge::MelodicProsody::Pickup:
+                n.velocity = juce::jlimit (35, 118,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
+                n.length = juce::jmax (1, n.length - 1);
+                break;
+
+            case midiforge::MelodicProsody::Approach:
+                if (i + 1 < melody.size() && std::abs (nextInterval) >= 4)
+                    n.note = shiftScale (n.note,
+                        nextInterval > 0 ? intent.scaleMotion : -intent.scaleMotion);
+                n.length = juce::jmax (1, n.length);
+                break;
+
+            case midiforge::MelodicProsody::Connect:
+                if (i + 1 < melody.size() && std::abs (nextInterval) >= 8)
+                    n.note = shiftScale (n.note,
+                        nextInterval > 0 ? 1 : -1);
+                break;
+
+            case midiforge::MelodicProsody::Peak:
+                n.note = shiftScale (n.note, juce::jlimit (1, 2,
+                    1 + (composerState.registerLift > 4.0f ? 1 : 0)));
+                n.velocity = juce::jlimit (40, 122,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
+                n.length = juce::jmax (1, n.length - 1);
+                break;
+
+            case midiforge::MelodicProsody::Release:
+                if (i > 0)
+                {
+                    const int previous = section.notes[melody[i - 1]].note;
+                    if (std::abs (n.note - previous) >= 2)
+                        n.note = shiftScale (n.note, n.note > previous ? -1 : 1);
+                    else if (n.note > previous)
+                        n.note = shiftScale (n.note, -1);
+                }
+                n.velocity = juce::jlimit (35, 118,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
+                n.length = juce::jmin (6, n.length + 1);
+                break;
+        }
+
+        if (intent.sustainBias > 0.04f && (intent.role == midiforge::MelodicProsody::Anchor
+                                         || intent.role == midiforge::MelodicProsody::Release))
+            n.length = juce::jmin (6, n.length + 1);
+    }
+
+    cleanMelodyLine (section.notes);
+    removeDuplicateNotes (section.notes);
+}
+
+float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) const
+{
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || section.bars < 4)
+        return 0.52f;
+
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    if (melody.size() < 3)
+        return 0.45f;
+
+    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
+        section.bars, energy, complexity, melodyType, mood, genre,
+        hash32 (generationSeed ^ 0xC0719F0u));
+
+    int approachGood = 0, approachCount = 0;
+    int releaseGood = 0, releaseCount = 0;
+    int peakGood = 0, peakCount = 0;
+    int anchorGood = 0, anchorCount = 0;
+    int accentGood = 0, accentCount = 0;
+
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        const auto* cur = melody[i];
+        const int phrase = juce::jlimit (0, (int) composerPlan.phrases.size() - 1, cur->step / 64);
+        const auto state = composerPlan.stateFor (phrase);
+        const int nextStep = i + 1 < melody.size() ? melody[i + 1]->step : cur->step;
+        const int nextInterval = i + 1 < melody.size()
+            ? melody[i + 1]->note - cur->note : 0;
+        const bool finalOfPhrase = i + 1 == melody.size()
+            || nextStep / 64 != cur->step / 64;
+
+        const auto intent = midiforge::MelodicProsody::classify (
+            (int) i, (int) melody.size(), cur->step % 16,
+            i + 1 < melody.size() ? nextStep % 16 : -1,
+            std::abs (nextInterval),
+            finalOfPhrase,
+            state.role,
+            state.tension,
+            hash32 (generationSeed ^ 0x71A11CEu));
+
+        const int local = cur->step % 16;
+        switch (intent.role)
+        {
+            case midiforge::MelodicProsody::Approach:
+                ++approachCount;
+                if (i + 1 < melody.size())
+                {
+                    const int after = melody[i + 1]->note - cur->note;
+                    if ((nextInterval > 0 && after > 0) || (nextInterval < 0 && after < 0)
+                        || std::abs (after) <= 3)
+                        ++approachGood;
+                }
+                break;
+
+            case midiforge::MelodicProsody::Release:
+                ++releaseCount;
+                if (i == 0 || melody[i - 1]->note >= cur->note)
+                    ++releaseGood;
+                if (cur->length >= 2)
+                    ++releaseGood;
+                break;
+
+            case midiforge::MelodicProsody::Peak:
+            {
+                ++peakCount;
+                int phraseMax = cur->note;
+                const int phraseStart = (cur->step / 64) * 64;
+                for (const auto* n : melody)
+                    if (n->step >= phraseStart && n->step < phraseStart + 64)
+                        phraseMax = std::max (phraseMax, n->note);
+                if (cur->note >= phraseMax - 1)
+                    ++peakGood;
+                break;
+            }
+
+            case midiforge::MelodicProsody::Anchor:
+                ++anchorCount;
+                if (cur->velocity >= 76)
+                    ++anchorGood;
+                break;
+
+            case midiforge::MelodicProsody::Accent:
+                ++accentCount;
+                if (cur->velocity >= 72)
+                    ++accentGood;
+                break;
+
+            default:
+                break;
+        }
+
+        juce::ignoreUnused (local);
+    }
+
+    const float approachFit = approachCount > 0
+        ? (float) approachGood / (float) approachCount : 0.58f;
+    const float releaseFit = releaseCount > 0
+        ? juce::jlimit (0.0f, 1.0f, (float) releaseGood / (float) (releaseCount + 1)) : 0.58f;
+    const float peakFit = peakCount > 0
+        ? (float) peakGood / (float) peakCount : 0.56f;
+    const float anchorFit = anchorCount > 0
+        ? (float) anchorGood / (float) anchorCount : 0.56f;
+    const float accentFit = accentCount > 0
+        ? (float) accentGood / (float) accentCount : 0.56f;
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.30f * approachFit
+        + 0.22f * releaseFit
+        + 0.22f * peakFit
+        + 0.14f * anchorFit
+        + 0.12f * accentFit);
+}
 
 void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint32_t identity) const
 {
@@ -6432,6 +6714,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         applyRhythmGrammar (flat, identity);
         applyMelodyExpression (flat, identity);
         applyPhraseMemory4 (flat, identity);
+        applyMelodicProsody (flat, identity);
         applyHarmonicIntelligence (flat, identity);
         applyGrooveEngine (flat, identity);
         const auto f=melodyFeatures(flat,identity);
@@ -6442,6 +6725,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float harmonicIntelligenceQuality = harmonicIntelligenceScore (flat);
         const float phraseMemory4Quality = phraseMemory4Score (flat);
         const float composerGrammarQuality = composerGrammarScore (flat);
+        const float melodicProsodyQuality = melodicProsodyScore (flat);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -6576,6 +6860,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.10f * harmonicIntelligenceQuality;
         quality += 0.08f * phraseMemory4Quality;
         quality += 0.07f * composerGrammarQuality;
+        quality += 0.07f * melodicProsodyQuality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
