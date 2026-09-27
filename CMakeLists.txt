@@ -29,6 +29,8 @@ target_sources(MidiForge PRIVATE
     Source/RhythmGrammar.h
     Source/ComposerGrammar.cpp
     Source/ComposerGrammar.h
+    Source/MelodicProsody.cpp
+    Source/MelodicProsody.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
 )
