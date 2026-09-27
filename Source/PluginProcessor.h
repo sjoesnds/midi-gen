@@ -66,7 +66,7 @@ void setSoundTarget(int);
 // Musical controls
 void setChordDensity(float, bool regenerateNow = true); void setBassDensity(float, bool regenerateNow = true);
 void setMelodyDensity(float, bool regenerateNow = true); void setArpDensity(float, bool regenerateNow = true);
-void setSwing(float); void setHumanize(float); void setComplexity(float, bool regenerateNow = true);
+void setSwing(float); void setHumanize(float); void setHumanizeEnabled(bool); void setComplexity(float, bool regenerateNow = true);
 void setMelodyLength(float, bool regenerateNow = true); void setPauseChance(float, bool regenerateNow = true);
 void setLeapChance(float, bool regenerateNow = true); void setGhostChance(float, bool regenerateNow = true);
 void setArpRate(int); void setVoicingWidth(float);
@@ -127,6 +127,7 @@ float getMelodyDensity() const { return melodyDensity; }
 float getArpDensity() const { return arpDensity; }
 float getSwing() const { return swing; }
 float getHumanize() const { return humanize; }
+bool isHumanizeEnabled() const { return humanizeEnabled; }
 float getComplexity() const { return complexity; }
 float getMelodyLength() const { return melodyLength; }
 float getPauseChance() const { return pauseChance; }
@@ -216,6 +217,7 @@ struct PhraseMotif
 // so it never has to survive piano-roll edits.
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
+void applyHumanPerformance (Section& section) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
@@ -247,6 +249,7 @@ uint32_t magicDnaSeed = 0xC0FFEEu;
 int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;
+bool humanizeEnabled = false;
 float melodyLength = 0.35f, pauseChance = 0.10f, leapChance = 0.18f, ghostChance = 0.08f;
 float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
