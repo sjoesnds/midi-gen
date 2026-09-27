@@ -972,13 +972,13 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint3
         // gesture. Make the following destination a little more intentional.
         if (k + 1 < melody.size())
         {
-            const auto& next = section.notes[melody[k + 1]];
+            auto& next = section.notes[melody[k + 1]];
             const int nextBar = next.step / 16;
             if (nextBar == bar && next.step - n.step <= 3 && !isChordTone (bar, n.note)
                 && !isChordTone (bar, next.note))
             {
                 const int resolution = nearestChordPitch (bar, next.note, false);
-                const_cast<NoteEvent&> (next).note = foldIntoLane (
+                next.note = foldIntoLane (
                     snapToScale (juce::roundToInt (
                         0.35f * (float) next.note + 0.65f * (float) resolution)),
                     34, 108);
