@@ -29,10 +29,10 @@ namespace
         std::printf ("[%s] %s  %s\n", ok ? "PASS" : "FAIL", name.c_str(), detail.c_str());
         if (! ok) ++failures;
     }
-    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0)
+    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
     {
         char buf[256];
-        std::snprintf (buf, sizeof buf, f, a, b, c);
+        std::snprintf (buf, sizeof buf, f, a, b, c, d);
         return buf;
     }
 
