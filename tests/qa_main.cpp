@@ -11,6 +11,7 @@
 #include "PluginProcessor.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
+#include "MelodicProsody.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -744,6 +745,51 @@ int main()
                 deterministic, "same inputs keep the same role sequence");
         report ("Composer Grammar identity changes micro-expression",
                 identityVariation, "different identity seeds alter plan targets");
+    }
+
+    // ------------------------------------------------------------------ 2g. Melodic Prosody 0.71
+    {
+        using MP = midiforge::MelodicProsody;
+        const auto anchor = MP::classify (
+            0, 8, 0, 5, 3, false,
+            midiforge::ComposerGrammar::Statement, 0.24f, 0x71u);
+        const auto pickup = MP::classify (
+            5, 8, 14, 15, 3, false,
+            midiforge::ComposerGrammar::Develop, 0.40f, 0x71u);
+        const auto approach = MP::classify (
+            3, 8, 6, 8, 10, false,
+            midiforge::ComposerGrammar::Develop, 0.44f, 0x71u);
+        const auto peak = MP::classify (
+            5, 8, 9, 12, 4, false,
+            midiforge::ComposerGrammar::Peak, 0.82f, 0x71u);
+        const auto release = MP::classify (
+            7, 8, 15, -1, 2, true,
+            midiforge::ComposerGrammar::Return, 0.33f, 0x71u);
+        const auto connect = MP::classify (
+            2, 8, 5, 6, 2, false,
+            midiforge::ComposerGrammar::Develop, 0.40f, 0x71u);
+
+        const bool rolesOk =
+            anchor.role == MP::Anchor
+            && pickup.role == MP::Pickup
+            && approach.role == MP::Approach
+            && peak.role == MP::Peak
+            && release.role == MP::Release
+            && connect.role == MP::Connect;
+
+        const auto approachRepeat = MP::classify (
+            3, 8, 6, 8, 10, false,
+            midiforge::ComposerGrammar::Develop, 0.44f, 0x71u);
+
+        const bool deterministic =
+            approach.role == approachRepeat.role
+            && approach.scaleMotion == approachRepeat.scaleMotion
+            && std::abs (approach.velocityBias - approachRepeat.velocityBias) < 0.0001f;
+
+        report ("Melodic Prosody assigns note intentions",
+                rolesOk, "anchor/pickup/approach/peak/release/connect roles");
+        report ("Melodic Prosody role assignment is deterministic",
+                deterministic, "same phrase state and identity produce the same intent");
     }
 
     // ------------------------------------------------------------------ 3. profiles behave differently
