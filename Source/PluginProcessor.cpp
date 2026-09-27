@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "RhythmGrammar.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -337,6 +338,70 @@ if(rhythm==Straight)return true;
 if(rhythm==Syncopated)return(x%4==0)||(x%4==3)||(x==6)||(x==14);
 if(rhythm==Broken)return(x%8==0)||x==3||x==6||x==10||x==13;
 return((x*7)%16)<7;
+}
+
+void MidiForgeAudioProcessor::applyRhythmGrammar (Section& section, uint32_t identity) const
+{
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine)
+        return;
+
+    std::vector<midiforge::RhythmGrammar::Note> melody;
+    std::vector<size_t> indices;
+    melody.reserve (section.notes.size());
+    indices.reserve (section.notes.size());
+
+    for (size_t i = 0; i < section.notes.size(); ++i)
+    {
+        const auto& n = section.notes[i];
+        if (n.channel != 3)
+            continue;
+        melody.push_back ({ n.step, n.length, n.velocity });
+        indices.push_back (i);
+    }
+
+    if (melody.size() < 2)
+        return;
+
+    midiforge::RhythmGrammar::apply (
+        melody,
+        section.bars,
+        juce::jlimit (40.0, 240.0, currentBpm.load()),
+        rhythm,
+        complexity,
+        energy,
+        identity ^ 0x52A11F7Du,
+        melodyType,
+        genre);
+
+    for (size_t i = 0; i < melody.size() && i < indices.size(); ++i)
+    {
+        auto& dst = section.notes[indices[i]];
+        dst.step = juce::jlimit (0, juce::jmax (0, section.bars * 16 - 1), melody[i].step);
+        dst.length = juce::jlimit (1, juce::jmax (1, 16 - (dst.step % 16)), melody[i].length);
+        dst.velocity = juce::jlimit (35, 122, melody[i].velocity);
+    }
+
+    removeDuplicateNotes (section.notes);
+    cleanMelodyLine (section.notes);
+}
+
+float MidiForgeAudioProcessor::rhythmGrammarScore (const Section& section) const
+{
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine)
+        return 1.0f;
+
+    std::vector<midiforge::RhythmGrammar::Note> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back ({ n.step, n.length, n.velocity });
+
+    return midiforge::RhythmGrammar::score (
+        melody,
+        section.bars,
+        juce::jlimit (40.0, 240.0, currentBpm.load()),
+        rhythm,
+        complexity,
+        energy);
 }
 // --- Learning -----------------------------------------------------------
 void MidiForgeAudioProcessor::sampleVariationFeatures(int vi,float& d,float& e,float& c) const
@@ -4611,6 +4676,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const auto f = melodyFeatures (sec, generationSeed);
         const float motif = motifMemoryScore (sec);
         const float groove = grooveQualityScore (sec);
+        const float rhythmGrammar = rhythmGrammarScore (sec);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -4653,6 +4719,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.10f * groove
             + 0.06f * densityHealth
             + 0.04f * rhythmicIntent
+            + 0.10f * rhythmGrammar
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
@@ -5071,10 +5138,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const int archetype = c % 8;
         Section flat=flatten(song,c,local,mLo,mHi);
         applyMagicArchetype (flat, archetype, identity);
+        applyRhythmGrammar (flat, identity);
         applyGrooveEngine (flat, identity);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
         const float motifMemory = motifMemoryScore(flat);
+        const float rhythmGrammarQuality = rhythmGrammarScore (flat);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -5204,6 +5273,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.06f*f.phraseArc;
         quality += 0.07f*f.seam;
         quality += 0.13f * development;
+        quality += 0.09f * rhythmGrammarQuality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
