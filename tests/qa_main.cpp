@@ -410,6 +410,80 @@ int main()
                 fmt ("%.0f of %.0f four-bar phrases passed", (double) coherent, (double) checked));
     }
 
+
+    // ------------------------------------------------------------------ 2c. Expressive Melody Engine
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano: expression must survive without timbral help.
+        p.setBars (4);
+        p.setMelodyType (0);  // Hook
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+        p.setMelodyDensity (0.62f, false);
+
+        int checked = 0;
+        int dynamic = 0;
+        int variedContour = 0;
+        int phrasePeak = 0;
+
+        for (int seed = 10000; seed < 10080; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<const MidiForgeAudioProcessor::VisibleNote*>, 4> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 64)
+                    bars[(size_t) (n.step / 16)].push_back (&n);
+
+            if (bars[0].size() < 2 || bars[1].empty() || bars[2].empty() || bars[3].empty())
+                continue;
+
+            ++checked;
+
+            int vMin = 127, vMax = 0;
+            std::vector<int> absIntervals;
+            std::array<float, 4> avgPitch {};
+            for (int b = 0; b < 4; ++b)
+            {
+                for (auto* n : bars[(size_t) b])
+                {
+                    vMin = std::min (vMin, n->velocity);
+                    vMax = std::max (vMax, n->velocity);
+                    avgPitch[(size_t) b] += (float) n->note;
+                }
+                avgPitch[(size_t) b] /= (float) bars[(size_t) b].size();
+
+                for (size_t i = 1; i < bars[(size_t) b].size(); ++i)
+                    absIntervals.push_back (
+                        std::abs (bars[(size_t) b][i]->note - bars[(size_t) b][i - 1]->note));
+            }
+
+            std::sort (absIntervals.begin(), absIntervals.end());
+            absIntervals.erase (std::unique (absIntervals.begin(), absIntervals.end()), absIntervals.end());
+
+            if (vMax - vMin >= 14)
+                ++dynamic;
+            if (absIntervals.size() >= 3)
+                ++variedContour;
+            if (avgPitch[2] >= avgPitch[0] + 1.0f)
+                ++phrasePeak;
+        }
+
+        report ("Piano melody has expressive velocity range",
+                checked >= 70 && (double) dynamic / checked >= 0.62,
+                fmt ("%.0f/%0.f phrases have >=14 velocity spread", (double) dynamic, (double) checked));
+
+        report ("Piano melody uses multiple interval sizes",
+                checked >= 70 && (double) variedContour / checked >= 0.74,
+                fmt ("%.0f/%0.f phrases have >=3 interval sizes", (double) variedContour, (double) checked));
+
+        report ("Piano phrase creates a usable B-peak arc",
+                checked >= 70 && (double) phrasePeak / checked >= 0.38,
+                fmt ("%.0f/%0.f phrases have B >= A pitch centre", (double) phrasePeak, (double) checked));
+    }
+
     // ------------------------------------------------------------------ 3. profiles behave differently
     {
         const char* names[8] = { "Piano", "Pluck", "Synth Lead", "Bell", "Pad", "Brass", "808", "Guitar" };
