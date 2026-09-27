@@ -396,18 +396,6 @@ void MidiForgeAudioProcessor::applyMelodyExpression (Section& section, uint32_t 
     if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
         return;
 
-    std::array<std::vector<size_t>, 4> phraseBars;
-    for (size_t i = 0; i < section.notes.size(); ++i)
-    {
-        const auto& n = section.notes[i];
-        if (n.channel != 3)
-            continue;
-
-        const int phraseLocalBar = (n.step / 16) & 3;
-        if (phraseLocalBar >= 0 && phraseLocalBar < 4)
-            phraseBars[(size_t) phraseLocalBar].push_back (i);
-    }
-
     std::stable_sort (section.notes.begin(), section.notes.end(),
         [] (const NoteEvent& a, const NoteEvent& b)
         {
