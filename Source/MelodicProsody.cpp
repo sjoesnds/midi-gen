@@ -64,19 +64,6 @@ MelodicProsody::Context MelodicProsody::classify (
         return c;
     }
 
-    // Late sixteenths before the next strong event act as pickups. They are
-    // intentionally light and short, so they create forward motion into the
-    // following anchor instead of competing with it.
-    if (localStep >= 12 && nextLocalStep >= 0 && nextLocalStep - localStep <= 3
-        && progress < 0.98f)
-    {
-        c.role = Pickup;
-        c.scaleMotion = 0;
-        c.velocityBias = -0.045f;
-        c.sustainBias = -0.05f;
-        return c;
-    }
-
     // The macro peak gets a dedicated note-level peak role. Identity jitter
     // decides whether the peak arrives a little before or after the midpoint.
     const bool contrastRole =
@@ -94,6 +81,31 @@ MelodicProsody::Context MelodicProsody::classify (
         return c;
     }
 
+    // Strong beats are anchors/accent points. We do not sacrifice their identity
+    // just because the following note is a leap; the harmony layer can resolve
+    // the destination later.
+    if ((localStep % 4) == 0)
+    {
+        c.role = (localStep == 0 || localStep == 8) ? Anchor : Accent;
+        c.scaleMotion = 0;
+        c.velocityBias = c.role == Anchor ? 0.045f : 0.03f;
+        c.sustainBias = c.role == Anchor ? 0.05f : 0.0f;
+        return c;
+    }
+
+    // Late sixteenths before the next strong event act as pickups. They are
+    // intentionally light and short, so they create forward motion into the
+    // following anchor instead of competing with it.
+    if (localStep >= 12 && nextLocalStep >= 0 && nextLocalStep - localStep <= 3
+        && progress < 0.98f)
+    {
+        c.role = Pickup;
+        c.scaleMotion = 0;
+        c.velocityBias = -0.045f;
+        c.sustainBias = -0.05f;
+        return c;
+    }
+
     // Large jumps are not deleted: the next note becomes an intentional target.
     // The current note gets a scale-step approach toward that target.
     if (absNextInterval >= 5 && nextLocalStep >= 0)
@@ -102,15 +114,6 @@ MelodicProsody::Context MelodicProsody::classify (
         c.scaleMotion = absNextInterval > 9 ? 2 : 1;
         c.velocityBias = -0.008f;
         c.sustainBias = -0.015f;
-        return c;
-    }
-
-    if ((localStep % 4) == 0)
-    {
-        c.role = (localStep == 0 || localStep == 8) ? Anchor : Accent;
-        c.scaleMotion = 0;
-        c.velocityBias = c.role == Anchor ? 0.045f : 0.03f;
-        c.sustainBias = c.role == Anchor ? 0.05f : 0.0f;
         return c;
     }
 
