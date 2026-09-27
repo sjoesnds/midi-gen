@@ -1591,12 +1591,15 @@ float MidiForgeAudioProcessor::composerGrammarScore (const Section& section) con
             - juce::jlimit (0.0f, 1.0f, returnDistance / 12.0f);
 
         const int lastBar = juce::jmax (0, section.bars - 1);
-        const int degree = rootAtBar (lastBar);
+        const auto prog = progressionDegrees();
+        const int activeDegree = prog.empty()
+            ? 0
+            : prog[(size_t) (lastBar % (int) prog.size())];
         const int targets[3] =
         {
-            degreeToPitch (degree, octave),
-            degreeToPitch (degree + 2, octave),
-            degreeToPitch (degree + 4, octave)
+            degreeToPitch (activeDegree, octave),
+            degreeToPitch (activeDegree + 2, octave),
+            degreeToPitch (activeDegree + 4, octave)
         };
 
         float nearest = 1000.0f;
