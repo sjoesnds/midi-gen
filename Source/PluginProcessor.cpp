@@ -51,7 +51,7 @@ namespace
         {
             //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
             case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
-            case 2:  return {   0,  92,  0.90f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
+            case 2:  return {   0,  92,  0.94f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
             case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
             case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
             case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
@@ -2570,7 +2570,53 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
     const uint32_t h = mix32 (generationSeed
                               ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
                               ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
-    const auto strategy = (DevelopmentStrategy) (h % 8u);
+
+    // 0.65 Contextual Development: the grammar is selected from the phrase
+    // state instead of a flat random 1-in-8 roll. This keeps the eight
+    // development languages available, but asks the phrase what it currently
+    // needs: more identity, more motion, more contrast, or a stronger return.
+    const auto phraseState = melodyFeatures (section, h);
+    std::array<float, 8> strategyWeight {};
+    strategyWeight[RepeatAlter] = 0.60f
+        + 1.10f * (1.0f - phraseState.motifIdentity)
+        + 0.45f * (1.0f - phraseState.phraseMemory);
+    strategyWeight[RhythmicReduction] = 0.52f
+        + 2.00f * juce::jmax (0.0f, phraseState.density - 0.62f)
+        + 0.45f * juce::jmax (0.0f, 0.42f - phraseState.space);
+    strategyWeight[RhythmicExpansion] = 0.50f
+        + 2.10f * juce::jmax (0.0f, 0.38f - phraseState.density)
+        + 1.10f * juce::jmax (0.0f, 0.24f - phraseState.rhythmIdentity);
+    strategyWeight[IntervalExpansion] = 0.48f
+        + 1.70f * juce::jmax (0.0f, 0.16f - phraseState.leap)
+        + 0.70f * juce::jmax (0.0f, 0.20f - phraseState.surprise);
+    strategyWeight[Inversion] = 0.44f
+        + 0.90f * juce::jmax (0.0f, 0.32f - phraseState.contour)
+        + 0.35f * juce::jmax (0.0f, 0.34f - phraseState.variety);
+    strategyWeight[Fragmentation] = 0.46f
+        + 1.15f * juce::jmax (0.0f, 0.46f - phraseState.repetition)
+        + 0.65f * juce::jmax (0.0f, phraseState.density - 0.58f);
+    strategyWeight[CallResponse] = 0.54f
+        + 1.20f * juce::jmax (0.0f, 0.56f - phraseState.phraseArc)
+        + 1.05f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
+    strategyWeight[Return] = 0.50f
+        + 0.95f * juce::jmax (0.0f, 0.48f - phraseState.loopQuality)
+        + 0.90f * juce::jmax (0.0f, 0.48f - phraseState.tensionArc)
+        + 0.45f * juce::jmax (0.0f, phraseState.seam - 0.82f);
+
+    int selectedStrategy = 0;
+    float bestStrategyScore = -1.0e9f;
+    for (int strategyIndex = 0; strategyIndex < 8; ++strategyIndex)
+    {
+        const float jitter = 0.035f * (float)
+            ((mix32 (h ^ (uint32_t) (strategyIndex * 0x45d9f3bu)) % 1000u) / 1000.0f);
+        const float score = strategyWeight[(size_t) strategyIndex] + jitter;
+        if (score > bestStrategyScore)
+        {
+            bestStrategyScore = score;
+            selectedStrategy = strategyIndex;
+        }
+    }
+    const auto strategy = (DevelopmentStrategy) selectedStrategy;
 
     auto collectBar = [&] (int bar)
     {
@@ -2590,6 +2636,33 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
                 return section.notes[a].note < section.notes[b].note;
             });
         return out;
+    };
+
+    // Harmonic Intelligence 2.0: development targets are blended toward the
+    // actual chord voicing of the destination bar. It is a soft pull, so B can
+    // still create tension instead of becoming a chord-arpeggio rewrite.
+    auto nearestChordTone = [&] (int bar, int pitch) -> int
+    {
+        int best = pitch;
+        int bestDistance = 1000;
+        for (const auto& n : section.notes)
+        {
+            if (n.channel != 1 || n.step / 16 != bar)
+                continue;
+            for (int oct = -3; oct <= 3; ++oct)
+            {
+                const int candidate = n.note + 12 * oct;
+                if (candidate < 30 || candidate > 108)
+                    continue;
+                const int distance = std::abs (candidate - pitch);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = candidate;
+                }
+            }
+        }
+        return best;
     };
 
     // Structural rhythm development: reduce or fragment B first. Then the pitch
@@ -2719,6 +2792,23 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
             if (strategy == Fragmentation && role == 3 && i == notes.size() / 2)
                 desired += 2;
 
+            const int activeBar = phraseStartBar + role;
+            const int chordNear = nearestChordTone (activeBar, desired);
+            const float harmonyBlend = role == 3 ? 0.42f : role == 2 ? 0.16f : 0.28f;
+            desired = juce::roundToInt (
+                (float) desired * (1.0f - harmonyBlend)
+                + (float) chordNear * harmonyBlend);
+
+            // Cadence-aware release: the last note of A'' points toward the
+            // loop-start harmony, but keeps enough of its developed contour to
+            // avoid a hard "always land on root" formula.
+            if (role == 3 && i + 1 == notes.size())
+            {
+                const int loopTarget = nearestChordTone (activeBar, rootAtBar (phraseStartBar));
+                desired = juce::roundToInt (
+                    0.42f * (float) desired + 0.58f * (float) loopTarget);
+            }
+
             desired = juce::jlimit (30, 108, snapToScale (desired));
             const int blended = juce::roundToInt (
                 (float) rawCurrent * (1.0f - roleBlend)
@@ -2736,7 +2826,7 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
             else if (role == 2 && cur.length < 3 && i + 1 == notes.size())
                 cur.length = juce::jmin (4, cur.length + 1);
             else if (role == 3 && i + 1 == notes.size())
-                cur.length = juce::jmin (4, cur.length + 1);
+                cur.length = juce::jmin (4, juce::jmax (2, cur.length + 1));
         }
     }
 
@@ -3816,6 +3906,15 @@ const auto magicProgression = progressionDegrees();
         const int barsN = juce::jmax (1, flat.bars);
         const int totalSteps = juce::jmax (16, barsN * 16);
 
+        const auto isStructuralAnchor = [&] (const NoteEvent& n)
+        {
+            if ((n.step % 16) != 0)
+                return false;
+            return (n.channel == 2 && !soundProfileFor(soundTarget).bassOff)
+                || (n.channel == 5 && n.note == 36)
+                || (n.channel == 3 && soundProfileFor(soundTarget).soloLine);
+        };
+
         auto melodyNotes = [&]()
         {
             std::vector<NoteEvent> out;
@@ -3871,7 +3970,12 @@ const auto magicProgression = progressionDegrees();
                 auto& n = flat.notes[i];
                 if (n.channel == 1) continue;
                 const uint32_t h = hash32 (identity ^ (uint32_t) n.step * 0x27d4eb2du ^ (uint32_t) i);
-                if ((n.step % 4) == 0 && (h % 100u) < 42u)
+                const bool structuralAnchor =
+                    (n.step % 16) == 0
+                    && ((n.channel == 2 && !soundProfileFor(soundTarget).bassOff)
+                        || (n.channel == 5 && n.note == 36)
+                        || (n.channel == 3 && soundProfileFor(soundTarget).soloLine));
+                if (! structuralAnchor && (n.step % 4) == 0 && (h % 100u) < 42u)
                     n.step = juce::jlimit (0, totalSteps - 1, n.step + 1);
                 const int pos = n.step % 16;
                 const int accent = (pos == 0 || pos == 8) ? 8 : ((pos % 4) == 0 ? 3 : -2);
@@ -4061,7 +4165,8 @@ const auto magicProgression = progressionDegrees();
                 const uint32_t h = hash32 (identity ^ (uint32_t) i * 0x85ebca6bu);
                 if (n.channel == 3 && branch == 0 && (h % 100u) < 35u)
                     n.note = snapToScale (juce::jlimit (32, 108, n.note + 5));
-                else if (n.channel != 1 && branch == 1 && (n.step % 4) == 0 && (h % 100u) < 40u)
+                else if (n.channel != 1 && branch == 1 && !isStructuralAnchor (n)
+                         && (n.step % 4) == 0 && (h % 100u) < 40u)
                     n.step = juce::jlimit (0, totalSteps - 1, n.step + 1);
                 else if (n.channel == 3 && branch == 2 && (h % 100u) < 26u)
                     n.note = snapToScale (juce::jlimit (32, 108, n.note - 12));
@@ -4555,19 +4660,178 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 
 void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
 {
+        const auto profile = soundProfileFor (soundTarget);
+        const bool solo808 = profile.soloLine;
 
         for (auto& n : sec.notes)
         {
             if (n.channel == 3)
             {
-                n.note = foldIntoLane (snapToScale (n.note), 34, 108);
+                const int laneLo = solo808 ? 28 : 34;
+                const int laneHi = solo808 ? 50 : 108;
+                n.note = foldIntoLane (snapToScale (n.note), laneLo, laneHi);
                 n.velocity = juce::jlimit (30, 122, n.velocity);
             }
             else
             {
+                if (n.channel == 2)
+                    n.note = juce::jlimit (28, 52, n.note);
                 n.velocity = juce::jlimit (25, 122, n.velocity);
             }
             n.length = juce::jlimit (1, 16, n.length);
+        }
+
+        // 0.65 structural invariants: these are repaired here because the
+        // candidate archetypes may legally mutate timing after addBass/add808.
+        const auto prog = progressionDegrees();
+        for (int bar = 0; bar < juce::jmax (1, sec.bars); ++bar)
+        {
+            const int start = bar * 16;
+            const int rootPitch = !prog.empty()
+                ? foldIntoLane (degreeToPitch (prog[(size_t) (bar % (int) prog.size())], 2), 28, 52)
+                : 28;
+
+            if (bassEnabled && !solo808)
+            {
+                size_t anchor = (size_t) -1;
+                size_t earliest = (size_t) -1;
+                for (size_t i = 0; i < sec.notes.size(); ++i)
+                {
+                    const auto& n = sec.notes[i];
+                    if (n.channel != 2 || n.step / 16 != bar) continue;
+                    if (earliest == (size_t) -1 || n.step < sec.notes[earliest].step) earliest = i;
+                    if (n.step == start) { anchor = i; break; }
+                }
+                if (anchor == (size_t) -1 && earliest != (size_t) -1)
+                {
+                    sec.notes[earliest].step = start;
+                    sec.notes[earliest].note = rootPitch;
+                    sec.notes[earliest].length = juce::jmin (7, sec.notes[earliest].length);
+                }
+                else if (anchor == (size_t) -1)
+                {
+                    sec.notes.push_back ({ start, 7, rootPitch, 98, 2, false });
+                }
+            }
+
+            if (drumsEnabled)
+            {
+                size_t kickAnchor = (size_t) -1;
+                size_t earliestKick = (size_t) -1;
+                for (size_t i = 0; i < sec.notes.size(); ++i)
+                {
+                    const auto& n = sec.notes[i];
+                    if (n.channel != 5 || n.note != 36 || n.step / 16 != bar) continue;
+                    if (earliestKick == (size_t) -1 || n.step < sec.notes[earliestKick].step) earliestKick = i;
+                    if (n.step == start) { kickAnchor = i; break; }
+                }
+                if (kickAnchor == (size_t) -1 && earliestKick != (size_t) -1)
+                    sec.notes[earliestKick].step = start;
+                else if (kickAnchor == (size_t) -1)
+                    sec.notes.push_back ({ start, 1, 36, 114, 5, false });
+            }
+
+            if (solo808)
+            {
+                size_t anchor = (size_t) -1;
+                size_t earliest = (size_t) -1;
+                for (size_t i = 0; i < sec.notes.size(); ++i)
+                {
+                    const auto& n = sec.notes[i];
+                    if (n.channel != 3 || n.step / 16 != bar) continue;
+                    if (earliest == (size_t) -1 || n.step < sec.notes[earliest].step) earliest = i;
+                    if (n.step == start) { anchor = i; break; }
+                }
+                if (anchor == (size_t) -1 && earliest != (size_t) -1)
+                {
+                    sec.notes[earliest].step = start;
+                    sec.notes[earliest].note = rootPitch;
+                }
+                else if (anchor != (size_t) -1)
+                    sec.notes[anchor].note = rootPitch;
+                else
+                    sec.notes.push_back ({ start, 5, rootPitch, 104, 3, false });
+            }
+        }
+
+        // When drums are enabled, keep a one-voice 808 genuinely kick-locked.
+        // We prefer adding a matching kick to moving the musical bass phrase.
+        if (solo808 && drumsEnabled)
+        {
+            std::vector<int> kickSteps;
+            for (const auto& n : sec.notes)
+                if (n.channel == 5 && n.note == 36)
+                    kickSteps.push_back (n.step);
+            std::sort (kickSteps.begin(), kickSteps.end());
+            kickSteps.erase (std::unique (kickSteps.begin(), kickSteps.end()), kickSteps.end());
+
+            const auto hasKickAt = [&] (int step)
+            {
+                return std::find (kickSteps.begin(), kickSteps.end(), step) != kickSteps.end();
+            };
+
+            const size_t noteCountBefore = sec.notes.size();
+            for (size_t i = 0; i < noteCountBefore; ++i)
+            {
+                const auto& n = sec.notes[i];
+                if (n.channel != 3 || hasKickAt (n.step))
+                    continue;
+                sec.notes.push_back ({ n.step, 1, 36, 104, 5, false });
+                kickSteps.push_back (n.step);
+            }
+        }
+
+        // Register guard: only ordinary melodic profiles get this repair. Riff,
+        // Experimental and the dedicated 808 voice retain their wider language.
+        if (!solo808 && melodyType != RiffMelody && genre != Experimental && genre != Cinematic)
+        {
+            std::vector<size_t> melody;
+            for (size_t i = 0; i < sec.notes.size(); ++i)
+                if (sec.notes[i].channel == 3)
+                    melody.push_back (i);
+            std::stable_sort (melody.begin(), melody.end(),
+                [&] (size_t a, size_t b) { return sec.notes[a].step < sec.notes[b].step; });
+
+            auto countOctaveLeaps = [&]()
+            {
+                int count = 0;
+                for (size_t k = 1; k < melody.size(); ++k)
+                    if (std::abs (sec.notes[melody[k]].note - sec.notes[melody[k - 1]].note) >= 12)
+                        ++count;
+                return count;
+            };
+
+            const int allowed = (int) std::floor (0.115f * (float) juce::jmax<int> (0, (int) melody.size() - 1));
+            int octaveLeaps = countOctaveLeaps();
+            if (octaveLeaps > allowed && melody.size() >= 3)
+            {
+                for (size_t k = 1; k < melody.size() && octaveLeaps > allowed; ++k)
+                {
+                    auto& cur = sec.notes[melody[k]];
+                    const auto& prev = sec.notes[melody[k - 1]];
+                    if (std::abs (cur.note - prev.note) < 12)
+                        continue;
+
+                    int best = cur.note;
+                    int bestDistance = std::abs (best - prev.note);
+                    for (int delta : { -12, 12 })
+                    {
+                        const int candidate = cur.note + delta;
+                        if (candidate < 34 || candidate > 108) continue;
+                        const int distance = std::abs (candidate - prev.note);
+                        if (distance < bestDistance && snapToScale (candidate) == candidate)
+                        {
+                            best = candidate;
+                            bestDistance = distance;
+                        }
+                    }
+                    if (best != cur.note)
+                    {
+                        cur.note = best;
+                        --octaveLeaps;
+                    }
+                }
+            }
         }
 
         removeDuplicateNotes (sec.notes);
@@ -6442,6 +6706,25 @@ if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
 if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
 if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
+
+// Reset every optional field to its historical default before reading appended
+// bytes. A legacy preset can legitimately end before these fields; loading it
+// into an already-used processor must not leak the previous UI state.
+mood = NeutralMood;
+melodyType = HookMelody;
+era = 5;
+soundTarget = 0;
+articulation = 0;
+autoNextOnDislike = true;
+chordStyle = 0;
+drumsEnabled = false;
+drumMuteMask = 0;
+drumPitchMode = 0;
+leadStyleSoundCloud = false;
+lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
+tasteEnabled = true;
+humanizeEnabled = false;
+
 // 0.46: older preset states simply stop before these optional bytes.
 if (i.getNumBytesRemaining() >= 1) leadStyleSoundCloud = i.readBool();
 if (i.getNumBytesRemaining() >= 4)
