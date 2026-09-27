@@ -484,6 +484,111 @@ int main()
                 fmt ("%.0f/%0.f phrases have B >= A pitch centre", (double) phrasePeak, (double) checked));
     }
 
+
+    // ------------------------------------------------------------------ 2d. Harmonic Intelligence 2.0
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+
+        int checked = 0;
+        int anchorHits = 0;
+        int smoothReturns = 0;
+        int mixedHarmony = 0;
+
+        for (int seed = 11000; seed < 11080; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<int>, 4> melodyBars;
+            std::array<std::vector<int>, 4> chordPcs;
+            for (const auto& n : notes)
+            {
+                if (n.channel == 3 && n.step < 64)
+                    melodyBars[(size_t) (n.step / 16)].push_back (n.note);
+
+                if (n.channel == 1 && n.step < 64)
+                    chordPcs[(size_t) (n.step / 16)].push_back ((n.note % 12 + 12) % 12);
+            }
+
+            for (auto& v : chordPcs)
+            {
+                std::sort (v.begin(), v.end());
+                v.erase (std::unique (v.begin(), v.end()), v.end());
+            }
+
+            bool valid = true;
+            for (int b = 0; b < 4; ++b)
+                if (melodyBars[(size_t) b].empty() || chordPcs[(size_t) b].empty())
+                    valid = false;
+
+            if (!valid)
+                continue;
+            ++checked;
+
+            int localAnchorHits = 0;
+            int localAnchors = 0;
+            int chordToneTotal = 0;
+            int melodyTotal = 0;
+
+            for (int b = 0; b < 4; ++b)
+            {
+                for (size_t i = 0; i < melodyBars[(size_t) b].size(); ++i)
+                {
+                    const int pitch = melodyBars[(size_t) b][i];
+                    const bool isChord =
+                        std::find (chordPcs[(size_t) b].begin(),
+                                   chordPcs[(size_t) b].end(),
+                                   (pitch % 12 + 12) % 12) != chordPcs[(size_t) b].end();
+
+                    if (isChord) ++chordToneTotal;
+                    ++melodyTotal;
+
+                    if (i == 0)
+                    {
+                        ++localAnchors;
+                        if (isChord) ++localAnchorHits;
+                    }
+                }
+            }
+
+            anchorHits += (localAnchors > 0 && (double) localAnchorHits / localAnchors >= 0.68) ? 1 : 0;
+
+            const int firstLast = melodyBars[0].back();
+            const int secondFirst = melodyBars[1].front();
+            const int thirdLast = melodyBars[2].back();
+            const int fourthFirst = melodyBars[3].front();
+
+            if (std::abs (secondFirst - melodyBars[0].front()) <= 9
+                && std::abs (fourthFirst - thirdLast) <= 9)
+                ++smoothReturns;
+
+            const float chordRatio = melodyTotal > 0
+                ? (float) chordToneTotal / melodyTotal : 1.0f;
+            if (chordRatio >= 0.30f && chordRatio <= 0.86f)
+                ++mixedHarmony;
+
+            juce::ignoreUnused (firstLast);
+        }
+
+        report ("Harmonic intelligence grounds phrase anchors",
+                checked >= 70 && (double) anchorHits / checked >= 0.62,
+                fmt ("%.0f/%0.f phrases keep anchor notes on active harmony", (double) anchorHits, (double) checked));
+
+        report ("Harmonic intelligence keeps phrase transitions smooth",
+                checked >= 70 && (double) smoothReturns / checked >= 0.72,
+                fmt ("%.0f/%0.f phrases keep bar transitions within 9 semitones", (double) smoothReturns, (double) checked));
+
+        report ("Harmonic intelligence preserves color tones",
+                checked >= 70 && (double) mixedHarmony / checked >= 0.88,
+                fmt ("%.0f/%0.f phrases keep a mixed chord/color-tone ratio", (double) mixedHarmony, (double) checked));
+    }
+
     // ------------------------------------------------------------------ 3. profiles behave differently
     {
         const char* names[8] = { "Piano", "Pluck", "Synth Lead", "Bell", "Pad", "Brass", "808", "Guitar" };
