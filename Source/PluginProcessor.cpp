@@ -4703,15 +4703,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
     constexpr int firstPassCandidates = 600;
     candidates.reserve(candidateCount);
     tasteFeatures.reserve(candidateCount);
-
-    adaptive;
-
-    
-
+    AdaptiveProfile adaptive;
     for(int c=0;c<candidateCount;++c)
     {
         if (c == firstPassCandidates)
-            buildAdaptiveProfile();
+            buildAdaptiveProfile(candidates, firstPassCandidates, adaptive);
 
         const uint32_t identity=hash32(generationSeed ^ (uint32_t)(c+1)*0x45d9f3bu);
         juce::Random local((juce::int64)identity);
@@ -4769,7 +4765,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         octave = oldOctave;
 
         const int archetype = c % 8;
-        Section flat=flatten(song,c,local);
+        Section flat=flatten(song,c,local,mLo,mHi);
         applyMagicArchetype (flat, archetype, identity);
         applyGrooveEngine (flat, identity);
         const auto f=melodyFeatures(flat,identity);
