@@ -31,7 +31,7 @@ bool preserveSelectionOnRegenerate = false;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
- juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton;
+ juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton,humanizeModeButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi;
  juce::ComboBox pianoGridBox;

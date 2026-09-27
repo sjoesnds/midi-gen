@@ -2,7 +2,14 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.61.0**
+**Current version: 0.62.0**
+
+### Humanize Mode — 0.62.0
+- Human Performance is now an explicit opt-in mode and defaults to OFF for tight electronic MIDI.
+- When enabled, the Humanize Amount controls phrase-aware timing movement, repeated-note articulation, velocity variation and small sustain changes.
+- Timing changes are deliberately constrained to musical 16th-grid decisions such as anticipation and delayed resolution; every note is not randomly shifted.
+- Realtime output and exported MIDI both respect the mode, while Swing remains an independent feel control.
+- Existing presets remain backward-compatible and load with Humanize OFF unless the new flag is present.
 
 ### Tempo Feel Engine — 0.61.0
 - Makes BPM a temporal context rather than a density penalty.

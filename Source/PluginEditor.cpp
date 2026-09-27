@@ -67,7 +67,7 @@ setSize(900,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.61.0", juce::dontSendNotification);
+versionLabel.setText("v0.62.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -189,6 +189,14 @@ setupSlider(ghostChance,0,.5,.01,p.getGhostChance(),this);
 setupSlider(swing,0,.75,.01,p.getSwing(),this);
 setupSlider(humanize,0,1,.01,p.getHumanize(),this);
 setupSlider(complexity,0,1,.01,p.getComplexity(),this);
+humanizeModeButton.setButtonText("HUMANIZE");
+humanizeModeButton.setToggleState(p.isHumanizeEnabled(), juce::dontSendNotification);
+humanizeModeButton.setTooltip("Enable human performance timing, velocity and phrase asymmetry. OFF keeps MIDI tight and electronic.");
+humanizeModeButton.onClick = [this]
+{
+    processor.setHumanizeEnabled (humanizeModeButton.getToggleState());
+};
+addAndMakeVisible (humanizeModeButton);
 chordDensity.onValueChange=[this]{processor.setChordDensity((float)chordDensity.getValue(), false); scheduleRegeneration(false);};
 bassDensity.onValueChange=[this]{processor.setBassDensity((float)bassDensity.getValue(), false); scheduleRegeneration(false);};
 melodyDensity.onValueChange=[this]{processor.setMelodyDensity((float)melodyDensity.getValue(), false); scheduleRegeneration(false);};
@@ -438,9 +446,12 @@ pauseChance.setBounds(x2,340,colW,sliderH);
 leapChance.setBounds(x1,366,colW,sliderH);
 ghostChance.setBounds(x2,366,colW,sliderH);
 
-swing.setBounds(x1,428,(contentW - 16) / 3,21);
-humanize.setBounds(x1 + (contentW - 16) / 3 + 8,428,(contentW - 16) / 3,21);
-complexity.setBounds(x1 + 2 * ((contentW - 16) / 3) + 16,428,(contentW - 16) / 3,21);
+const int feelGap = 8;
+const int feelW = (contentW - feelGap * 3) / 4;
+swing.setBounds(x1,428,feelW,21);
+humanize.setBounds(x1 + feelW + feelGap,428,feelW,21);
+humanizeModeButton.setBounds(x1 + 2 * (feelW + feelGap),428,feelW,21);
+complexity.setBounds(x1 + 3 * (feelW + feelGap),428,feelW,21);
 
 // Piano roll is kept large enough to remain usable, but no longer pushes the
 // action controls below the host window.
@@ -536,6 +547,7 @@ if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelect
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
+if (humanizeModeButton.getToggleState() != processor.isHumanizeEnabled()) humanizeModeButton.setToggleState(processor.isHumanizeEnabled(), juce::dontSendNotification);
 refreshTaste();
 pianoRoll.updateHistoryButtons();
 const juce::String selectedCount = juce::String (pianoRoll.getSelectionCount());
