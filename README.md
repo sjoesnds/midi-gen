@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.62.0**
+**Current version: 0.63.0**
+
+### Melodic Memory 3.0 — 0.63.0
+- Adds a transposition-safe idea fingerprint for every MAGIC candidate using onset rhythm, relative pitch contour and interval shape.
+- The final variation bank now keeps an explicit memory of already selected musical ideas, not only note-level similarity and broad behavioral features.
+- Near-clone motifs receive less selection pressure even when they come from different archetypes or are transposed/rephrased.
+- Eight lightweight idea families (chant, wide leap, angular, rising, falling, pickup, conversational, balanced) provide an additional soft anti-clone signal.
+- Musical quality remains the primary score; Idea Memory only influences variation selection and does not rewrite good candidates.
+- Loop-centric only; no new UI controls are introduced.
 
 ### Humanize Mode — 0.62.0
 - Human Performance is now an explicit opt-in mode and defaults to OFF for tight electronic MIDI.
