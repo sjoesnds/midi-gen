@@ -162,10 +162,10 @@ float RhythmGrammar::score (const std::vector<Note>& melody,
     for (auto& v : onsets)
         std::sort (v.begin(), v.end());
 
-    float identity = 0.55f;
-    float contrast = 0.50f;
-    float returnFit = 0.55f;
-    float pickup = 0.50f;
+    float identity = 0.0f;
+    float contrast = 0.0f;
+    float returnFit = 0.0f;
+    float pickup = 0.0f;
     int identityBars = 0;
     int contrastBars = 0;
     int returnBars = 0;
@@ -201,6 +201,13 @@ float RhythmGrammar::score (const std::vector<Note>& melody,
         contrast /= (float) contrastBars;
         returnFit /= (float) returnBars;
         pickup /= (float) identityBars;
+    }
+    else
+    {
+        identity = 0.55f;
+        contrast = 0.50f;
+        returnFit = 0.55f;
+        pickup = 0.50f;
     }
 
     int totalNotes = (int) melody.size();
