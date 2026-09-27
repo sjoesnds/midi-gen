@@ -1131,6 +1131,344 @@ float MidiForgeAudioProcessor::harmonicIntelligenceScore (const Section& section
         + 0.10f * diversityFit);
 }
 
+
+void MidiForgeAudioProcessor::applyPhraseMemory4 (Section& section, uint32_t identity) const
+{
+    // 0.69 Phrase Memory 4.0:
+    // Existing motif/development logic works inside a four-bar phrase. This
+    // layer gives the generator a longer memory: phrase 1 establishes a macro
+    // idea, later four-bar cells re-state, invert, fragment or return to it.
+    // Rhythm is deliberately preserved; Harmony runs afterwards and resolves
+    // the transformed contour against the destination chords.
+    if (section.notes.empty() || section.bars < 8
+        || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
+        return;
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<size_t> out;
+        for (size_t i = 0; i < section.notes.size(); ++i)
+            if (section.notes[i].channel == 3 && section.notes[i].step / 16 == bar)
+                out.push_back (i);
+
+        std::stable_sort (out.begin(), out.end(),
+            [&] (size_t a, size_t b)
+            {
+                return section.notes[a].step < section.notes[b].step;
+            });
+        return out;
+    };
+
+    std::array<std::vector<size_t>, 4> memoryBars;
+    for (int bar = 0; bar < 4; ++bar)
+        memoryBars[(size_t) bar] = collectBar (bar);
+
+    for (const auto& v : memoryBars)
+        if (v.size() < 2)
+            return;
+
+    auto contourSimilarity = [&] (const std::vector<size_t>& reference,
+                                   const std::vector<size_t>& current,
+                                   bool inverted)
+    {
+        if (reference.size() < 2 || current.size() < 2)
+            return 0.0f;
+
+        const size_t pairs = juce::jmin (reference.size(), current.size());
+        int matches = 0;
+        for (size_t i = 1; i < pairs; ++i)
+        {
+            const int refDelta = section.notes[reference[i]].note
+                               - section.notes[reference[i - 1]].note;
+            const int curDelta = section.notes[current[i]].note
+                               - section.notes[current[i - 1]].note;
+            const bool same = inverted ? ((refDelta > 0 && curDelta < 0)
+                                       || (refDelta < 0 && curDelta > 0)
+                                       || (refDelta == 0 && curDelta == 0))
+                                       : ((refDelta > 0 && curDelta > 0)
+                                       || (refDelta < 0 && curDelta < 0)
+                                       || (refDelta == 0 && curDelta == 0));
+            if (same) ++matches;
+        }
+        return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
+    };
+
+    auto rhythmSimilarity = [&] (const std::vector<size_t>& reference,
+                                 const std::vector<size_t>& current)
+    {
+        if (reference.empty() || current.empty())
+            return 0.0f;
+
+        const size_t pairs = juce::jmin (reference.size(), current.size());
+        int hits = 0;
+        for (size_t i = 0; i < pairs; ++i)
+            if (std::abs ((section.notes[reference[i]].step % 16)
+                        - (section.notes[current[i]].step % 16)) <= 1)
+                ++hits;
+
+        const float hitFit = (float) hits / (float) juce::jmax (reference.size(), current.size());
+        const float countFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f,
+            (float) std::abs ((int) reference.size() - (int) current.size()) / 4.0f);
+        return juce::jlimit (0.0f, 1.0f, 0.74f * hitFit + 0.26f * countFit);
+    };
+
+    auto mix32 = [] (uint32_t x)
+    {
+        x ^= x >> 16;
+        x *= 0x7feb352du;
+        x ^= x >> 15;
+        x *= 0x846ca68bu;
+        x ^= x >> 16;
+        return x;
+    };
+
+    const int phraseCount = section.bars / 4;
+    for (int phrase = 1; phrase < phraseCount; ++phrase)
+    {
+        std::array<std::vector<size_t>, 4> currentBars;
+        for (int localBar = 0; localBar < 4; ++localBar)
+            currentBars[(size_t) localBar] = collectBar (phrase * 4 + localBar);
+
+        const uint32_t phraseSeed = mix32 (
+            identity ^ (uint32_t) (phrase + 1) * 0x9e3779b9u ^ 0x4A3F19C7u);
+        const int mode = phrase % 4; // 1 re-state, 2 invert, 3 fragment/lift, 0 return
+        const bool inverted = mode == 2;
+
+        float overallSimilarity = 0.0f;
+        int comparableBars = 0;
+        for (int localBar = 0; localBar < 4; ++localBar)
+        {
+            if (memoryBars[(size_t) localBar].size() < 2
+                || currentBars[(size_t) localBar].size() < 2)
+                continue;
+
+            const auto& ref = memoryBars[(size_t) localBar];
+            const auto& cur = currentBars[(size_t) localBar];
+            const float direct = contourSimilarity (ref, cur, false);
+            const float inverse = contourSimilarity (ref, cur, true);
+            const float rhythmFit = rhythmSimilarity (ref, cur);
+            const float shapeFit = inverted ? inverse : juce::jmax (direct, inverse * 0.72f);
+            overallSimilarity += 0.58f * shapeFit + 0.42f * rhythmFit;
+            ++comparableBars;
+        }
+
+        if (comparableBars == 0)
+            continue;
+
+        overallSimilarity /= (float) comparableBars;
+
+        // When the current phrase has already retained the idea, touch it lightly.
+        // When it has drifted, pull it back toward the long-term phrase fingerprint.
+        const float memoryStrength = juce::jlimit (
+            0.18f, 0.74f,
+            0.24f + 0.78f * juce::jmax (0.0f, 0.64f - overallSimilarity));
+
+        for (int localBar = 0; localBar < 4; ++localBar)
+        {
+            auto& cur = currentBars[(size_t) localBar];
+            const auto& ref = memoryBars[(size_t) localBar];
+            if (cur.empty() || ref.empty())
+                continue;
+
+            const int currentAnchor = section.notes[cur.front()].note;
+            const int referenceAnchor = section.notes[ref.front()].note;
+
+            for (size_t i = 0; i < cur.size(); ++i)
+            {
+                auto& n = section.notes[cur[i]];
+
+                const size_t ri = ref.size() <= 1
+                    ? 0
+                    : (size_t) juce::jlimit (
+                        0,
+                        (int) ref.size() - 1,
+                        juce::roundToInt (
+                            (double) i * (double) (ref.size() - 1)
+                            / (double) juce::jmax<size_t> (1, cur.size() - 1)));
+
+                const int referenceRelative =
+                    section.notes[ref[ri]].note - referenceAnchor;
+                const int currentRelative = n.note - currentAnchor;
+
+                float targetRelative = (float) referenceRelative;
+                if (mode == 2)
+                {
+                    targetRelative = -(float) referenceRelative;
+                }
+                else if (mode == 3)
+                {
+                    const float retain = i < cur.size() / 2 ? 0.82f : 0.36f;
+                    targetRelative = retain * (float) referenceRelative
+                                   + (1.0f - retain) * (float) currentRelative;
+                }
+                else if (mode == 0)
+                {
+                    targetRelative = 0.90f * (float) referenceRelative
+                                   + 0.10f * (float) currentRelative;
+                }
+
+                // Small deterministic variation keeps memory alive without making
+                // every later phrase a duplicate.
+                const uint32_t h = mix32 (
+                    phraseSeed ^ (uint32_t) (localBar * 97 + i * 31 + 7));
+                int variation = 0;
+                if ((h % 100u) < 28u)
+                    variation = ((h & 1u) != 0u) ? 1 : -1;
+
+                if (mode == 3 && i == cur.size() / 2)
+                    variation += 2 + (int) ((h >> 8) & 1u);
+
+                float strength = memoryStrength;
+                if (i == 0)
+                    strength *= 0.42f; // do not erase local harmonic anchors
+                if (mode == 2)
+                    strength *= 0.88f;
+                if (mode == 3 && i + 1 == cur.size())
+                    strength *= 0.60f;
+
+                const int desired = currentAnchor
+                                  + juce::roundToInt (targetRelative)
+                                  + variation;
+
+                n.note = juce::jlimit (34, 108,
+                    snapToScale (juce::roundToInt (
+                        (1.0f - strength) * (float) n.note
+                        + strength * (float) desired)));
+
+                // The contrasting phrase receives a small register lift around its
+                // centre; the return phrase deliberately avoids keeping that lift.
+                if (mode == 2 && i == cur.size() / 2)
+                    n.note = juce::jlimit (34, 108,
+                        snapToScale (n.note + 3));
+                else if (mode == 0 && i == cur.size() / 2 && phrase > 1)
+                    n.note = juce::jlimit (34, 108,
+                        snapToScale (n.note - 1));
+            }
+        }
+    }
+
+    removeDuplicateNotes (section.notes);
+    cleanMelodyLine (section.notes);
+}
+
+float MidiForgeAudioProcessor::phraseMemory4Score (const Section& section) const
+{
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || section.bars < 8)
+        return 0.52f;
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<const NoteEvent*> out;
+        for (const auto& n : section.notes)
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (&n);
+
+        std::stable_sort (out.begin(), out.end(),
+            [] (const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
+        return out;
+    };
+
+    std::array<std::vector<const NoteEvent*>, 4> reference;
+    for (int b = 0; b < 4; ++b)
+        reference[(size_t) b] = collectBar (b);
+
+    for (const auto& v : reference)
+        if (v.size() < 2)
+            return 0.45f;
+
+    auto contourFit = [] (const std::vector<const NoteEvent*>& a,
+                          const std::vector<const NoteEvent*>& b,
+                          bool inverted)
+    {
+        if (a.size() < 2 || b.size() < 2)
+            return 0.0f;
+
+        const size_t n = juce::jmin (a.size(), b.size());
+        int hits = 0;
+        for (size_t i = 1; i < n; ++i)
+        {
+            const int da = a[i]->note - a[i - 1]->note;
+            const int db = b[i]->note - b[i - 1]->note;
+            const bool same = inverted ? ((da > 0 && db < 0)
+                                       || (da < 0 && db > 0)
+                                       || (da == 0 && db == 0))
+                                       : ((da > 0 && db > 0)
+                                       || (da < 0 && db < 0)
+                                       || (da == 0 && db == 0));
+            if (same) ++hits;
+        }
+        return (float) hits / (float) juce::jmax<size_t> (1, n - 1);
+    };
+
+    auto rhythmFit = [] (const std::vector<const NoteEvent*>& a,
+                         const std::vector<const NoteEvent*>& b)
+    {
+        if (a.empty() || b.empty()) return 0.0f;
+        const size_t n = juce::jmin (a.size(), b.size());
+        int hits = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (std::abs ((a[i]->step % 16) - (b[i]->step % 16)) <= 1)
+                ++hits;
+        return (float) hits / (float) juce::jmax (a.size(), b.size());
+    };
+
+    float scoreSum = 0.0f;
+    int count = 0;
+    for (int phrase = 1; phrase < section.bars / 4; ++phrase)
+    {
+        float phraseShape = 0.0f;
+        float phraseRhythm = 0.0f;
+        int barsCompared = 0;
+
+        for (int localBar = 0; localBar < 4; ++localBar)
+        {
+            const auto cur = collectBar (phrase * 4 + localBar);
+            if (cur.size() < 2)
+                continue;
+
+            const float direct = contourFit (reference[(size_t) localBar], cur, false);
+            const float inverse = contourFit (reference[(size_t) localBar], cur, true);
+            const bool expectedInverse = (phrase % 4) == 2;
+
+            phraseShape += expectedInverse ? juce::jmax (inverse, direct * 0.68f)
+                                           : juce::jmax (direct, inverse * 0.72f);
+            phraseRhythm += rhythmFit (reference[(size_t) localBar], cur);
+            ++barsCompared;
+        }
+
+        if (barsCompared > 0)
+        {
+            phraseShape /= (float) barsCompared;
+            phraseRhythm /= (float) barsCompared;
+
+            float variation = 0.52f;
+            if (phrase >= 1)
+            {
+                int literal = 0;
+                for (int localBar = 0; localBar < 4; ++localBar)
+                {
+                    const auto cur = collectBar (phrase * 4 + localBar);
+                    if (cur.size() == reference[(size_t) localBar].size()
+                        && rhythmFit (reference[(size_t) localBar], cur) > 0.92f
+                        && contourFit (reference[(size_t) localBar], cur, false) > 0.95f)
+                        ++literal;
+                }
+                variation = 1.0f - juce::jlimit (0.0f, 1.0f, (float) literal / 4.0f);
+            }
+
+            scoreSum += 0.52f * phraseShape
+                      + 0.28f * phraseRhythm
+                      + 0.20f * variation;
+            ++count;
+        }
+    }
+
+    return count > 0
+        ? juce::jlimit (0.0f, 1.0f, scoreSum / (float) count)
+        : 0.50f;
+}
+
 float MidiForgeAudioProcessor::rhythmGrammarScore (const Section& section) const
 {
     if (section.notes.empty() || soundProfileFor (soundTarget).soloLine)
@@ -5425,6 +5763,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float rhythmGrammar = rhythmGrammarScore (sec);
         const float melodyExpression = melodyExpressionScore (sec);
         const float harmonicIntelligence = harmonicIntelligenceScore (sec);
+        const float phraseMemory4 = phraseMemory4Score (sec);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -5470,6 +5809,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.10f * rhythmGrammar
             + 0.10f * melodyExpression
             + 0.10f * harmonicIntelligence
+            + 0.08f * phraseMemory4
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
@@ -5890,6 +6230,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         applyMagicArchetype (flat, archetype, identity);
         applyRhythmGrammar (flat, identity);
         applyMelodyExpression (flat, identity);
+        applyPhraseMemory4 (flat, identity);
         applyHarmonicIntelligence (flat, identity);
         applyGrooveEngine (flat, identity);
         const auto f=melodyFeatures(flat,identity);
@@ -5898,6 +6239,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float rhythmGrammarQuality = rhythmGrammarScore (flat);
         const float melodyExpressionQuality = melodyExpressionScore (flat);
         const float harmonicIntelligenceQuality = harmonicIntelligenceScore (flat);
+        const float phraseMemory4Quality = phraseMemory4Score (flat);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -6030,6 +6372,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.09f * rhythmGrammarQuality;
         quality += 0.10f * melodyExpressionQuality;
         quality += 0.10f * harmonicIntelligenceQuality;
+        quality += 0.08f * phraseMemory4Quality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 

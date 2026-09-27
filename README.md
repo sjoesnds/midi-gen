@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.68.0**
+**Current version: 0.69.0**
+
+### Phrase Memory 4.0 — 0.69.0
+- Adds long-form memory across complete four-bar phrase cells instead of only inside one A/A'/B/A'' phrase.
+- The opening four-bar idea becomes a persistent macro fingerprint reused by later phrase cells.
+- Later cells can re-state, invert, fragment/lift or return to the remembered contour with deterministic variation.
+- Rhythm is preserved while the macro pitch idea develops; Harmonic Intelligence then re-resolves transformed notes against the destination chords.
+- Adds a Phrase Memory 4.0 Judge signal for contour retention, transformed contrast and non-literal variation.
+- Adds 12-bar Piano-only QA so long-form memory is tested directly on MIDI.
+- Keeps 808/Sub Lead outside the memory pass and adds no new UI controls.
 
 ### Harmonic Intelligence 2.0 — 0.68.0
 - Adds a post-expression harmony pass that uses the actual chord voicings as destinations instead of only the scale.
