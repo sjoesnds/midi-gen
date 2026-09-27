@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForgeQA VERSION 0.69.0)
+project(MidiForgeQA VERSION 0.70.0)
 
 # Headless quality checks for the generator (no GUI, no plugin format needed).
 # Build:  cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release && cmake --build build-qa && ./build-qa/MidiForgeQA_artefacts/Release/MidiForgeQA
@@ -17,6 +17,7 @@ target_sources(MidiForgeQA PRIVATE
     qa_main.cpp
     ../Source/PluginProcessor.cpp
     ../Source/RhythmGrammar.cpp
+    ../Source/ComposerGrammar.cpp
 )
 target_include_directories(MidiForgeQA PRIVATE ../Source)
 juce_generate_juce_header(MidiForgeQA)
