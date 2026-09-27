@@ -2420,6 +2420,8 @@ for(const auto& ev:song.sections[i-1].notes)
 if(ev.channel==3){ inherited=&song.sections[i-1].notes; break; }
 }
 buildSection(sec,i,prog,r,inherited,variationSalt);
+if (humanizeEnabled)
+    applyHumanPerformance(sec);
 song.sections.push_back(std::move(sec));
 }
 }
