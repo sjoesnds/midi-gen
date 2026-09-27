@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "RhythmGrammar.h"
+#include "ComposerGrammar.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -1232,7 +1233,23 @@ void MidiForgeAudioProcessor::applyPhraseMemory4 (Section& section, uint32_t ide
 
         const uint32_t phraseSeed = mix32 (
             identity ^ (uint32_t) (phrase + 1) * 0x9e3779b9u ^ 0x4A3F19C7u);
-        const int mode = phrase % 4; // 1 re-state, 2 invert, 3 fragment/lift, 0 return
+        const auto composerPlan = midiforge::ComposerGrammar::makePlan (
+        section.bars, energy, complexity, melodyType, mood, genre,
+        hash32 (identity ^ 0xC0A70970u));
+    const auto composerState = composerPlan.stateFor (phrase);
+
+    int mode = 0; // 0 return/restatement, 1 development, 2 contrast, 3 build/fragment
+    switch (composerState.role)
+    {
+        case midiforge::ComposerGrammar::Develop:  mode = 1; break;
+        case midiforge::ComposerGrammar::Build:    mode = 3; break;
+        case midiforge::ComposerGrammar::Contrast:
+        case midiforge::ComposerGrammar::Peak:     mode = 2; break;
+        case midiforge::ComposerGrammar::Release:
+        case midiforge::ComposerGrammar::Return:   mode = 0; break;
+        case midiforge::ComposerGrammar::Statement:
+        default:                                    mode = 1; break;
+    }
         const bool inverted = mode == 2;
 
         float overallSimilarity = 0.0f;
@@ -1429,7 +1446,13 @@ float MidiForgeAudioProcessor::phraseMemory4Score (const Section& section) const
 
             const float direct = contourFit (reference[(size_t) localBar], cur, false);
             const float inverse = contourFit (reference[(size_t) localBar], cur, true);
-            const bool expectedInverse = (phrase % 4) == 2;
+            const auto composerPlan = midiforge::ComposerGrammar::makePlan (
+                section.bars, energy, complexity, melodyType, mood, genre,
+                hash32 (generationSeed ^ 0xC0A70970u));
+            const auto composerState = composerPlan.stateFor (phrase);
+            const bool expectedInverse =
+                composerState.role == midiforge::ComposerGrammar::Contrast
+                || composerState.role == midiforge::ComposerGrammar::Peak;
 
             phraseShape += expectedInverse ? juce::jmax (inverse, direct * 0.68f)
                                            : juce::jmax (direct, inverse * 0.72f);
@@ -1466,6 +1489,127 @@ float MidiForgeAudioProcessor::phraseMemory4Score (const Section& section) const
 
     return count > 0
         ? juce::jlimit (0.0f, 1.0f, scoreSum / (float) count)
+        : 0.50f;
+}
+
+float MidiForgeAudioProcessor::composerGrammarScore (const Section& section) const
+{
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || section.bars < 4)
+        return 0.52f;
+
+    const auto plan = midiforge::ComposerGrammar::makePlan (
+        section.bars, energy, complexity, melodyType, mood, genre,
+        hash32 (generationSeed ^ 0xC0A70970u));
+
+    struct PhraseObs
+    {
+        int count = 0;
+        float meanPitch = 60.0f;
+        float meanVelocity = 80.0f;
+    };
+
+    std::vector<PhraseObs> observed (plan.phrases.size());
+
+    for (const auto& n : section.notes)
+    {
+        if (n.channel != 3)
+            continue;
+
+        const int phrase = juce::jlimit (0, (int) observed.size() - 1, n.step / 64);
+        auto& o = observed[(size_t) phrase];
+        const float w = (float) o.count;
+        o.meanPitch = (o.meanPitch * w + (float) n.note) / (w + 1.0f);
+        o.meanVelocity = (o.meanVelocity * w + (float) n.velocity) / (w + 1.0f);
+        ++o.count;
+    }
+
+    const float basePitch = observed.front().meanPitch;
+    const float baseVelocity = observed.front().meanVelocity;
+
+    float total = 0.0f;
+    int used = 0;
+
+    for (size_t i = 0; i < observed.size(); ++i)
+    {
+        const auto& o = observed[i];
+        if (o.count < 2)
+            continue;
+
+        const auto& target = plan.phrases[i];
+        const float density = juce::jlimit (0.0f, 1.0f,
+            (float) o.count / 24.0f);
+        const float densityFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f,
+                std::abs (density - target.density) / 0.46f);
+
+        const float registerLift = o.meanPitch - basePitch;
+        const float registerFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f,
+                std::abs (registerLift - target.registerLift) / 8.0f);
+
+        const float velocityLift = (o.meanVelocity - baseVelocity) / 78.0f;
+        const float velocityFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f,
+                std::abs (velocityLift - target.velocityLift) / 0.16f);
+
+        const float observedTension = juce::jlimit (0.0f, 1.0f,
+            0.46f * density
+            + 0.34f * juce::jlimit (0.0f, 1.0f, 0.50f + registerLift / 12.0f)
+            + 0.20f * juce::jlimit (0.0f, 1.0f, 0.50f + velocityLift));
+
+        const float tensionFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f,
+                std::abs (observedTension - target.tension) / 0.62f);
+
+        total += 0.32f * densityFit
+               + 0.30f * registerFit
+               + 0.18f * velocityFit
+               + 0.20f * tensionFit;
+        ++used;
+
+        if (i > 0 && observed[i - 1].count >= 2)
+        {
+            const float delta = o.meanPitch - observed[i - 1].meanPitch;
+            const float expectedDelta =
+                target.registerLift - plan.phrases[i - 1].registerLift;
+            const bool expectedUp = expectedDelta > 0.6f;
+            const bool expectedDown = expectedDelta < -0.6f;
+            const bool observedUp = delta > 0.7f;
+            const bool observedDown = delta < -0.7f;
+            total += ((!expectedUp && !expectedDown)
+                      || (expectedUp && observedUp)
+                      || (expectedDown && observedDown))
+                ? 0.12f
+                : 0.035f;
+        }
+    }
+
+    if (! observed.empty() && observed.back().count >= 2)
+    {
+        const float returnDistance = std::abs (observed.back().meanPitch - basePitch);
+        const float returnFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f, returnDistance / 12.0f);
+
+        const int lastBar = juce::jmax (0, section.bars - 1);
+        const int degree = rootAtBar (lastBar);
+        const int targets[3] =
+        {
+            degreeToPitch (degree, octave),
+            degreeToPitch (degree + 2, octave),
+            degreeToPitch (degree + 4, octave)
+        };
+
+        float nearest = 1000.0f;
+        for (const int p : targets)
+            nearest = juce::jmin (nearest, std::abs (observed.back().meanPitch - (float) p));
+
+        const float cadenceFit = 1.0f
+            - juce::jlimit (0.0f, 1.0f, nearest / 9.0f);
+        total += 0.42f * returnFit + 0.18f * cadenceFit;
+    }
+
+    return used > 0
+        ? juce::jlimit (0.0f, 1.0f, total / (float) used)
         : 0.50f;
 }
 
@@ -2229,6 +2373,25 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const uint32_t identitySeed = (cycle == 2)
         ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset / 4) * 0x27d4eb2du)
         : loopSeed;
+
+    // 0.70 Composer Grammar: one macro plan coordinates the existing engines.
+    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
+        bars, energy, complexity, melodyType, mood, genre,
+        hash32 (loopSeed ^ 0xC0A70970u));
+    const int composerPhrase = barOffset / 4;
+    const auto composerState = composerPlan.stateFor (composerPhrase);
+
+    e = juce::jlimit (0.0f, 1.0f,
+        0.68f * e + 0.32f * composerState.tension);
+
+    // These are soft macro targets; genre/mood DNA remains the primary language.
+    dnaSpace = juce::jlimit (0.0f, 1.0f,
+        dnaSpace + (composerState.space - 0.50f) * 0.16f);
+    dnaDensity = juce::jlimit (0.0f, 1.0f,
+        dnaDensity + (composerState.density - 0.50f) * 0.14f);
+    dnaMotif = juce::jlimit (0.0f, 1.0f,
+        0.82f * dnaMotif + 0.18f * composerState.motifStrength);
+
     int melLo = 62, melHi = 86;
     registerLane(2, melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
@@ -2418,7 +2581,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         + 0.18f * moodTension
         + 0.12f * dnaSurprise
         + 0.08f * ((float)eraNovelty[juce::jlimit(0,5,era)])
-        + 0.10f * dnaLeap);
+        + 0.10f * dnaLeap
+        + 0.08f * (composerState.tension - 0.50f));
 
     const float poolLeapChance = juce::jlimit(0.04f, 0.82f,
         leapChance
@@ -2444,15 +2608,15 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // not only an incidental result of contour/leaps. The engine creates a
     // controlled A -> A' -> B -> A'' pressure curve while allowing unresolved
     // loops to hand energy into the next cycle.
-    const int phraseRole = cycle & 3;
-    const float roleBaseTension[] = { 0.24f, 0.42f, 0.78f, 0.50f };
-    const float roleTension = roleBaseTension[phraseRole];
+    const int phraseRole = composerState.legacyRole;
+    const float roleTension = composerState.tension;
     const float roleTensionVariation =
         (((float) tensionProfile / 7.0f) - 0.5f) * 0.22f
         + moodTension * 0.16f
         + dnaSurprise * 0.12f;
     const float phraseTension = juce::jlimit (0.08f, 0.94f,
-        roleTension + roleTensionVariation);
+        roleTension + roleTensionVariation
+        + 0.08f * (composerState.tension - 0.50f));
 
     const float tensionPulse = (phraseRole == 2)
         ? 0.12f * phraseTension
@@ -2667,6 +2831,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // backdrop, while still allowing deliberate chord/bass alignment.
         positionDensity *= contextStepWeight (x);
 
+        // Composer Grammar can ask a phrase to breathe or build without taking
+        // control away from Rhythm Grammar.
+        positionDensity *= juce::jlimit (0.84f, 1.16f,
+            1.0f + (composerState.density - 0.50f) * 0.34f);
+        if (composerState.role == midiforge::ComposerGrammar::Peak
+            || composerState.role == midiforge::ComposerGrammar::Contrast)
+        {
+            if ((x % 4) != 0)
+                positionDensity *= 1.0f + 0.10f * composerState.tension;
+        }
+        else if (composerState.role == midiforge::ComposerGrammar::Return
+                 || composerState.role == midiforge::ComposerGrammar::Release)
+        {
+            if ((x % 4) == 0)
+                positionDensity *= 1.04f;
+        }
+
         // 0.58.4: high-tension bars prefer delayed/offbeat entries and more air
         // immediately after a strong hit; the return bar moves back toward
         // grounded downbeats and longer breathing room.
@@ -2854,6 +3035,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // B receives the strongest contour deviation; A' and A'' retain the
         // identity of the statement but move its destination slightly.
         const int contour = phraseTargetOffset((int)i, (int)chosen.size());
+
+        // The macro plan supplies broad register motion; the existing
+        // contour grammar still controls the detailed note-to-note shape.
+        if (composerState.registerLift != 0.0f)
+        {
+            const float registerShape = i < chosen.size() / 2 ? 0.42f : 0.68f;
+            d += juce::roundToInt (composerState.registerLift * registerShape);
+        }
 
         // Explicit tension trajectory: B widens the melodic destination around
         // the midpoint, A'' eases the register back down for the loop return.
@@ -3210,6 +3399,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (soundCloud)
             len = (h % 100u < 60u) ? 2 : 1;
 
+        // The macro plan also controls articulation direction:
+        // peaks speak tighter while releases/returns get more air.
+        if (composerState.sustainBias > 0.02f && (h % 100u) < 34u)
+            len = juce::jmin (4, len + 1);
+        else if (composerState.sustainBias < -0.02f && (h % 100u) < 28u)
+            len = juce::jmax (1, len - 1);
+
         // Phrase tension affects articulation too: the peak uses shorter
         // fragments and the return bar allows more sustain.
         if (phraseRole == 2 && phraseTension > 0.58f && (h % 100u) < 42u)
@@ -3228,6 +3424,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         int velocity = 70 + (x % 4 == 0 ? 8 : 0);
         if (cycle == 2) velocity += 5;
         if (hook && (x == 0 || x == 8)) velocity += 4;
+        velocity += juce::roundToInt (composerState.velocityLift * 78.0f);
 
         // Rhythm Engine 2.0: groove changes accents and sustain according to
         // the rhythmic identity.  This affects feel without moving the note
@@ -5764,6 +5961,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float melodyExpression = melodyExpressionScore (sec);
         const float harmonicIntelligence = harmonicIntelligenceScore (sec);
         const float phraseMemory4 = phraseMemory4Score (sec);
+        const float composerGrammar = composerGrammarScore (sec);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -6240,6 +6438,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float melodyExpressionQuality = melodyExpressionScore (flat);
         const float harmonicIntelligenceQuality = harmonicIntelligenceScore (flat);
         const float phraseMemory4Quality = phraseMemory4Score (flat);
+        const float composerGrammarQuality = composerGrammarScore (flat);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -6373,6 +6572,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.10f * melodyExpressionQuality;
         quality += 0.10f * harmonicIntelligenceQuality;
         quality += 0.08f * phraseMemory4Quality;
+        quality += 0.07f * composerGrammarQuality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
