@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.61.0**
+**Current version: 0.62.0**
 
 ### Tempo Feel Engine — 0.61.0
 - Makes BPM a temporal context rather than a density penalty.
