@@ -368,6 +368,8 @@ void registerLane (int part, int& lo, int& hi) const;
 bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
 float rhythmGrammarScore (const Section& section) const;
+void applyMelodyExpression (Section& section, uint32_t identity) const;
+float melodyExpressionScore (const Section& section) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
