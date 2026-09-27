@@ -5381,32 +5381,37 @@ void MidiForgeAudioProcessor::buildVariationBank()
                        return a.note < b.note;
                    });
     };
-    // Use the strongest final discovery as the transformation source. MAGIC 3
-    // still contributes the archetype search/diversity; 0.56 turns that discovery
-    // into a focused family of standalone loop alternatives.
-    size_t sourceIndex = 0;
-    for (size_t i = 1; i < selected.size(); ++i)
-        if (selected[i].quality > selected[sourceIndex].quality)
-            sourceIndex = i;
+    // 0.63 Melodic Memory 3.0: keep the selected idea bank alive through
+    // Loop Forge. Each transformation mode starts from a different selected
+    // winner, so ORIGINAL/TIGHT/SPARSE/etc. remain genuinely different ideas
+    // rather than eight cosmetic edits of one source loop.
+    std::vector<Section> transformationSources;
+    transformationSources.reserve (8);
+    for (const auto& candidate : selected)
+        transformationSources.push_back (candidate.section);
 
-    const Section transformationSource = selected.empty()
-        ? Section {}
-        : selected[sourceIndex].section;
-    const uint32_t transformationSeed = selected.empty()
-        ? generationSeed
-        : selected[sourceIndex].identity;
+    std::vector<uint32_t> transformationSeeds;
+    transformationSeeds.reserve (8);
+    for (const auto& candidate : selected)
+        transformationSeeds.push_back (candidate.identity);
 
     std::vector<Section> result;
     result.reserve (8);
 
-    if (! transformationSource.notes.empty())
+    if (! transformationSources.empty())
     {
         for (int mode = 0; mode < 8; ++mode)
         {
+            const size_t sourceSlot = (size_t) juce::jlimit (
+                0,
+                (int) transformationSources.size() - 1,
+                mode);
+
             Section flat = transformLoop (
-                transformationSource,
+                transformationSources[sourceSlot],
                 mode,
-                hash32 (transformationSeed ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
+                hash32 (transformationSeeds[sourceSlot]
+                        ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
 
             flat.name = "VARIATION " + juce::String (mode + 1)
                       + " • " + juce::String (transformationNames[mode]);
