@@ -276,10 +276,10 @@ int main()
                 && repetitions.size() >= 6
                 && journeys.size() >= 6
                 && harmonies.size() >= 6,
-                fmt ("unique=%d contours=%d intervals=%d rhythms=%d repeats=%d journeys=%d harmony=%d",
-                     (int) languages.size(), (int) contours.size(), (int) intervals.size(),
-                     (int) rhythms.size(), (int) repetitions.size(), (int) journeys.size(),
-                     (int) harmonies.size()));
+                fmt ("unique=%.0f contours=%.0f intervals=%.0f rhythms=%.0f repeats=%.0f journeys=%.0f harmony=%.0f",
+                     (double) languages.size(), (double) contours.size(), (double) intervals.size(),
+                     (double) rhythms.size(), (double) repetitions.size(), (double) journeys.size(),
+                     (double) harmonies.size()));
     }
 
 
