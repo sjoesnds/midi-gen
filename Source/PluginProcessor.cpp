@@ -8609,6 +8609,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // 0.75 Composer Judge 2.0: one top-level coherence score over the
         // already-generated candidate. It evaluates the composition as a whole
         // and never rewrites the MIDI.
+        const float motifSemantics = motifSemanticsScore (flat, identity);
+        const float loopClosure = loopClosureScore (flat, identity);
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
