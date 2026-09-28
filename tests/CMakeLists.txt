@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForgeQA VERSION 0.74.0)
+project(MidiForgeQA VERSION 0.75.0)
 
 # Headless quality checks for the generator (no GUI, no plugin format needed).
 # Build:  cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release && cmake --build build-qa && ./build-qa/MidiForgeQA_artefacts/Release/MidiForgeQA
@@ -22,6 +22,7 @@ target_sources(MidiForgeQA PRIVATE
     ../Source/CreativeRange.cpp
     ../Source/MotifSemantics.cpp
     ../Source/LoopClosure.cpp
+    ../Source/ComposerJudge.cpp
 )
 target_include_directories(MidiForgeQA PRIVATE ../Source)
 juce_generate_juce_header(MidiForgeQA)
