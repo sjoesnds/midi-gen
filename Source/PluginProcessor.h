@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "TasteModel.h"
 #include "RhythmGrammar.h"
+#include "CreativeRange.h"
 #include <array>
 #include <vector>
 #include <atomic>
