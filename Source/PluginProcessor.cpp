@@ -4248,7 +4248,10 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
 
             case 1: // Interval Core
             {
-                const size_t chosen = current.size() > 2 ? current.size() / 2 : current.back();
+                // current contains indices into section.notes, so its midpoint must be an
+                // index into current itself. current.back() is a section.notes index and
+                // becomes invalid when reused as current[chosen] for sparse bars.
+                const size_t chosen = current.size() / 2;
                 auto& n = section.notes[current[chosen]];
                 const int intervalShape = plan.intervalCore % 4;
                 const int delta = intervalShape == 0 ? 2
