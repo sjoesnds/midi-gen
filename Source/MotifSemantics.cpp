@@ -1,5 +1,7 @@
 #include "MotifSemantics.h"
 
+#include <algorithm>
+
 namespace
 {
 uint32_t mix32 (uint32_t x)
@@ -54,8 +56,8 @@ MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
     p.primaryMutation = pick (base ^ 0xdeadbeefu, 7);
     p.secondaryMutation = (p.primaryMutation + 1 + pick (base ^ 0xabcdef01u, 6)) % 7;
 
-    const float energyBias = juce::jlimit (0.0f, 1.0f, energy);
-    const float complexityBias = juce::jlimit (0.0f, 1.0f, complexity);
+    const float energyBias = std::clamp (energy, 0.0f, 1.0f);
+    const float complexityBias = std::clamp (complexity, 0.0f, 1.0f);
 
     p.mutationStrength = 0.38f
         + 0.24f * complexityBias
