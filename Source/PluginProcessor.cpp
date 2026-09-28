@@ -7232,7 +7232,8 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
     
 }
 
-float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint32_t identity) const
+float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint32_t identity,
+                                                    const ComposerJudgeInputs& inputs) const
 {
     if (section.notes.empty() || section.bars < 1)
         return 0.28f;
@@ -7253,15 +7254,13 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         });
 
     const int barsN = juce::jmax (1, section.bars);
-    const auto features = melodyFeatures (section, identity);
+    const auto& features = inputs.features;
     const auto grammar = ComposerGrammar::makePlan (
         barsN, energy, complexity, melodyType, mood, genre, identity);
 
     std::vector<int> counts ((size_t) barsN, 0);
     std::vector<float> meanPitch ((size_t) barsN, 0.0f);
     std::vector<float> meanVelocity ((size_t) barsN, 0.0f);
-    std::vector<int> maxPitch ((size_t) barsN, 0);
-    std::vector<int> minPitch ((size_t) barsN, 127);
     std::vector<int> offbeats ((size_t) barsN, 0);
 
     for (const auto* n : melody)
@@ -7270,8 +7269,6 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         ++counts[(size_t) b];
         meanPitch[(size_t) b] += (float) n->note;
         meanVelocity[(size_t) b] += (float) n->velocity;
-        maxPitch[(size_t) b] = juce::jmax (maxPitch[(size_t) b], n->note);
-        minPitch[(size_t) b] = juce::jmin (minPitch[(size_t) b], n->note);
         if ((n->step % 4) != 0)
             ++offbeats[(size_t) b];
     }
@@ -7376,19 +7373,19 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
 
     const float motifDevelopment = juce::jlimit (
         0.0f, 1.0f,
-        0.46f * motifSemanticsScore (section, identity)
-        + 0.30f * motifMemoryScore (section)
-        + 0.24f * composerGrammarScore (section));
+        0.46f * inputs.motifSemantics
+        + 0.30f * inputs.motifMemory
+        + 0.24f * inputs.composerGrammar);
 
     const float expression = juce::jlimit (
         0.0f, 1.0f,
-        0.58f * melodyExpressionScore (section)
-        + 0.42f * melodicProsodyScore (section));
+        0.58f * inputs.melodyExpression
+        + 0.42f * inputs.melodicProsody);
 
-    const float harmony = harmonicIntelligenceScore (section);
-    const float prosody = melodicProsodyScore (section);
+    const float harmony = inputs.harmonicIntelligence;
+    const float prosody = inputs.melodicProsody;
     const float closure = juce::jlimit (
-        0.0f, 1.0f, 0.62f * loopClosureScore (section, identity)
+        0.0f, 1.0f, 0.62f * inputs.loopClosure
         + 0.38f * features.seam);
 
     const float densityTarget = juce::jlimit (
@@ -7400,11 +7397,11 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
     const float densitySpace = 0.64f * densityFit + 0.36f * spaceFit;
 
     const float rhythm = juce::jlimit (
-        0.0f, 1.0f, 0.52f * rhythmGrammarScore (section)
+        0.0f, 1.0f, 0.52f * inputs.rhythmGrammar
         + 0.28f * features.rhythmIdentity
-        + 0.20f * features.grooveQuality);
+        + 0.20f * inputs.grooveQuality);
 
-    const float groove = grooveQualityScore (section);
+    const float groove = inputs.grooveQuality;
 
     return midiforge::ComposerJudge::score ({
         juce::jlimit (0.0f, 1.0f, arc),
@@ -7419,7 +7416,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         juce::jlimit (0.0f, 1.0f, noveltyBalance),
         juce::jlimit (0.0f, 1.0f, groove),
         juce::jlimit (0.0f, 1.0f, prosody),
-        juce::jlimit (0.0f, 1.0f, composerGrammarScore (section))
+        juce::jlimit (0.0f, 1.0f, inputs.composerGrammar)
     });
 }
 
@@ -8612,7 +8609,21 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // 0.75 Composer Judge 2.0: one top-level coherence score over the
         // already-generated candidate. It evaluates the composition as a whole
         // and never rewrites the MIDI.
-        const float composerJudge = composerJudgeScore (flat, identity);
+        const ComposerJudgeInputs composerJudgeInputs
+        {
+            f,
+            motifMemory,
+            grooveQuality,
+            rhythmGrammarQuality,
+            melodyExpressionQuality,
+            harmonicIntelligenceQuality,
+            composerGrammarQuality,
+            melodicProsodyQuality,
+            motifSemantics,
+            loopClosure,
+            development
+        };
+        const float composerJudge = composerJudgeScore (flat, identity, composerJudgeInputs);
         quality += 0.15f * composerJudge;
 
         // Archetype-specific focus: the generic judge remains dominant, while
