@@ -2,9 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.76.1**
+**Current version: 0.76.2**
 
 
+
+### Crash Fix — 0.76.2
+- Fixes a concrete out-of-bounds index in Motif Semantics when a sparse melody bar contained one or two notes.
+- The code previously used `current.back()` (an index into `section.notes`) as if it were a local position inside `current`, which could dereference invalid memory during MAGIC.
+- Sparse candidate bars now always use a valid midpoint index into the local index list.
+- No intended musical behavior change.
 
 ### Runtime Safety Fix — 0.76.1
 - Fixes a real-time race between the MAGIC candidate search and FL Studio's audio thread.
