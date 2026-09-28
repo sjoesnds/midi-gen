@@ -153,8 +153,8 @@ bool isMelodyEnabled() const { return melodyEnabled; }
 bool isArpEnabled() const { return arpEnabled; }
 bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
-int getVariationCount() const { return static_cast<int>(variations.size()); }
-int getSelectedVariation() const { return selectedVariation; }
+int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
+int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce; }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
 void likeVariation(int varIndex);
