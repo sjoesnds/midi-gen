@@ -9172,10 +9172,22 @@ void MidiForgeAudioProcessor::buildVariationBank()
             const Section beforeForge = flat;
             const float beforeForgeScore = loopForgeScore (beforeForge);
             finalizeLoop (flat);
-            applyMelodyFoundation (flat, transformationSeeds[sourceIndex]);
             const float afterForgeScore = loopForgeScore (flat);
             if (afterForgeScore + 0.055f < beforeForgeScore)
                 flat = beforeForge;
+
+            // Safety is outside the Forge rollback. A score regression may undo
+            // a stylistic transform, but it must never undo tonal/register safety.
+            applyMelodyFoundation (flat, transformationSeeds[sourceIndex]);
+            removeDuplicateNotes (flat.notes);
+            cleanMelodyLine (flat.notes);
+            std::sort (flat.notes.begin(), flat.notes.end(),
+                       [] (const NoteEvent& a, const NoteEvent& b)
+                       {
+                           if (a.step != b.step) return a.step < b.step;
+                           if (a.channel != b.channel) return a.channel < b.channel;
+                           return a.note < b.note;
+                       });
 
             result.push_back (std::move (flat));
         }
