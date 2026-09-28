@@ -5,6 +5,7 @@
 #include "CreativeRange.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
+#include "ComposerJudge.h"
 #include <array>
 #include <vector>
 #include <atomic>
@@ -283,6 +284,7 @@ void applyMotifSemantics (Section& section, int phraseStartBar, int variationSal
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
+float composerJudgeScore (const Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
