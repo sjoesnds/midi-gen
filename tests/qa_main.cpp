@@ -292,6 +292,132 @@ int main()
     }
 
 
+
+
+    // ------------------------------------------------------------------ 0b. Motif Semantics 2.0
+    {
+        auto barNotes = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& all, int bar)
+        {
+            std::vector<MidiForgeAudioProcessor::VisibleNote> out;
+            for (const auto& n : all)
+                if (n.channel == 3 && n.step / 16 == bar)
+                    out.push_back (n);
+            std::sort (out.begin(), out.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            return out;
+        };
+
+        auto similarity = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& a,
+                              const std::vector<MidiForgeAudioProcessor::VisibleNote>& b)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0;
+
+            const size_t n = std::min (a.size(), b.size());
+            const int aa = a.front().note;
+            const int bb = b.front().note;
+            int rhythm = 0, pitch = 0;
+            for (size_t i = 0; i < n; ++i)
+            {
+                if (std::abs ((a[i].step % 16) - (b[i].step % 16)) <= 1) ++rhythm;
+                if (std::abs ((a[i].note - aa) - (b[i].note - bb)) <= 2) ++pitch;
+            }
+
+            const double countFit = 1.0 - std::min (1.0,
+                (double) std::abs ((int) a.size() - (int) b.size()) / 5.0);
+            return std::max (0.0, std::min (1.0,
+                0.44 * (double) rhythm / (double) n
+                + 0.44 * (double) pitch / (double) n
+                + 0.12 * countFit));
+        };
+
+        const auto a = midiforge::MotifSemantics::makePlan (
+            0, 4, 0, 0.70f, 0.65f, 991234u);
+        const auto b = midiforge::MotifSemantics::makePlan (
+            0, 4, 0, 0.70f, 0.65f, 991234u);
+        const bool deterministic =
+            a.rhythmicCore == b.rhythmicCore
+            && a.intervalCore == b.intervalCore
+            && a.startingAnchor == b.startingAnchor
+            && a.peakGesture == b.peakGesture
+            && a.endingGesture == b.endingGesture
+            && a.signatureLeap == b.signatureLeap
+            && a.answerCell == b.answerCell
+            && a.primaryMutation == b.primaryMutation
+            && a.secondaryMutation == b.secondaryMutation;
+
+        std::set<std::string> semanticLanguages;
+        for (uint32_t seed = 1; seed <= 160; ++seed)
+        {
+            const auto plan = midiforge::MotifSemantics::makePlan (
+                seed % 8, (int) (seed % 9), (int) (seed % 16),
+                0.45f + 0.5f * ((float) (seed % 7) / 6.0f),
+                0.35f + 0.6f * ((float) (seed % 5) / 4.0f),
+                seed);
+            semanticLanguages.insert (
+                std::to_string (plan.rhythmicCore) + ":"
+                + std::to_string (plan.intervalCore) + ":"
+                + std::to_string (plan.startingAnchor) + ":"
+                + std::to_string (plan.peakGesture) + ":"
+                + std::to_string (plan.endingGesture) + ":"
+                + std::to_string (plan.signatureLeap) + ":"
+                + std::to_string (plan.answerCell) + ":"
+                + std::to_string (plan.primaryMutation) + ":"
+                + std::to_string (plan.secondaryMutation));
+        }
+
+        report ("Motif Semantics plan is deterministic", deterministic,
+                deterministic ? "same identity -> same semantic plan"
+                               : "semantic plan changed for the same identity");
+        report ("Motif Semantics has broad combinations",
+                semanticLanguages.size() >= 110,
+                fmt ("%.0f unique semantic plans", (double) semanticLanguages.size()));
+
+        p.setBars (4);
+        p.setSoundTarget (0);
+        p.setDrumsEnabled (false);
+        int structured = 0, aPrimeGood = 0, bContrastGood = 0, returnGood = 0;
+        for (int loop = 0; loop < 45; ++loop)
+        {
+            p.magicRandomize();
+            const auto notes = p.getVisibleNotes();
+            const auto bar0 = barNotes (notes, 0);
+            const auto bar1 = barNotes (notes, 1);
+            const auto bar2 = barNotes (notes, 2);
+            const auto bar3 = barNotes (notes, 3);
+
+            if (bar0.size() < 2 || bar1.size() < 2 || bar2.size() < 2 || bar3.size() < 2)
+                continue;
+
+            const double ap = similarity (bar0, bar1);
+            const double contrast = 1.0 - similarity (bar0, bar2);
+            const double ret = similarity (bar0, bar3);
+
+            if (ap >= 0.42) ++aPrimeGood;
+            if (contrast >= 0.10) ++bContrastGood;
+            if (ret >= 0.42) ++returnGood;
+            if (ap >= 0.42 && contrast >= 0.10 && ret >= 0.42)
+                ++structured;
+        }
+
+        report ("A' preserves a recognisable motif core",
+                aPrimeGood >= 20,
+                fmt ("%.0f / 45 loops", (double) aPrimeGood));
+        report ("B introduces controlled contrast",
+                bContrastGood >= 24,
+                fmt ("%.0f / 45 loops", (double) bContrastGood));
+        report ("A'' returns to the original identity",
+                returnGood >= 20,
+                fmt ("%.0f / 45 loops", (double) returnGood));
+        report ("four-bar motif has semantic development",
+                structured >= 16,
+                fmt ("%.0f / 45 loops passed all three", (double) structured));
+    }
+
     // ------------------------------------------------------------------ 1. invariants (every loop)
     {
         int loopsChecked = 0; std::string firstProblem;
