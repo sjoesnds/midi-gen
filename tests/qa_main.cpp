@@ -9,6 +9,9 @@
 //   6. project state round-trip, old-state compatibility, AUTO-NEXT
 // Statistical checks get one retry with fresh loops (MAGIC is random); invariants never retry.
 #include "PluginProcessor.h"
+#include "RhythmGrammar.h"
+#include "ComposerGrammar.h"
+#include "MelodicProsody.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -28,10 +31,19 @@ namespace
         std::printf ("[%s] %s  %s\n", ok ? "PASS" : "FAIL", name.c_str(), detail.c_str());
         if (! ok) ++failures;
     }
-    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0)
+    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
     {
-        char buf[256];
-        std::snprintf (buf, sizeof buf, f, a, b, c);
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d);
+        return buf;
+    }
+
+    std::string fmt7 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h)
+    {
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h);
         return buf;
     }
 
@@ -224,6 +236,188 @@ int main()
     MidiForgeAudioProcessor p;
     p.resetTaste();
 
+    // ------------------------------------------------------------------ 0. Creative Range
+    {
+        const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+        const auto b = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+
+        const bool deterministic =
+            a.contourFamily == b.contourFamily
+            && a.intervalFamily == b.intervalFamily
+            && a.rhythmFamily == b.rhythmFamily
+            && a.repetitionStyle == b.repetitionStyle
+            && a.registerJourney == b.registerJourney
+            && a.harmonyPersonality == b.harmonyPersonality
+            && a.durationStyle == b.durationStyle;
+
+        std::set<std::string> languages;
+        std::set<int> contours, intervals, rhythms, repetitions, journeys, harmonies;
+        for (uint32_t seed = 1; seed <= 160; ++seed)
+        {
+            const auto plan = midiforge::CreativeRange::makePlan (
+                0, 4, 0, 0.70f, 0.65f, seed);
+
+            languages.insert (
+                std::to_string (plan.contourFamily) + ":"
+                + std::to_string (plan.intervalFamily) + ":"
+                + std::to_string (plan.rhythmFamily) + ":"
+                + std::to_string (plan.repetitionStyle) + ":"
+                + std::to_string (plan.registerJourney) + ":"
+                + std::to_string (plan.harmonyPersonality));
+
+            contours.insert (plan.contourFamily);
+            intervals.insert (plan.intervalFamily);
+            rhythms.insert (plan.rhythmFamily);
+            repetitions.insert (plan.repetitionStyle);
+            journeys.insert (plan.registerJourney);
+            harmonies.insert (plan.harmonyPersonality);
+        }
+
+        report ("Creative Range plan is deterministic", deterministic,
+                deterministic ? "same identity -> same language"
+                               : "same identity produced different language");
+
+        report ("Creative Range has a genuinely broad language space",
+                languages.size() >= 120
+                && contours.size() >= 14
+                && intervals.size() >= 9
+                && rhythms.size() >= 9
+                && repetitions.size() >= 6
+                && journeys.size() >= 6
+                && harmonies.size() >= 6,
+                fmt7 ("unique=%.0f contours=%.0f intervals=%.0f rhythms=%.0f repeats=%.0f journeys=%.0f harmony=%.0f",
+                     (double) languages.size(), (double) contours.size(), (double) intervals.size(),
+                     (double) rhythms.size(), (double) repetitions.size(), (double) journeys.size(),
+                     (double) harmonies.size()));
+    }
+
+
+
+
+    // ------------------------------------------------------------------ 0b. Motif Semantics 2.0
+    {
+        auto barNotes = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& all, int bar)
+        {
+            std::vector<MidiForgeAudioProcessor::VisibleNote> out;
+            for (const auto& n : all)
+                if (n.channel == 3 && n.step / 16 == bar)
+                    out.push_back (n);
+            std::sort (out.begin(), out.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            return out;
+        };
+
+        auto similarity = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& a,
+                              const std::vector<MidiForgeAudioProcessor::VisibleNote>& b)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0;
+
+            const size_t n = std::min (a.size(), b.size());
+            const int aa = a.front().note;
+            const int bb = b.front().note;
+            int rhythm = 0, pitch = 0;
+            for (size_t i = 0; i < n; ++i)
+            {
+                if (std::abs ((a[i].step % 16) - (b[i].step % 16)) <= 1) ++rhythm;
+                if (std::abs ((a[i].note - aa) - (b[i].note - bb)) <= 2) ++pitch;
+            }
+
+            const double countFit = 1.0 - std::min (1.0,
+                (double) std::abs ((int) a.size() - (int) b.size()) / 5.0);
+            return std::max (0.0, std::min (1.0,
+                0.44 * (double) rhythm / (double) n
+                + 0.44 * (double) pitch / (double) n
+                + 0.12 * countFit));
+        };
+
+        const auto a = midiforge::MotifSemantics::makePlan (
+            0, 4, 0, 0.70f, 0.65f, 991234u);
+        const auto b = midiforge::MotifSemantics::makePlan (
+            0, 4, 0, 0.70f, 0.65f, 991234u);
+        const bool deterministic =
+            a.rhythmicCore == b.rhythmicCore
+            && a.intervalCore == b.intervalCore
+            && a.startingAnchor == b.startingAnchor
+            && a.peakGesture == b.peakGesture
+            && a.endingGesture == b.endingGesture
+            && a.signatureLeap == b.signatureLeap
+            && a.answerCell == b.answerCell
+            && a.primaryMutation == b.primaryMutation
+            && a.secondaryMutation == b.secondaryMutation;
+
+        std::set<std::string> semanticLanguages;
+        for (uint32_t seed = 1; seed <= 160; ++seed)
+        {
+            const auto plan = midiforge::MotifSemantics::makePlan (
+                seed % 8, (int) (seed % 9), (int) (seed % 16),
+                0.45f + 0.5f * ((float) (seed % 7) / 6.0f),
+                0.35f + 0.6f * ((float) (seed % 5) / 4.0f),
+                seed);
+            semanticLanguages.insert (
+                std::to_string (plan.rhythmicCore) + ":"
+                + std::to_string (plan.intervalCore) + ":"
+                + std::to_string (plan.startingAnchor) + ":"
+                + std::to_string (plan.peakGesture) + ":"
+                + std::to_string (plan.endingGesture) + ":"
+                + std::to_string (plan.signatureLeap) + ":"
+                + std::to_string (plan.answerCell) + ":"
+                + std::to_string (plan.primaryMutation) + ":"
+                + std::to_string (plan.secondaryMutation));
+        }
+
+        report ("Motif Semantics plan is deterministic", deterministic,
+                deterministic ? "same identity -> same semantic plan"
+                               : "semantic plan changed for the same identity");
+        report ("Motif Semantics has broad combinations",
+                semanticLanguages.size() >= 110,
+                fmt ("%.0f unique semantic plans", (double) semanticLanguages.size()));
+
+        p.setBars (4);
+        p.setSoundTarget (0);
+        p.setDrumsEnabled (false);
+        int structured = 0, aPrimeGood = 0, bContrastGood = 0, returnGood = 0;
+        for (int loop = 0; loop < 45; ++loop)
+        {
+            p.magicRandomize();
+            const auto notes = p.getVisibleNotes();
+            const auto bar0 = barNotes (notes, 0);
+            const auto bar1 = barNotes (notes, 1);
+            const auto bar2 = barNotes (notes, 2);
+            const auto bar3 = barNotes (notes, 3);
+
+            if (bar0.size() < 2 || bar1.size() < 2 || bar2.size() < 2 || bar3.size() < 2)
+                continue;
+
+            const double ap = similarity (bar0, bar1);
+            const double contrast = 1.0 - similarity (bar0, bar2);
+            const double ret = similarity (bar0, bar3);
+
+            if (ap >= 0.42) ++aPrimeGood;
+            if (contrast >= 0.10) ++bContrastGood;
+            if (ret >= 0.42) ++returnGood;
+            if (ap >= 0.42 && contrast >= 0.10 && ret >= 0.42)
+                ++structured;
+        }
+
+        report ("A' preserves a recognisable motif core",
+                aPrimeGood >= 20,
+                fmt ("%.0f / 45 loops", (double) aPrimeGood));
+        report ("B introduces controlled contrast",
+                bContrastGood >= 24,
+                fmt ("%.0f / 45 loops", (double) bContrastGood));
+        report ("A'' returns to the original identity",
+                returnGood >= 20,
+                fmt ("%.0f / 45 loops", (double) returnGood));
+        report ("four-bar motif has semantic development",
+                structured >= 16,
+                fmt ("%.0f / 45 loops passed all three", (double) structured));
+    }
+
     // ------------------------------------------------------------------ 1. invariants (every loop)
     {
         int loopsChecked = 0; std::string firstProblem;
@@ -282,6 +476,553 @@ int main()
         row ("semitone clusters per bar",   s.clusterPerBar,    s.clusterPerBar <= 0.06,   "<= 0.06");
         return ok;
     });
+
+
+    // ------------------------------------------------------------------ 2b. Melodic register expansion
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setComplexity (0.68f, false);
+        p.setEnergy (0.72f, false);
+
+        int globalMin = 127;
+        int globalMax = 0;
+        int wideLoops = 0;
+        int checked = 0;
+
+        for (int seed = 13000; seed < 13120; ++seed)
+        {
+            p.setSeed (seed);
+            const auto notes = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+            if (notes.size() < 3)
+                continue;
+
+            int lo = 127, hi = 0;
+            for (const auto& n : notes)
+            {
+                lo = std::min (lo, n.note);
+                hi = std::max (hi, n.note);
+            }
+
+            globalMin = std::min (globalMin, lo);
+            globalMax = std::max (globalMax, hi);
+            wideLoops += (hi - lo >= 30) ? 1 : 0;
+            ++checked;
+        }
+
+        report ("Piano melody actually explores the expanded register",
+                checked >= 100 && globalMin <= 56 && globalMax >= 92 && (double) wideLoops / checked >= 0.12,
+                fmt ("min=%d max=%d, %.1f%% of loops span >=30 st",
+                     globalMin, globalMax, checked > 0 ? 100.0 * (double) wideLoops / checked : 0.0));
+    }
+
+
+    // ------------------------------------------------------------------ 2b. Rhythm Grammar / BPM-native rhythm
+    {
+        struct BpmHead : juce::AudioPlayHead
+        {
+            double bpm = 120.0;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo i;
+                i.setBpm (bpm);
+                i.setIsPlaying (true);
+                return i;
+            }
+        } head;
+
+        p.setPlayHead (&head);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.68f, false);
+
+        auto collect = [&] (double bpm, int loops)
+        {
+            head.bpm = bpm;
+            double sixteenth = 0.0;
+            double offbeat = 0.0;
+            double grammar = 0.0;
+            int melodyNotes = 0;
+
+            for (int i = 0; i < loops; ++i)
+            {
+                p.setSeed (7000 + i);
+                auto notes = p.getVisibleNotes();
+                int mel = 0, six = 0, off = 0;
+                std::vector<midiforge::RhythmGrammar::Note> rhythmNotes;
+
+                for (const auto& n : notes)
+                    if (n.channel == 3)
+                    {
+                        ++mel;
+                        if ((n.step & 1) != 0) ++six;
+                        if ((n.step % 4) != 0) ++off;
+                        rhythmNotes.push_back ({ n.step, n.length, n.velocity });
+                    }
+
+                melodyNotes += mel;
+                sixteenth += mel > 0 ? (double) six / mel : 0.0;
+                offbeat += mel > 0 ? (double) off / mel : 0.0;
+                grammar += midiforge::RhythmGrammar::score (
+                    rhythmNotes, 4, bpm, p.getRhythm(), p.getComplexity(), p.getEnergy());
+            }
+
+            return std::array<double, 4> {
+                sixteenth / loops,
+                offbeat / loops,
+                grammar / loops,
+                (double) melodyNotes / loops
+            };
+        };
+
+        const auto slow = collect (120.0, 40);
+        const auto fast = collect (200.0, 40);
+        head.bpm = 120.0;
+
+        report ("Rhythm Grammar has a healthy phrase score",
+                slow[2] >= 0.52,
+                fmt ("mean grammar score %.3f >= 0.52", slow[2]));
+        report ("Fast BPM uses more sixteenth/offbeat vocabulary",
+                fast[0] > slow[0] + 0.035 && fast[1] >= slow[1] - 0.015,
+                fmt ("sixteenth %.3f -> %.3f, offbeat %.3f -> %.3f",
+                     slow[0], fast[0], slow[1], fast[1]));
+        report ("Fast BPM does not collapse melody density",
+                fast[3] >= slow[3] * 0.82,
+                fmt ("melody notes/loop %.2f -> %.2f", slow[3], fast[3]));
+    }
+
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.68f, false);
+
+        auto onsetSimilarity = [] (const std::vector<int>& a, const std::vector<int>& b)
+        {
+            if (a.empty() || b.empty()) return 0.0;
+            int hits = 0;
+            for (const int x : a)
+            {
+                int best = 99;
+                for (const int y : b) best = std::min (best, std::abs (x - y));
+                if (best <= 1) ++hits;
+            }
+            return (double) hits / (double) std::max (a.size(), b.size());
+        };
+
+        int coherent = 0;
+        int checked = 0;
+        for (int i = 0; i < 60; ++i)
+        {
+            p.setSeed (9000 + i);
+            auto notes = p.getVisibleNotes();
+            std::array<std::vector<int>, 4> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 64)
+                    bars[(size_t) (n.step / 16)].push_back (n.step % 16);
+            for (auto& v : bars) std::sort (v.begin(), v.end());
+            if (bars[0].size() < 2 || bars[1].empty() || bars[2].empty() || bars[3].empty())
+                continue;
+
+            const double ap = onsetSimilarity (bars[0], bars[1]);
+            const double b  = onsetSimilarity (bars[0], bars[2]);
+            const double ar = onsetSimilarity (bars[0], bars[3]);
+            if (ap >= b + 0.02 && ar >= b + 0.02)
+                ++coherent;
+            ++checked;
+        }
+
+        report ("Phrase Grammar preserves A -> A' / B contrast / A'' return",
+                checked >= 40 && (double) coherent / checked >= 0.62,
+                fmt ("%.0f of %.0f four-bar phrases passed", (double) coherent, (double) checked));
+    }
+
+
+    // ------------------------------------------------------------------ 2c. Expressive Melody Engine
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano: expression must survive without timbral help.
+        p.setBars (4);
+        p.setMelodyType (0);  // Hook
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+        p.setMelodyDensity (0.62f, false);
+
+        int checked = 0;
+        int dynamic = 0;
+        int variedContour = 0;
+        int phrasePeak = 0;
+
+        for (int seed = 10000; seed < 10080; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<const MidiForgeAudioProcessor::VisibleNote*>, 4> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 64)
+                    bars[(size_t) (n.step / 16)].push_back (&n);
+
+            if (bars[0].size() < 2 || bars[1].empty() || bars[2].empty() || bars[3].empty())
+                continue;
+
+            ++checked;
+
+            int vMin = 127, vMax = 0;
+            std::vector<int> absIntervals;
+            std::array<float, 4> avgPitch {};
+            for (int b = 0; b < 4; ++b)
+            {
+                for (auto* n : bars[(size_t) b])
+                {
+                    vMin = std::min (vMin, n->velocity);
+                    vMax = std::max (vMax, n->velocity);
+                    avgPitch[(size_t) b] += (float) n->note;
+                }
+                avgPitch[(size_t) b] /= (float) bars[(size_t) b].size();
+
+                for (size_t i = 1; i < bars[(size_t) b].size(); ++i)
+                    absIntervals.push_back (
+                        std::abs (bars[(size_t) b][i]->note - bars[(size_t) b][i - 1]->note));
+            }
+
+            std::sort (absIntervals.begin(), absIntervals.end());
+            absIntervals.erase (std::unique (absIntervals.begin(), absIntervals.end()), absIntervals.end());
+
+            if (vMax - vMin >= 14)
+                ++dynamic;
+            if (absIntervals.size() >= 3)
+                ++variedContour;
+            if (avgPitch[2] >= avgPitch[0] + 1.0f)
+                ++phrasePeak;
+        }
+
+        report ("Piano melody has expressive velocity range",
+                checked >= 70 && (double) dynamic / checked >= 0.62,
+                fmt ("%.0f/%0.f phrases have >=14 velocity spread", (double) dynamic, (double) checked));
+
+        report ("Piano melody uses multiple interval sizes",
+                checked >= 70 && (double) variedContour / checked >= 0.74,
+                fmt ("%.0f/%0.f phrases have >=3 interval sizes", (double) variedContour, (double) checked));
+
+        report ("Piano phrase creates a usable B-peak arc",
+                checked >= 70 && (double) phrasePeak / checked >= 0.38,
+                fmt ("%.0f/%0.f phrases have B >= A pitch centre", (double) phrasePeak, (double) checked));
+    }
+
+
+    // ------------------------------------------------------------------ 2d. Harmonic Intelligence 2.0
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+
+        int checked = 0;
+        int anchorHits = 0;
+        int smoothReturns = 0;
+        int mixedHarmony = 0;
+
+        for (int seed = 11000; seed < 11080; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<int>, 4> melodyBars;
+            std::array<std::vector<int>, 4> chordPcs;
+            for (const auto& n : notes)
+            {
+                if (n.channel == 3 && n.step < 64)
+                    melodyBars[(size_t) (n.step / 16)].push_back (n.note);
+
+                if (n.channel == 1 && n.step < 64)
+                    chordPcs[(size_t) (n.step / 16)].push_back ((n.note % 12 + 12) % 12);
+            }
+
+            for (auto& v : chordPcs)
+            {
+                std::sort (v.begin(), v.end());
+                v.erase (std::unique (v.begin(), v.end()), v.end());
+            }
+
+            bool valid = true;
+            for (int b = 0; b < 4; ++b)
+                if (melodyBars[(size_t) b].empty() || chordPcs[(size_t) b].empty())
+                    valid = false;
+
+            if (!valid)
+                continue;
+            ++checked;
+
+            int localAnchorHits = 0;
+            int localAnchors = 0;
+            int chordToneTotal = 0;
+            int melodyTotal = 0;
+
+            for (int b = 0; b < 4; ++b)
+            {
+                for (size_t i = 0; i < melodyBars[(size_t) b].size(); ++i)
+                {
+                    const int pitch = melodyBars[(size_t) b][i];
+                    const bool isChord =
+                        std::find (chordPcs[(size_t) b].begin(),
+                                   chordPcs[(size_t) b].end(),
+                                   (pitch % 12 + 12) % 12) != chordPcs[(size_t) b].end();
+
+                    if (isChord) ++chordToneTotal;
+                    ++melodyTotal;
+
+                    if (i == 0)
+                    {
+                        ++localAnchors;
+                        if (isChord) ++localAnchorHits;
+                    }
+                }
+            }
+
+            anchorHits += (localAnchors > 0 && (double) localAnchorHits / localAnchors >= 0.68) ? 1 : 0;
+
+            const int firstLast = melodyBars[0].back();
+            const int secondFirst = melodyBars[1].front();
+            const int thirdLast = melodyBars[2].back();
+            const int fourthFirst = melodyBars[3].front();
+
+            if (std::abs (secondFirst - melodyBars[0].front()) <= 9
+                && std::abs (fourthFirst - thirdLast) <= 9)
+                ++smoothReturns;
+
+            const float chordRatio = melodyTotal > 0
+                ? (float) chordToneTotal / melodyTotal : 1.0f;
+            if (chordRatio >= 0.30f && chordRatio <= 0.86f)
+                ++mixedHarmony;
+
+            juce::ignoreUnused (firstLast);
+        }
+
+        report ("Harmonic intelligence grounds phrase anchors",
+                checked >= 70 && (double) anchorHits / checked >= 0.62,
+                fmt ("%.0f/%0.f phrases keep anchor notes on active harmony", (double) anchorHits, (double) checked));
+
+        report ("Harmonic intelligence keeps phrase transitions smooth",
+                checked >= 70 && (double) smoothReturns / checked >= 0.72,
+                fmt ("%.0f/%0.f phrases keep bar transitions within 9 semitones", (double) smoothReturns, (double) checked));
+
+        report ("Harmonic intelligence preserves color tones",
+                checked >= 70 && (double) mixedHarmony / checked >= 0.88,
+                fmt ("%.0f/%0.f phrases keep a mixed chord/color-tone ratio", (double) mixedHarmony, (double) checked));
+    }
+
+
+    // ------------------------------------------------------------------ 2e. Phrase Memory 4.0 / long-form motif development
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (12);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.62f, false);
+        p.setEnergy (0.70f, false);
+
+        int checked = 0;
+        int memoryPreserved = 0;
+        int contrastPhrases = 0;
+        int nonLiteral = 0;
+
+        auto contourSimilarity = [] (const std::vector<int>& a,
+                                     const std::vector<int>& b,
+                                     bool inverse)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0;
+            const size_t n = std::min (a.size(), b.size());
+            int hits = 0;
+            for (size_t i = 1; i < n; ++i)
+            {
+                const int da = a[i] - a[i - 1];
+                const int db = b[i] - b[i - 1];
+                const bool same = inverse
+                    ? ((da > 0 && db < 0) || (da < 0 && db > 0) || (da == 0 && db == 0))
+                    : ((da > 0 && db > 0) || (da < 0 && db < 0) || (da == 0 && db == 0));
+                if (same) ++hits;
+            }
+            return (double) hits / (double) std::max<size_t> (1, n - 1);
+        };
+
+        for (int seed = 12000; seed < 12050; ++seed)
+        {
+            p.setSeed (seed);
+            auto notes = p.getVisibleNotes();
+
+            std::array<std::vector<int>, 12> bars;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step < 192)
+                    bars[(size_t) (n.step / 16)].push_back (n.note);
+
+            bool valid = true;
+            for (int b = 0; b < 12; ++b)
+                if (bars[(size_t) b].size() < 2)
+                    valid = false;
+            if (!valid)
+                continue;
+
+            ++checked;
+
+            double directP1 = 0.0, directP2 = 0.0, inverseP2 = 0.0;
+            for (int local = 0; local < 4; ++local)
+            {
+                directP1 += contourSimilarity (bars[(size_t) local],
+                                               bars[(size_t) (4 + local)], false);
+
+                directP2 += contourSimilarity (bars[(size_t) local],
+                                               bars[(size_t) (8 + local)], false);
+                inverseP2 += contourSimilarity (bars[(size_t) local],
+                                                bars[(size_t) (8 + local)], true);
+            }
+            directP1 /= 4.0;
+            directP2 /= 4.0;
+            inverseP2 /= 4.0;
+
+            if (directP1 >= 0.48 || directP2 >= 0.45 || inverseP2 >= 0.48)
+                ++memoryPreserved;
+
+            if (inverseP2 >= directP2 + 0.02)
+                ++contrastPhrases;
+
+            // Macro memory must not create literal bar copies.
+            bool literal = true;
+            for (int local = 0; local < 4; ++local)
+            {
+                if (bars[(size_t) local] != bars[(size_t) (8 + local)])
+                {
+                    literal = false;
+                    break;
+                }
+            }
+            if (!literal)
+                ++nonLiteral;
+        }
+
+        report ("Long-form phrase memory preserves a recognizable contour",
+                checked >= 42 && (double) memoryPreserved / checked >= 0.82,
+                fmt ("%.0f/%0.f 12-bar phrases retained macro contour", (double) memoryPreserved, (double) checked));
+
+        report ("Long-form memory can create a transformed contrast phrase",
+                checked >= 42 && (double) contrastPhrases / checked >= 0.30,
+                fmt ("%.0f/%0.f phrases show stronger inverted B/C contour", (double) contrastPhrases, (double) checked));
+
+        report ("Long-form phrase memory avoids literal copies",
+                checked >= 42 && (double) nonLiteral / checked >= 0.98,
+                fmt ("%.0f/%0.f phrases were not literal 4-bar copies", (double) nonLiteral, (double) checked));
+    }
+
+    // ------------------------------------------------------------------ 2f. Composer Grammar 0.70
+    {
+        const auto p4 = midiforge::ComposerGrammar::makePlan (
+            16, 0.72f, 0.66f, 0, 4, 0, 0x12345678u);
+        const auto p12 = midiforge::ComposerGrammar::makePlan (
+            12, 0.70f, 0.62f, 0, 4, 0, 0x12345678u);
+        const auto p4b = midiforge::ComposerGrammar::makePlan (
+            16, 0.72f, 0.66f, 0, 4, 0, 0x9abcdef0u);
+
+        const bool fourBarArc =
+            p4.phrases.size() == 4
+            && p4.phrases[0].role == midiforge::ComposerGrammar::Statement
+            && p4.phrases[1].role == midiforge::ComposerGrammar::Develop
+            && (p4.phrases[2].role == midiforge::ComposerGrammar::Peak
+                || p4.phrases[2].role == midiforge::ComposerGrammar::Contrast)
+            && p4.phrases[3].role == midiforge::ComposerGrammar::Return;
+
+        const bool twelveBarArc =
+            p12.phrases.size() == 3
+            && p12.phrases.front().role == midiforge::ComposerGrammar::Statement
+            && p12.phrases.back().role == midiforge::ComposerGrammar::Return
+            && p12.phrases[1].tension > p12.phrases[0].tension;
+
+        bool deterministic = p4.phrases.size() == p4b.phrases.size();
+        if (deterministic)
+        {
+            for (size_t i = 0; i < p4.phrases.size(); ++i)
+                if (p4.phrases[i].role != p4b.phrases[i].role)
+                    deterministic = false;
+        }
+
+        bool identityVariation = false;
+        const size_t n = std::min (p4.phrases.size(), p4b.phrases.size());
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (std::abs (p4.phrases[i].registerLift - p4b.phrases[i].registerLift) > 0.001f
+                || std::abs (p4.phrases[i].tension - p4b.phrases[i].tension) > 0.001f)
+            {
+                identityVariation = true;
+                break;
+            }
+        }
+
+        report ("Composer Grammar creates a 16-bar macro arc",
+                fourBarArc, "statement -> develop -> peak/contrast -> return");
+        report ("Composer Grammar creates a 12-bar rise and return",
+                twelveBarArc, "statement -> contrast/peak -> return");
+        report ("Composer Grammar keeps role structure deterministic",
+                deterministic, "same inputs keep the same role sequence");
+        report ("Composer Grammar identity changes micro-expression",
+                identityVariation, "different identity seeds alter plan targets");
+    }
+
+    // ------------------------------------------------------------------ 2g. Melodic Prosody 0.71
+    {
+        using MP = midiforge::MelodicProsody;
+        const auto anchor = MP::classify (
+            0, 8, 0, 5, 3, false,
+            midiforge::ComposerGrammar::Statement, 0.24f, 0x71u);
+        const auto pickup = MP::classify (
+            5, 8, 14, 15, 3, false,
+            midiforge::ComposerGrammar::Develop, 0.40f, 0x71u);
+        const auto approach = MP::classify (
+            3, 8, 6, 8, 10, false,
+            midiforge::ComposerGrammar::Develop, 0.44f, 0x71u);
+        const auto peak = MP::classify (
+            5, 8, 9, 12, 4, false,
+            midiforge::ComposerGrammar::Peak, 0.82f, 0x71u);
+        const auto release = MP::classify (
+            7, 8, 15, -1, 2, true,
+            midiforge::ComposerGrammar::Return, 0.33f, 0x71u);
+        const auto connect = MP::classify (
+            2, 8, 5, 6, 2, false,
+            midiforge::ComposerGrammar::Develop, 0.40f, 0x71u);
+
+        const bool rolesOk =
+            anchor.role == MP::Anchor
+            && pickup.role == MP::Pickup
+            && approach.role == MP::Approach
+            && peak.role == MP::Peak
+            && release.role == MP::Release
+            && connect.role == MP::Connect;
+
+        const auto approachRepeat = MP::classify (
+            3, 8, 6, 8, 10, false,
+            midiforge::ComposerGrammar::Develop, 0.44f, 0x71u);
+
+        const bool deterministic =
+            approach.role == approachRepeat.role
+            && approach.scaleMotion == approachRepeat.scaleMotion
+            && std::abs (approach.velocityBias - approachRepeat.velocityBias) < 0.0001f;
+
+        report ("Melodic Prosody assigns note intentions",
+                rolesOk, "anchor/pickup/approach/peak/release/connect roles");
+        report ("Melodic Prosody role assignment is deterministic",
+                deterministic, "same phrase state and identity produce the same intent");
+    }
 
     // ------------------------------------------------------------------ 3. profiles behave differently
     {

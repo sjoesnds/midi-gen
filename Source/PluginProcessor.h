@@ -1,6 +1,9 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TasteModel.h"
+#include "RhythmGrammar.h"
+#include "CreativeRange.h"
+#include "MotifSemantics.h"
 #include <array>
 #include <vector>
 #include <atomic>
@@ -66,7 +69,7 @@ void setSoundTarget(int);
 // Musical controls
 void setChordDensity(float, bool regenerateNow = true); void setBassDensity(float, bool regenerateNow = true);
 void setMelodyDensity(float, bool regenerateNow = true); void setArpDensity(float, bool regenerateNow = true);
-void setSwing(float); void setHumanize(float); void setComplexity(float, bool regenerateNow = true);
+void setSwing(float); void setHumanize(float); void setHumanizeEnabled(bool); void setComplexity(float, bool regenerateNow = true);
 void setMelodyLength(float, bool regenerateNow = true); void setPauseChance(float, bool regenerateNow = true);
 void setLeapChance(float, bool regenerateNow = true); void setGhostChance(float, bool regenerateNow = true);
 void setArpRate(int); void setVoicingWidth(float);
@@ -127,6 +130,7 @@ float getMelodyDensity() const { return melodyDensity; }
 float getArpDensity() const { return arpDensity; }
 float getSwing() const { return swing; }
 float getHumanize() const { return humanize; }
+bool isHumanizeEnabled() const { return humanizeEnabled; }
 float getComplexity() const { return complexity; }
 float getMelodyLength() const { return melodyLength; }
 float getPauseChance() const { return pauseChance; }
@@ -206,6 +210,62 @@ struct SongData {
 // generator's "human" identity stable across A / A' / B / A'' roles.
 // Timing remains grid-safe; contour, recurrence, contrast, and cadence
 // become first-class musical decisions.
+struct MelodyFeatures
+{
+    float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
+    float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, tensionArc=0,
+          stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f,
+          noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
+};
+
+struct IdeaFingerprint
+{
+    std::array<int, 7> onsets {};
+    std::array<int, 7> relativePitches {};
+    std::array<int, 6> intervals {};
+    int count = 0;
+    int intervalCount = 0;
+    int family = 0;
+};
+
+struct Candidate
+{
+    Section section;
+    float quality = 0.0f;
+    uint32_t identity = 0;
+    int archetype = 0;
+    float density = 0.5f;
+    float space = 0.5f;
+    float rhythm = 0.5f;
+    float motif = 0.5f;
+    float leap = 0.3f;
+    float reg = 0.5f;
+    float surprise = 0.3f;
+    float context = 0.5f;
+    float loop = 0.5f;
+    float groove = 0.5f;
+    float memory = 0.5f;
+    float phraseArc = 0.5f;
+    float tension = 0.5f;
+    float development = 0.5f;
+    IdeaFingerprint idea {};
+};
+
+struct AdaptiveProfile
+{
+    bool ready = false;
+    float density = 0.50f;
+    float space = 0.50f;
+    float rhythm = 0.50f;
+    float motif = 0.50f;
+    float leap = 0.30f;
+    float reg = 0.50f;
+    float surprise = 0.30f;
+    float loop = 0.50f;
+    float groove = 0.50f;
+    float memory = 0.50f;
+};
+
 struct PhraseMotif
 {
     std::vector<int> relativePitches;
@@ -216,6 +276,10 @@ struct PhraseMotif
 // so it never has to survive piano-roll edits.
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
+void applyHumanPerformance (Section& section) const;
+void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
+float motifSemanticsScore (const Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
@@ -247,6 +311,7 @@ uint32_t magicDnaSeed = 0xC0FFEEu;
 int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;
+bool humanizeEnabled = false;
 float melodyLength = 0.35f, pauseChance = 0.10f, leapChance = 0.18f, ghostChance = 0.08f;
 float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
@@ -305,6 +370,18 @@ int snapToScale(int midi) const;
 // 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).
 void registerLane (int part, int& lo, int& hi) const;
 bool rhythmHit(int stepInBar) const;
+void applyRhythmGrammar (Section& section, uint32_t identity) const;
+float rhythmGrammarScore (const Section& section) const;
+void applyMelodyExpression (Section& section, uint32_t identity) const;
+float melodyExpressionScore (const Section& section) const;
+void applyHarmonicIntelligence (Section& section, uint32_t identity) const;
+float harmonicIntelligenceScore (const Section& section) const;
+void applyPhraseMemory4 (Section& section, uint32_t identity) const;
+float phraseMemory4Score (const Section& section) const;
+float composerGrammarScore (const Section& section) const;
+void applyMelodicProsody (Section& section, uint32_t identity) const;
+float melodicProsodyScore (const Section& section) const;
+float creativeRangeScore (const Section& section, uint32_t identity) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
@@ -317,6 +394,22 @@ void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
 PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
 void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
+MelodyFeatures melodyFeatures (const Section& sec, uint32_t identity) const;
+IdeaFingerprint makeIdeaFingerprint (const Section& sec) const;
+float ideaSimilarity (const IdeaFingerprint& a, const IdeaFingerprint& b) const;
+float motifMemoryScore (const Section& sec) const;
+void applyGrooveEngine (Section& sec, uint32_t identity) const;
+float grooveQualityScore (const Section& sec) const;
+int rootAtBar (int bar) const;
+void applyMagicArchetype (Section& flat, int archetype, uint32_t identity) const;
+float similarity (const Section& a, const Section& b) const;
+static float behaviorDistance (const Candidate& a, const Candidate& b);
+Section flatten (const SongData& song, int candidateIndex, juce::Random& local, int mLo, int mHi) const;
+void buildAdaptiveProfile (const std::vector<Candidate>& candidates, int firstPassCandidates, AdaptiveProfile& adaptive) const;
+float minDiversityToSelected (const Candidate& candidate, const std::vector<Candidate>& selected) const;
+Section transformLoop (Section source, int mode, uint32_t identity) const;
+float loopForgeScore (const Section& sec) const;
+void finalizeLoop (Section& sec) const;
 void buildVariationBank();
 void refreshHostBpm();
 Section mergedSelectedSong() const;

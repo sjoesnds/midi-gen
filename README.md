@@ -2,7 +2,131 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.60.0**
+**Current version: 0.72.0**
+
+### Motif Semantics 2.0 — 0.73.0
+- Adds a semantic motif planner that treats a four-bar idea as **Rhythmic Core, Interval Core, Starting Anchor, Peak Gesture, Ending Gesture, Signature Leap** and **Answer Cell** instead of treating the motif as one undivided fingerprint.
+- \`A'\` preserves the core while deliberately mutating one semantic component.
+- \`B\` mutates a second component and raises contrast instead of simply inverting or copying the whole phrase.
+- \`A''\` restores the recognizable motif identity while giving the ending a fresh gesture, so the loop can return without sounding pasted.
+- The semantic plan is deterministic per composition identity and combines freely with Creative Range rather than replacing it.
+- Adds a Motif Semantics Judge to Loop Forge so candidate search rewards recognizable development, controlled contrast and meaningful return.
+- Adds headless QA for deterministic semantic planning, language diversity and actual four-bar A/A'/B/A'' behavior.
+- No new UI controls and no non-MIDI features.
+
+### Creative Range Engine — 0.72.0
+- Adds a dedicated pre-generation creative-language planner instead of relying on independent random melody mutations.
+- Each identity chooses a coherent combination of **contour**, **interval vocabulary**, **rhythm family**, **repetition style**, **register journey**, **harmonic personality** and **duration language**.
+- Expands contour grammar from 12 to 18 shapes and interval vocabulary from 10 to 12 controlled motion languages.
+- Repetition styles can emphasize motif identity, call/response, evolving ideas, loose development, A' variation, sequence, contrast or hook persistence.
+- Register is treated as a journey across the phrase rather than only an octave clamp, so wide pitch space is used selectively.
+- Harmonic personality now shifts the balance between grounded chord tones and deliberate color/tension tones.
+- Duration language can make the same melodic idea feel flowing, punchy, declarative or long/short without adding timing noise.
+- Adds a Creative Range Judge to Loop Forge so the candidate search rewards internally coherent variety instead of collapsing everything toward the average.
+- Adds headless QA proving deterministic planning and a broad distribution of creative language combinations.
+- No new UI controls and no non-MIDI features.
+
+### Melodic Range Expansion — 0.71.1
+- Expands the practical melody lane from the old compact ~2-octave window to a much wider register before profile caps.
+- Piano can now explore roughly C3–E7 at the default octave setting, with sound-target biases for pluck, lead, bell, pad, brass and guitar.
+- Wider profiles can use the additional register without forcing every generated phrase to span the full range; existing Composer/Prosody rules still control phrase shape and register movement.
+- Extends bar-level octave placement search by one additional octave in both directions.
+- Keeps the dedicated 808/Sub Lead register unchanged.
+- Adds headless QA that checks the expanded range on actual generated Piano MIDI.
+- No new UI controls and no non-MIDI features.
+
+### Melodic Prosody — 0.71.0
+- Adds note-level melodic intent: **Anchor**, **Pickup**, **Approach**, **Connect**, **Accent**, **Peak** and **Release**.
+- Large intervals are treated as destinations: approach notes move toward the following target instead of remaining as arbitrary leaps.
+- Peak notes receive a small controlled register lift and stronger accent; pickup notes become lighter/shorter; release notes settle and breathe.
+- Prosody reads the 0.70 Composer Grammar role, so note-level intention follows the macro phrase arc instead of fighting it.
+- Prosody runs before Harmonic Intelligence, allowing the harmony layer to resolve intentional gestures onto the active chord while preserving passing motion.
+- Adds a Prosody Judge for approach direction, peak placement, release behavior and accent hierarchy.
+- No new UI controls and no non-MIDI features.
+
+### Composer Grammar — 0.70.0
+- Adds a dedicated macro-level composition planner instead of another independent post-processing layer.
+- Four-bar cells receive explicit roles such as **Statement**, **Develop**, **Build**, **Contrast/Peak**, **Release** and **Return** according to loop length, energy and complexity.
+- The plan supplies soft targets for tension, density, register movement, sustain, velocity and cadence; the existing melody, rhythm, phrase-memory and harmony engines interpret those targets.
+- Phrase Memory 4.0 now follows the Composer role when choosing development, contrast, fragmentation and return, so long-form memory and phrase arc share one structural intention.
+- Adds a Composer Grammar Judge for macro tension, density, register movement and return/cadence behavior.
+- Adds headless QA for deterministic role planning and identity-driven micro-variation.
+- No new UI controls and no non-MIDI features.
+
+### Phrase Memory 4.0 — 0.69.0
+- Adds long-form memory across complete four-bar phrase cells instead of only inside one A/A'/B/A'' phrase.
+- The opening four-bar idea becomes a persistent macro fingerprint reused by later phrase cells.
+- Later cells can re-state, invert, fragment/lift or return to the remembered contour with deterministic variation.
+- Rhythm is preserved while the macro pitch idea develops; Harmonic Intelligence then re-resolves transformed notes against the destination chords.
+- Adds a Phrase Memory 4.0 Judge signal for contour retention, transformed contrast and non-literal variation.
+- Adds 12-bar Piano-only QA so long-form memory is tested directly on MIDI.
+- Keeps 808/Sub Lead outside the memory pass and adds no new UI controls.
+
+### Harmonic Intelligence 2.0 — 0.68.0
+- Adds a post-expression harmony pass that uses the actual chord voicings as destinations instead of only the scale.
+- Strong and sustained melody notes are grounded toward active chord tones, while weak notes retain passing/color-tone freedom.
+- Late-bar notes can anticipate the next chord and phrase seams use soft voice-leading gravity.
+- Root notes are not blindly preferred; thirds and fifths receive context-aware preference to avoid turning the melody into a scale-safe arpeggio.
+- Adds a harmonic Judge covering anchor stability, anticipation, resolutions, voice-leading and chord/color-tone balance.
+- Adds Piano-only QA for harmonic anchoring, smooth phrase transitions and retained non-chord color.
+- 808/Sub Lead remains outside the post-process.
+
+### Expressive Melody Engine — 0.67.0
+- Separates rhythmic grammar from melodic expression: Rhythm Grammar chooses phrase timing, while the new expression pass shapes contour, peaks, answers, sustain and velocity.
+- Adds deterministic A / A' / B / A'' melodic gestures with controlled contour reuse and transformation instead of literal copying.
+- Gives the B bar a real phrase peak and A'' a softer return so four-bar loops have an audible rise-and-release arc.
+- Uses meaningful sustain and velocity dynamics even with Humanize OFF, so the Piano profile exposes musical expression directly.
+- Adds an expression judge signal covering interval variety, useful leaps, contour turns, velocity range and phrase shape.
+- Keeps the 808/sub-lead path excluded and adds QA coverage using Piano-only MIDI.
+
+### Musical Quality & Phrase Intelligence — 0.66.0
+- **Contextual Development** chooses Repeat/Alter, reduction, expansion, inversion, fragmentation, call/response or return from the phrase's actual density, motif identity, contour, tension, groove and loop state.
+- **Chord-aware development** softly steers developed notes toward the real voicing of their destination bar instead of blindly snapping transformed pitches to the scale.
+- **Cadence-aware closure** lets A'' resolve toward the loop-start harmony while preserving part of the developed contour, with a longer final release.
+- **Structural invariant repair** preserves beat-1 bass anchors, beat-1 kicks and the E1–D3 808 lane after archetype/transform passes.
+- **808 kick lock** repairs missing kick matches rather than rewriting the 808 rhythm.
+- **Register guard** only trims pathological octave-leap density in ordinary profiles; Riff, Experimental, Cinematic and 808 languages keep their wider ranges.
+- **Legacy state hygiene** resets newly added optional fields before reading them, so old presets cannot inherit stale UI state from a previous processor instance.
+
+
+### Motif Development Engine — 0.64.0
+
+The phrase engine now develops a motif as a deliberate four-bar statement instead of relying only on recurrence or diversity pressure. Each four-bar phrase keeps the first bar as its identity anchor and assigns one development grammar to A' / B / A'':
+- Repeat + Alter
+- Rhythmic Reduction
+- Rhythmic Expansion
+- Interval Expansion
+- Inversion
+- Fragmentation
+- Call → Response
+- Return
+
+The development pass is scale-safe and preserves the generator's existing harmony, register and groove systems. It runs before the final MAGIC archetype/groove processing, so the new phrase logic stays inside the existing search-and-judge pipeline.
+
+The MAGIC judge now includes a **Development Coherence** signal that evaluates A↔A' similarity, A↔B contrast, A↔A'' return, and the ordering between contrast and return. The score is deliberately soft so unconventional but strong phrases are not rejected.
+
+### Melodic Memory 3.0 — 0.63.0
+- Adds a transposition-safe idea fingerprint for every MAGIC candidate using onset rhythm, relative pitch contour and interval shape.
+- The final variation bank now keeps an explicit memory of already selected musical ideas, not only note-level similarity and broad behavioral features.
+- Near-clone motifs receive less selection pressure even when they come from different archetypes or are transposed/rephrased.
+- Eight lightweight idea families (chant, wide leap, angular, rising, falling, pickup, conversational, balanced) provide an additional soft anti-clone signal.
+- Musical quality remains the primary score; Idea Memory only influences variation selection and does not rewrite good candidates.
+- Loop-centric only; no new UI controls are introduced.
+
+### Humanize Mode — 0.62.0
+- Human Performance is now an explicit opt-in mode and defaults to OFF for tight electronic MIDI.
+- When enabled, the Humanize Amount controls phrase-aware timing movement, repeated-note articulation, velocity variation and small sustain changes.
+- Timing changes are deliberately constrained to musical 16th-grid decisions such as anticipation and delayed resolution; every note is not randomly shifted.
+- Realtime output and exported MIDI both respect the mode, while Swing remains an independent feel control.
+- Existing presets remain backward-compatible and load with Humanize OFF unless the new flag is present.
+
+### Tempo Feel Engine — 0.61.0
+- Makes BPM a temporal context rather than a density penalty.
+- Keeps musical density comparatively stable as tempo rises instead of heavily thinning melodies above 120-160 BPM.
+- Increases the use of 1/16/offbeat positions at faster tempos so 170-220 BPM can produce genuinely fast-feeling melodies.
+- Shortens ordinary lead note occupancy at fast tempos while preserving long-register pad behavior.
+- The Musical Judge now evaluates note-rate, 1/16 usage and offbeat activity in addition to density/space, preventing MAGIC from re-ranking fast patterns back into slow-feeling loops.
+- The system remains loop-centric and adds no new UI controls.
 
 ### Loop Forge — 0.60.0
 - Adds a final integration pass after MAGIC, Musical Judge, Taste ML, Diversity Gate and Loop Transformations.
@@ -292,6 +416,18 @@ The plugin keeps generation and realtime playback concerns separate:
 ## Version history
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
+
+### 0.73.0
+- Motif Semantics 2.0
+- Semantic A/A'/B/A'' development with component-level mutation
+- Motif Semantics candidate judge and QA
+
+### 0.72.0
+- Creative Range Engine
+- Coherent contour, interval, rhythm, repetition, register and harmony language planning
+
+### 0.71.1
+- Melodic Range Expansion
 
 ### 0.47
 - Human Phrase Engine
