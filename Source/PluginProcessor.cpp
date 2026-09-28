@@ -4202,7 +4202,7 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
             juce::roundToInt (t * (float) (base.size() - 1)));
     };
 
-    const float rhythmPreserve = [&](int role)
+    const auto rhythmPreserve = [&](int role)
     {
         const float roleBase = role == 1 ? 0.78f : role == 2 ? 0.34f : 0.84f;
         const float coreBias = 0.05f * (float) (plan.rhythmicCore % 4);
