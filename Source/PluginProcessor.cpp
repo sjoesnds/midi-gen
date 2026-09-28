@@ -2858,11 +2858,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // contour language, interval language, tension profile and register behavior.
     // These axes deliberately sit outside the genre labels, so the same genre can
     // produce soft, tense, angular, chant-like or wide-register material.
-    const int phraseStyle = (int)(hash32(identitySeed ^ 0x4f1bbcd3u) % 12u);
-    const int intervalLanguage = (int)(hash32(identitySeed ^ 0x5e2d58d8u) % 10u);
-    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u) % 8u);
-    const int registerProfile = (int)(hash32(identitySeed ^ 0x94d049bbu) % 8u);
-    const int rhythmicLanguage = (int)(hash32(identitySeed ^ 0x2545f491u) % 10u);
+    // 0.72 Creative Range: choose a coherent musical language before writing notes.
+    // The plan expands the *creative* search space rather than simply adding pitch
+    // randomness: contour, interval vocabulary, rhythm family, repetition behavior,
+    // register journey, harmonic color and duration language are selected together.
+    const auto creativeRange = midiforge::CreativeRange::makePlan (
+        melodyType, mood, genre, e, complexity,
+        hash32 (identitySeed ^ 0x72C0FFEEu));
+
+    const int phraseStyle = creativeRange.contourFamily;
+    const int intervalLanguage = creativeRange.intervalFamily;
+    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u
+                                             ^ (uint32_t) creativeRange.harmonyPersonality) % 8u);
+    const int registerProfile = creativeRange.registerJourney;
+    const int rhythmicLanguage = creativeRange.rhythmFamily;
 
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
