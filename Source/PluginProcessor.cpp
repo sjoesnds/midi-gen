@@ -7798,9 +7798,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float creativeRangeQuality = creativeRangeScore (flat, identity);
         const auto judgeResult = composerJudge (flat, identity);
 
-        quality += 0.16f * judgeResult.overall;
-        quality -= 0.055f * (float) judgeResult.gateFailures;
-
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
         auto developmentCoherence = [&] (const Section& sec)
@@ -7909,6 +7906,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         const float development = developmentCoherence (flat);
         float quality=0.0f;
+        quality += 0.16f * judgeResult.overall;
+        quality -= 0.055f * (float) judgeResult.gateFailures;
         // Magic DNA 2.0: candidate features are judged against the same
         // musical universe created by MAGIC. The generic judge remains
         // dominant, while DNA steers the final selection.
