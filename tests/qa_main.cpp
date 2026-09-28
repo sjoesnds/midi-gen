@@ -287,6 +287,47 @@ int main()
     });
 
 
+    // ------------------------------------------------------------------ 2b. Melodic register expansion
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0); // Piano
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setComplexity (0.68f, false);
+        p.setEnergy (0.72f, false);
+
+        int globalMin = 127;
+        int globalMax = 0;
+        int wideLoops = 0;
+        int checked = 0;
+
+        for (int seed = 13000; seed < 13120; ++seed)
+        {
+            p.setSeed (seed);
+            const auto notes = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+            if (notes.size() < 3)
+                continue;
+
+            int lo = 127, hi = 0;
+            for (const auto& n : notes)
+            {
+                lo = std::min (lo, n.note);
+                hi = std::max (hi, n.note);
+            }
+
+            globalMin = std::min (globalMin, lo);
+            globalMax = std::max (globalMax, hi);
+            wideLoops += (hi - lo >= 30) ? 1 : 0;
+            ++checked;
+        }
+
+        report ("Piano melody actually explores the expanded register",
+                checked >= 100 && globalMin <= 56 && globalMax >= 92 && (double) wideLoops / checked >= 0.12,
+                fmt ("min=%d max=%d, %.1f%% of loops span >=30 st",
+                     globalMin, globalMax, checked > 0 ? 100.0 * (double) wideLoops / checked : 0.0));
+    }
+
+
     // ------------------------------------------------------------------ 2b. Rhythm Grammar / BPM-native rhythm
     {
         struct BpmHead : juce::AudioPlayHead
