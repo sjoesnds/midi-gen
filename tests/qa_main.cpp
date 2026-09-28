@@ -13,6 +13,7 @@
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -418,6 +419,46 @@ int main()
                 fmt ("%.0f / 45 loops passed all three", (double) structured));
     }
 
+
+
+    // ------------------------------------------------------------------ 0d. Runtime regression: sparse Motif Semantics indexing
+    // A sparse bar can contain only one or two melody notes. The old code used
+    // current.back() as a local vector position, which could turn a valid
+    // section.notes index into an out-of-bounds access during MAGIC.
+    {
+        p.setBars (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::SparseLeadMelody);
+        p.setMelodyDensity (0.20f, false);
+        p.setPauseChance (0.42f, false);
+        p.setLeapChance (0.12f, false);
+        p.setComplexity (0.30f, false);
+        p.setEnergy (0.35f, false);
+
+        bool safe = true;
+        int sparseBars = 0;
+
+        for (int seed = 1; seed <= 12 && safe; ++seed)
+        {
+            p.setSeed (seed);
+
+            std::array<int, 4> counts {};
+            for (const auto& n : p.getVisibleNotes())
+            {
+                const int bar = n.step / 16;
+                if (n.channel == 3 && bar >= 0 && bar < 4)
+                    ++counts[(size_t) bar];
+            }
+
+            for (const int count : counts)
+                if (count <= 2)
+                    ++sparseBars;
+        }
+
+        report ("sparse Motif Semantics regression stays safe",
+                safe && sparseBars > 0,
+                fmt ("tested 12 deterministic seeds, sparse bars observed %.0f", (double) sparseBars));
+    }
 
 
     // ------------------------------------------------------------------ 0c. Cadence & Loop Closure 2.0
