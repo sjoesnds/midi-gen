@@ -4,6 +4,16 @@
 
 **Current version: 0.72.0**
 
+### Cadence & Loop Closure 2.0 — 0.74.0
+- Adds a dedicated boundary planner for the transition **end of loop → start of loop**.
+- The closure can choose between direct return, answer, pickup, sustain/release, unresolved and deceptive seam behavior.
+- Final notes can target the opening note, answer its opening interval, continue the opening gesture, or land on a context-aware harmonic tone.
+- Pickup timing and release length are varied intentionally instead of applying one universal cadence recipe.
+- A controlled unresolved bias allows some loops to remain slightly open so the next cycle supplies the resolution.
+- Adds a Loop Closure Judge to Loop Forge, rewarding a coherent seam without forcing every ending into the tonic.
+- Adds headless QA for deterministic closure planning, seam quality, return gesture and ending diversity.
+- No new UI controls and no non-MIDI features.
+
 ### Motif Semantics 2.0 — 0.73.0
 - Adds a semantic motif planner that treats a four-bar idea as **Rhythmic Core, Interval Core, Starting Anchor, Peak Gesture, Ending Gesture, Signature Leap** and **Answer Cell** instead of treating the motif as one undivided fingerprint.
 - \`A'\` preserves the core while deliberately mutating one semantic component.
@@ -416,6 +426,11 @@ The plugin keeps generation and realtime playback concerns separate:
 ## Version history
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
+
+### 0.74.0
+- Cadence & Loop Closure 2.0
+- End-to-start seam planning, pickup/release behavior and controlled unresolved returns
+- Loop Closure candidate judge and QA
 
 ### 0.73.0
 - Motif Semantics 2.0
