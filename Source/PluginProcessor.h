@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "TasteModel.h"
 #include "RhythmGrammar.h"
+#include "ComposerGrammar.h"
 #include "CreativeRange.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
