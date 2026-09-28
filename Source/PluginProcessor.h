@@ -3,6 +3,7 @@
 #include "TasteModel.h"
 #include "RhythmGrammar.h"
 #include "CreativeRange.h"
+#include "MotifSemantics.h"
 #include <array>
 #include <vector>
 #include <atomic>
@@ -277,6 +278,8 @@ struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
 void applyHumanPerformance (Section& section) const;
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
+float motifSemanticsScore (const Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
