@@ -461,6 +461,61 @@ int main()
     }
 
 
+
+    // ------------------------------------------------------------------ 0e. Melody Foundation: tonal/register/simple-phrase invariants
+    {
+        p.setRoot (0);
+        p.setScale (MidiForgeAudioProcessor::Major);
+        p.setOctave (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setComplexity (0.72f, false);
+        p.setLeapChance (0.44f, false);
+
+        int simpleBars = 0;
+        int melodyBars = 0;
+
+        for (int seed = 1; seed <= 24; ++seed)
+        {
+            p.setSeed (seed);
+            p.regenerate ();
+
+            const auto notes = p.getVisibleNotes ();
+            const int bars = juce::jmax (1, p.getVisibleBars ());
+            std::vector<int> counts ((size_t) bars, 0);
+
+            for (const auto& n : notes)
+            {
+                if (n.channel != 3)
+                    continue;
+
+                report ("Melody pitches stay in scale",
+                        p.snapPitchToScale (n.note) == n.note,
+                        fmt ("seed %d note %d", seed, n.note));
+
+                report ("Melody stays in a controlled register",
+                        n.note >= 40 && n.note <= 96,
+                        fmt ("seed %d note %d", seed, n.note));
+
+                const int bar = n.step / 16;
+                if (bar >= 0 && bar < bars)
+                    ++counts[(size_t) bar];
+            }
+
+            for (const int count : counts)
+            {
+                if (count > 0)
+                    ++melodyBars;
+                if (count >= 2 && count <= 4)
+                    ++simpleBars;
+            }
+        }
+
+        report ("MAGIC produces a real simple-phrase population",
+                melodyBars > 0 && simpleBars >= 18,
+                fmt ("%.0f simple bars / %.0f populated bars", (double) simpleBars, (double) melodyBars));
+    }
+
     // ------------------------------------------------------------------ 0c. Cadence & Loop Closure 2.0
     {
         const auto a = midiforge::LoopClosure::makePlan (
