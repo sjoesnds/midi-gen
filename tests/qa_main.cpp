@@ -535,6 +535,59 @@ int main()
                      (double) finalPitches.size(), (double) finalStepRemainders.size()));
     }
 
+
+
+    // ------------------------------------------------------------------ 0d. Composer Judge 2.0
+    {
+        std::array<float, 7> strong =
+        { 0.82f, 0.76f, 0.78f, 0.74f, 0.70f, 0.73f, 0.68f };
+        std::array<float, 7> weakHarmony = strong;
+        weakHarmony[2] = 0.20f;
+
+        const auto good = midiforge::ComposerJudge::evaluate (strong, 8, false);
+        const auto bad = midiforge::ComposerJudge::evaluate (weakHarmony, 8, false);
+
+        report ("Composer Judge accepts a coherent candidate",
+                good.passed && good.gatesPassed == 7 && good.gateFailures == 0,
+                fmt ("gates %.0f/7, overall %.2f", (double) good.gatesPassed, good.overall));
+
+        report ("Composer Judge blocks a broken harmony gate",
+                ! bad.passed && bad.gateFailures >= 1,
+                fmt ("gates %.0f/7, overall %.2f", (double) bad.gatesPassed, bad.overall));
+
+        const auto sparse = midiforge::ComposerJudge::thresholdsFor (4, true);
+        const auto dense = midiforge::ComposerJudge::thresholdsFor (4, false);
+        report ("Composer Judge adapts gates for sparse material",
+                sparse.humanity < dense.humanity
+                && sparse.expression < dense.expression
+                && sparse.rhythm < dense.rhythm,
+                fmt ("sparse humanity %.2f vs dense %.2f",
+                     sparse.humanity, dense.humanity));
+
+        std::set<std::array<int, 2>> gateProfiles;
+        for (uint32_t seed = 1; seed <= 100; ++seed)
+        {
+            const float wobble = (float) (seed % 9) / 8.0f;
+            std::array<float, 7> axes =
+            {
+                0.34f + 0.56f * wobble,
+                0.30f + 0.62f * ((float) (seed % 7) / 6.0f),
+                0.44f + 0.54f * ((float) (seed % 5) / 4.0f),
+                0.35f + 0.58f * ((float) (seed % 6) / 5.0f),
+                0.25f + 0.68f * ((float) (seed % 8) / 7.0f),
+                0.28f + 0.64f * ((float) (seed % 10) / 9.0f),
+                0.24f + 0.70f * ((float) (seed % 11) / 10.0f)
+            };
+            const auto result = midiforge::ComposerJudge::evaluate (
+                axes, 4 + (int) (seed % 3), (seed & 1u) != 0u);
+            gateProfiles.insert ({ result.gatesPassed, result.gateFailures });
+        }
+
+        report ("Composer Judge produces varied gate profiles",
+                gateProfiles.size() >= 8,
+                fmt ("%.0f unique gate profiles", (double) gateProfiles.size()));
+    }
+
     // ------------------------------------------------------------------ 1. invariants (every loop)
     {
         int loopsChecked = 0; std::string firstProblem;
