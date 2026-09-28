@@ -3588,8 +3588,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // more of the identity. This is phrase memory, not copy/paste.
         if (memoryBar.size() >= 2 && !generated.empty())
         {
-            const float memoryStrength = juce::jlimit(0.0f, 0.72f,
-                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f)));
+            float repetitionFactor = 1.0f;
+            switch (creativeRange.repetitionStyle)
+            {
+                case 0: repetitionFactor = 1.22f; break; // motif-heavy
+                case 1: repetitionFactor = (cycle == 2 ? 0.42f : 1.08f); break; // answer
+                case 2: repetitionFactor = 0.74f; break; // evolving
+                case 3: repetitionFactor = 0.48f; break; // loose
+                case 4: repetitionFactor = (cycle == 1 ? 1.26f : (cycle == 2 ? 0.34f : 0.92f)); break; // A' focus
+                case 5: repetitionFactor = 0.82f; break; // sequence
+                case 6: repetitionFactor = (cycle == 2 ? 0.26f : 1.12f); break; // contrast
+                case 7: repetitionFactor = 1.30f; break; // hook
+                default: break;
+            }
+            const float memoryStrength = juce::jlimit(0.0f, 0.78f,
+                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f))
+                * repetitionFactor
+                * juce::jlimit (0.72f, 1.16f, 0.86f + 0.34f * creativeRange.repetition));
             const uint32_t mh = hash32(seed ^ (uint32_t)(i * 113 + 701));
             if ((float)(mh % 1000u) / 1000.0f < memoryStrength)
             {
