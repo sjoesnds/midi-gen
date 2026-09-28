@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.72.0**
+**Current version: 0.75.0**
+
+### Composer Judge 2.0 — 0.75.0
+- Adds a top-level coherence judge over the already-generated musical candidate instead of another note generator.
+- Checks phrase-arc shape, Composer Grammar role consistency, motif development, expression/prosody agreement, harmonic coherence, density/space, rhythm, register, loop closure, novelty balance and groove.
+- Adds a low-weight cross-system agreement check so contradictory local decisions are less likely to dominate a candidate ranking.
+- Runs after the existing musical judges and before archetype-specific ranking; it does not rewrite MIDI and adds no UI controls.
+- Keeps the existing MAGIC search architecture intact while giving it one whole-composition signal.
+- Project version is now 0.75.0.
+- No non-MIDI features were added.
 
 ### Cadence & Loop Closure 2.0 — 0.74.0
 - Adds a dedicated boundary planner for the transition **end of loop → start of loop**.
