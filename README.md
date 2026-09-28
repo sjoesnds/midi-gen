@@ -2,7 +2,19 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.71.1**
+**Current version: 0.72.0**
+
+### Creative Range Engine — 0.72.0
+- Adds a dedicated pre-generation creative-language planner instead of relying on independent random melody mutations.
+- Each identity chooses a coherent combination of **contour**, **interval vocabulary**, **rhythm family**, **repetition style**, **register journey**, **harmonic personality** and **duration language**.
+- Expands contour grammar from 12 to 18 shapes and interval vocabulary from 10 to 12 controlled motion languages.
+- Repetition styles can emphasize motif identity, call/response, evolving ideas, loose development, A' variation, sequence, contrast or hook persistence.
+- Register is treated as a journey across the phrase rather than only an octave clamp, so wide pitch space is used selectively.
+- Harmonic personality now shifts the balance between grounded chord tones and deliberate color/tension tones.
+- Duration language can make the same melodic idea feel flowing, punchy, declarative or long/short without adding timing noise.
+- Adds a Creative Range Judge to Loop Forge so the candidate search rewards internally coherent variety instead of collapsing everything toward the average.
+- Adds headless QA proving deterministic planning and a broad distribution of creative language combinations.
+- No new UI controls and no non-MIDI features.
 
 ### Melodic Range Expansion — 0.71.1
 - Expands the practical melody lane from the old compact ~2-octave window to a much wider register before profile caps.
