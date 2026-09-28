@@ -4,6 +4,11 @@
 
 **Current version: 0.72.0**
 
+### Stability Hotfix — 0.74.1
+- Temporarily removes the new Loop Closure runtime mutation/scoring path after a host-side FL Studio access violation was observed with the 0.74.x binary.
+- Restores the proven 0.73 generation runtime while keeping the rest of the 0.74 codebase intact.
+- Loop Closure will return only after a dedicated stability pass.
+
 ### Cadence & Loop Closure 2.0 — 0.74.0
 - Adds a dedicated boundary planner for the transition **end of loop → start of loop**.
 - The closure can choose between direct return, answer, pickup, sustain/release, unresolved and deceptive seam behavior.
@@ -426,6 +431,9 @@ The plugin keeps generation and realtime playback concerns separate:
 ## Version history
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
+
+### 0.74.1
+- Stability hotfix: temporarily disable Loop Closure runtime integration after host crash report.
 
 ### 0.74.0
 - Cadence & Loop Closure 2.0
