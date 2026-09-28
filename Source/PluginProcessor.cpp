@@ -3363,6 +3363,27 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             d -= juce::roundToInt ((1.0f - phraseTension) * 0.8f);
         }
 
+        // Creative Register Journey: register is a phrase destination, not a
+        // random octave flip. Each journey uses the same scale-degree language
+        // but changes where the line wants to live over the bar.
+        {
+            const float pos = (float) i / (float) juce::jmax<size_t> (1, chosen.size() - 1);
+            float journey = 0.0f;
+            switch (creativeRange.registerJourney)
+            {
+                case 1: journey = 3.5f * pos; break;                              // rising
+                case 2: journey = -3.5f * pos; break;                             // falling
+                case 3: journey = 6.0f * (1.0f - std::abs (2.0f * pos - 1.0f)); break; // peak
+                case 4: journey = -3.5f + 7.0f * pos; break;                    // low -> high
+                case 5: journey = (i & 1u) ? 2.8f : -2.0f; break;                // call/answer register
+                case 6: journey = ((i & 1u) ? -1.0f : 1.0f) * 3.0f; break;       // wide orbit
+                case 7: journey = (pos > 0.45f && pos < 0.75f) ? 5.0f : 0.0f; break; // sudden peak
+                default: break;                                                   // centered
+            }
+            journey += creativeRange.registerBias * (0.25f + 0.75f * pos) / 2.0f;
+            d += juce::roundToInt (journey);
+        }
+
         float contourWeight = (cycle == 2 ? phraseStrength
                                : (cycle == 1 ? phraseStrength * 0.62f
                                              : phraseStrength * 0.48f));
