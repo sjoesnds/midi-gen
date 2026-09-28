@@ -3436,7 +3436,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // whole bar inside the melody lane.
         int bestK = 0; float bestCost = 1.0e9f;
         const float laneCentre = 0.5f * (float)(melLo + melHi);
-        for (int k = -3; k <= 3; ++k)
+        for (int k = -4; k <= 4; ++k)
         {
             float cost = 0.0f;
             std::vector<int> ps;
