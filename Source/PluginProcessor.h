@@ -116,7 +116,7 @@ static const char* drumRowName (int row);
 static int drumRowForNote (int gmNote);                   // -1 if not a drum pitch
 static int drumRowNote (int row);                         // GM pitch used when a hit is added by hand
 int getDrumMuteMask() const { return drumMuteMask; }
-void setDrumMuteMask (int m) { drumMuteMask = m & 0xFF; }
+void setDrumMuteMask (int m) { drumMuteMask = m & 0xFF; realtimeDrumMuteMask.store (drumMuteMask); }
 int getDrumPitchMode() const { return drumPitchMode; }    // 0 = every hit on C5 (one sample per channel), 1 = General MIDI pitches
 void setDrumPitchMode (int m) { drumPitchMode = juce::jlimit (0, 1, m); }
 bool toggleDrumHit (int step, int row);                   // true = the hit is now on
@@ -350,6 +350,12 @@ juce::Random realtimeRng { 0x51eed };
 std::atomic<int> uiCurrentStep { -1 };
 // Реальный темп хоста (BPM) — берётся из PlayHead каждый блок, раньше был захардкожен на 120.
 std::atomic<double> currentBpm { 120.0 };
+// Realtime snapshots: MAGIC/search mutates musical controls on the message thread,
+// while processBlock reads these values on the audio thread.
+std::atomic<float> realtimeSwing { 0.0f };
+std::atomic<float> realtimeHumanize { 0.15f };
+std::atomic<bool> realtimeHumanizeEnabled { false };
+std::atomic<int> realtimeDrumMuteMask { 0 };
 // Глобальный счётчик сэмплов и очередь отложенных note-off — раньше note-off
 // пытались влезть в текущий блок и обрезали длинные ноты (аккорды/бас) почти до нуля.
 juce::int64 samplePosition = 0;
