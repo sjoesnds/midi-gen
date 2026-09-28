@@ -227,6 +227,62 @@ int main()
     MidiForgeAudioProcessor p;
     p.resetTaste();
 
+    // ------------------------------------------------------------------ 0. Creative Range
+    {
+        const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+        const auto b = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+
+        const bool deterministic =
+            a.contourFamily == b.contourFamily
+            && a.intervalFamily == b.intervalFamily
+            && a.rhythmFamily == b.rhythmFamily
+            && a.repetitionStyle == b.repetitionStyle
+            && a.registerJourney == b.registerJourney
+            && a.harmonyPersonality == b.harmonyPersonality
+            && a.durationStyle == b.durationStyle;
+
+        std::set<std::string> languages;
+        std::set<int> contours, intervals, rhythms, repetitions, journeys, harmonies;
+        for (uint32_t seed = 1; seed <= 160; ++seed)
+        {
+            const auto plan = midiforge::CreativeRange::makePlan (
+                0, 4, 0, 0.70f, 0.65f, seed);
+
+            languages.insert (
+                std::to_string (plan.contourFamily) + ":"
+                + std::to_string (plan.intervalFamily) + ":"
+                + std::to_string (plan.rhythmFamily) + ":"
+                + std::to_string (plan.repetitionStyle) + ":"
+                + std::to_string (plan.registerJourney) + ":"
+                + std::to_string (plan.harmonyPersonality));
+
+            contours.insert (plan.contourFamily);
+            intervals.insert (plan.intervalFamily);
+            rhythms.insert (plan.rhythmFamily);
+            repetitions.insert (plan.repetitionStyle);
+            journeys.insert (plan.registerJourney);
+            harmonies.insert (plan.harmonyPersonality);
+        }
+
+        report ("Creative Range plan is deterministic", deterministic,
+                deterministic ? "same identity -> same language"
+                               : "same identity produced different language");
+
+        report ("Creative Range has a genuinely broad language space",
+                languages.size() >= 120
+                && contours.size() >= 14
+                && intervals.size() >= 9
+                && rhythms.size() >= 9
+                && repetitions.size() >= 6
+                && journeys.size() >= 6
+                && harmonies.size() >= 6,
+                fmt ("unique=%d contours=%d intervals=%d rhythms=%d repeats=%d journeys=%d harmony=%d",
+                     (int) languages.size(), (int) contours.size(), (int) intervals.size(),
+                     (int) rhythms.size(), (int) repetitions.size(), (int) journeys.size(),
+                     (int) harmonies.size()));
+    }
+
+
     // ------------------------------------------------------------------ 1. invariants (every loop)
     {
         int loopsChecked = 0; std::string firstProblem;
