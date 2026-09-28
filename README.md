@@ -2,7 +2,17 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.75.0**
+**Current version: 0.76.0**
+
+
+
+### Variation Intelligence — 0.76.0
+- Adds a dedicated portfolio-aware variation assignment layer after the existing MAGIC, Judge and Diversity systems.
+- Each selected idea now carries a compact behavioral fingerprint covering density, space, rhythm, motif, register, surprise, groove, memory, phrase arc, tension and development.
+- The eight final transformation modes (**ORIGINAL, TIGHT, SPARSE, DARK, BIGGER, WEIRD, TIGHT+WEIRD, SPARSE+DARK**) are matched to the source ideas where their musical character is most compatible instead of following arbitrary slot order.
+- Uses a deterministic one-to-one optimization so every selected source remains available exactly once while the full variation bank gets better role coverage.
+- Variation Intelligence does not generate new MIDI and does not replace the existing musical judges; it improves how already-good ideas are turned into a useful variation bank.
+- No new UI controls and no non-MIDI features.
 
 ### Composer Judge 2.0 — 0.75.0
 - Adds a top-level coherence judge over the already-generated musical candidate instead of another note generator.
