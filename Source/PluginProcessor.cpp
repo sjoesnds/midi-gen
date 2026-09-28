@@ -4133,9 +4133,9 @@ for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
 {
     applyMotifDevelopment (section, phraseStart, variationSalt);
     applyMotifSemantics (section, phraseStart, variationSalt);
-    }
-    applyLoopClosure (section, hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
 }
+
+    applyLoopClosure (section, hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
 }
 
 void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
@@ -4569,7 +4569,6 @@ void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t ident
     const int firstPitch = section.notes[head.front()].note;
     const int openingDelta = section.notes[head[1]].note - firstPitch;
     const int lastPitch = section.notes[lastIndex].note;
-    const int previousPitch = section.notes[previousIndex].note;
 
     auto nearest = [] (int a, int b, int value)
     {
@@ -4620,7 +4619,7 @@ void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t ident
         blend *= 0.72f;
 
     const uint32_t seamHash = hash32 (
-        identity ^ (uint32_t) section.bars * 0x45d9f3bu ^ 0xC1045EAMu);
+        identity ^ (uint32_t) section.bars * 0x45d9f3bu ^ 0xC1045EAu);
     const float unresolvedRoll = (float) (seamHash % 1000u) / 1000.0f;
 
     if (unresolvedRoll < plan.unresolvedBias && ! prog.empty())
