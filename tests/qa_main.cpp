@@ -33,8 +33,17 @@ namespace
     }
     std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
     {
-        char buf[256];
+        char buf[512];
         std::snprintf (buf, sizeof buf, f, a, b, c, d);
+        return buf;
+    }
+
+    std::string fmt7 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h)
+    {
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h);
         return buf;
     }
 
@@ -276,7 +285,7 @@ int main()
                 && repetitions.size() >= 6
                 && journeys.size() >= 6
                 && harmonies.size() >= 6,
-                fmt ("unique=%.0f contours=%.0f intervals=%.0f rhythms=%.0f repeats=%.0f journeys=%.0f harmony=%.0f",
+                fmt7 ("unique=%.0f contours=%.0f intervals=%.0f rhythms=%.0f repeats=%.0f journeys=%.0f harmony=%.0f",
                      (double) languages.size(), (double) contours.size(), (double) intervals.size(),
                      (double) rhythms.size(), (double) repetitions.size(), (double) journeys.size(),
                      (double) harmonies.size()));
