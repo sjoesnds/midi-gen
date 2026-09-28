@@ -6322,6 +6322,172 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
     
 }
 
+float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t identity) const
+{
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : sec.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    if (melody.size() < 3)
+        return 0.42f;
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    const auto plan = midiforge::CreativeRange::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    int minPitch = 127, maxPitch = 0;
+    int leapCount = 0;
+    int directionChanges = 0;
+    int shortNotes = 0, longNotes = 0;
+    std::vector<int> intervalKinds;
+
+    int previousDelta = 0;
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        minPitch = juce::jmin (minPitch, melody[i]->note);
+        maxPitch = juce::jmax (maxPitch, melody[i]->note);
+
+        if (melody[i]->length <= 1) ++shortNotes;
+        if (melody[i]->length >= 3) ++longNotes;
+
+        if (i == 0) continue;
+
+        const int delta = melody[i]->note - melody[i - 1]->note;
+        const int absDelta = std::abs (delta);
+        if (absDelta >= 7) ++leapCount;
+
+        if (absDelta > 0)
+        {
+            intervalKinds.push_back (juce::jlimit (0, 12, absDelta));
+            if (previousDelta != 0 && ((previousDelta > 0) != (delta > 0)))
+                ++directionChanges;
+            previousDelta = delta;
+        }
+    }
+
+    std::sort (intervalKinds.begin(), intervalKinds.end());
+    intervalKinds.erase (std::unique (intervalKinds.begin(), intervalKinds.end()), intervalKinds.end());
+
+    const float leapShare = (float) leapCount / (float) juce::jmax<size_t> (1, melody.size() - 1);
+    const float leapTarget = juce::jlimit (0.05f, 0.62f,
+        0.06f + 0.60f * plan.leapBias);
+    const float leapFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (leapShare - leapTarget) / 0.46f);
+
+    const float contourTurnRate = (float) directionChanges
+        / (float) juce::jmax<size_t> (1, melody.size() - 2);
+    const float turnTarget = juce::jlimit (0.10f, 0.72f,
+        0.16f + 0.54f * plan.asymmetry);
+    const float contourFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (contourTurnRate - turnTarget) / 0.52f);
+
+    const float intervalVariety = juce::jlimit (0.0f, 1.0f,
+        (float) intervalKinds.size() / 5.0f);
+
+    const int barsN = juce::jmax (1, sec.bars);
+    std::vector<int> barMasks ((size_t) barsN, 0);
+    std::vector<float> barPitchMeans ((size_t) barsN, 0.0f);
+    std::vector<int> barPitchCounts ((size_t) barsN, 0);
+    int offbeats = 0;
+
+    for (const auto* n : melody)
+    {
+        const int b = juce::jlimit (0, barsN - 1, n->step / 16);
+        const int local = juce::jlimit (0, 15, n->step % 16);
+        barMasks[(size_t) b] |= (1 << local);
+        barPitchMeans[(size_t) b] += (float) n->note;
+        ++barPitchCounts[(size_t) b];
+        if ((n->step % 4) != 0) ++offbeats;
+    }
+
+    int repeatedBars = 0;
+    int populatedBars = 0;
+    for (int b = 0; b < barsN; ++b)
+    {
+        if (barPitchCounts[(size_t) b] == 0)
+            continue;
+
+        ++populatedBars;
+        barPitchMeans[(size_t) b] /= (float) barPitchCounts[(size_t) b];
+
+        bool repeated = false;
+        for (int prev = 0; prev < b; ++prev)
+            if (barMasks[(size_t) prev] == barMasks[(size_t) b] && barMasks[(size_t) b] != 0)
+            {
+                repeated = true;
+                break;
+            }
+        if (repeated) ++repeatedBars;
+    }
+
+    float repetitionTarget = 0.50f;
+    switch (plan.repetitionStyle)
+    {
+        case 0: repetitionTarget = 0.72f; break;
+        case 1: repetitionTarget = 0.42f; break;
+        case 2: repetitionTarget = 0.52f; break;
+        case 3: repetitionTarget = 0.24f; break;
+        case 4: repetitionTarget = 0.64f; break;
+        case 5: repetitionTarget = 0.50f; break;
+        case 6: repetitionTarget = 0.28f; break;
+        case 7: repetitionTarget = 0.70f; break;
+        default: break;
+    }
+
+    const float repetitionObserved = populatedBars > 1
+        ? (float) repeatedBars / (float) (populatedBars - 1) : repetitionTarget;
+    const float repetitionFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (repetitionObserved - repetitionTarget) / 0.55f);
+
+    const float offbeatShare = (float) offbeats / (float) melody.size();
+    const float offbeatTarget = juce::jlimit (0.18f, 0.86f,
+        0.24f + 0.56f * plan.asymmetry);
+    const float rhythmFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (offbeatShare - offbeatTarget) / 0.52f);
+
+    float journeyMovement = 0.0f;
+    int journeyPairs = 0;
+    for (int b = 1; b < barsN; ++b)
+    {
+        if (barPitchCounts[(size_t) (b - 1)] == 0 || barPitchCounts[(size_t) b] == 0)
+            continue;
+        journeyMovement += std::abs (barPitchMeans[(size_t) b] - barPitchMeans[(size_t) (b - 1)]);
+        ++journeyPairs;
+    }
+    journeyMovement = journeyPairs > 0
+        ? juce::jlimit (0.0f, 1.0f, journeyMovement / (float) journeyPairs / 14.0f)
+        : 0.0f;
+
+    const float journeyTarget = (plan.registerJourney == 0)
+        ? 0.10f
+        : juce::jlimit (0.14f, 0.82f, 0.24f + 0.34f * plan.novelty);
+    const float journeyFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (journeyMovement - journeyTarget) / 0.48f);
+
+    const float durationContrast = (float) (shortNotes + longNotes > 0
+        ? std::abs (longNotes - shortNotes) / (double) (shortNotes + longNotes) : 0.0);
+    const float durationTarget = juce::jlimit (0.08f, 0.92f,
+        0.16f + 0.72f * plan.durationContrast);
+    const float durationFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (durationContrast - durationTarget) / 0.80f);
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.18f * intervalVariety
+        + 0.18f * leapFit
+        + 0.16f * contourFit
+        + 0.14f * rhythmFit
+        + 0.14f * repetitionFit
+        + 0.10f * journeyFit
+        + 0.10f * durationFit);
+}
+
 float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
