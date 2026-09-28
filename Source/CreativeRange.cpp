@@ -79,7 +79,7 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
 
     // Experimental / Hyperpop / Cinematic receive more creative degrees of freedom,
     // while Ambient / Lofi keep the freedom expressed through space and duration.
-    if (genre == 14 || genre == 13 || genre == 5)
+    if (genre == 14 || genre == 13 || genre == 6)
     {
         p.novelty += 0.08f;
         p.asymmetry += 0.07f;
