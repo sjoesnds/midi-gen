@@ -2,6 +2,7 @@
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
+#include "MotifSemantics.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -4128,8 +4129,386 @@ addArp(section,bar,deg,targetEnergy,r);
 
 // 0.64: develop each complete four-bar phrase after all layers are known.
 for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
+{
     applyMotifDevelopment (section, phraseStart, variationSalt);
+    applyMotifSemantics (section, phraseStart, variationSalt);
 }
+}
+
+void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
+                                                   int phraseStartBar,
+                                                   int variationSalt) const
+{
+    if (! melodyEnabled || soundProfileFor (soundTarget).soloLine
+        || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
+        return;
+
+    const uint32_t identity = hash32 (
+        generationSeed
+        ^ (uint32_t) (phraseStartBar + 1) * 0x9e3779b9u
+        ^ (uint32_t) (variationSalt + 1) * 0x85ebca6bu
+        ^ 0x73A11CE5u);
+
+    const auto plan = midiforge::MotifSemantics::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<size_t> out;
+        for (size_t i = 0; i < section.notes.size(); ++i)
+        {
+            const auto& n = section.notes[i];
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (i);
+        }
+
+        std::stable_sort (out.begin(), out.end(),
+            [&] (size_t a, size_t b)
+            {
+                if (section.notes[a].step != section.notes[b].step)
+                    return section.notes[a].step < section.notes[b].step;
+                return section.notes[a].note < section.notes[b].note;
+            });
+        return out;
+    };
+
+    const auto baseIndices = collectBar (phraseStartBar);
+    if (baseIndices.size() < 2)
+        return;
+
+    std::vector<NoteEvent> base;
+    base.reserve (baseIndices.size());
+    for (const auto index : baseIndices)
+        base.push_back (section.notes[index]);
+
+    const int baseStart = phraseStartBar * 16;
+    const int anchorPitch = base.front().note;
+
+    int melodyLo = 34, melodyHi = 108;
+    registerLane (2, melodyLo, melodyHi);
+
+    auto safePitch = [&] (int pitch)
+    {
+        return juce::jlimit (melodyLo, melodyHi, snapToScale (pitch));
+    };
+
+    auto baseForNote = [&] (size_t i)
+    {
+        if (base.size() <= 1)
+            return (size_t) 0;
+        const float t = (float) i / (float) juce::jmax (1, (int) baseIndices.size() - 1);
+        return (size_t) juce::jlimit (
+            0, (int) base.size() - 1,
+            juce::roundToInt (t * (float) (base.size() - 1)));
+    };
+
+    const float rhythmPreserve = [&](int role)
+    {
+        const float roleBase = role == 1 ? 0.78f : role == 2 ? 0.34f : 0.84f;
+        const float coreBias = 0.05f * (float) (plan.rhythmicCore % 4);
+        return juce::jlimit (0.18f, 0.94f, roleBase + coreBias);
+    };
+
+    auto applyAxis = [&] (std::vector<size_t>& current, int axis, float amount, int role)
+    {
+        if (current.empty())
+            return;
+
+        const auto mappedBase = [&] (size_t i) -> const NoteEvent&
+        {
+            return base[baseForNote (i)];
+        };
+
+        switch (axis)
+        {
+            case 0: // Rhythmic Core
+            {
+                if (current.size() >= 2)
+                {
+                    size_t chosen = (size_t) juce::jlimit (
+                        0, (int) current.size() - 1,
+                        role == 2 ? (int) current.size() - 2 : (int) current.size() / 2);
+                    auto& n = section.notes[current[chosen]];
+                    const int dir = ((plan.rhythmicCore + role) & 1) ? 1 : -1;
+                    n.step = juce::jlimit (0, section.bars * 16 - 1, n.step + dir);
+                    n.length = juce::jlimit (
+                        1, 8,
+                        n.length + (((plan.rhythmicCore + (int) chosen) & 1) ? 1 : -1));
+                }
+                break;
+            }
+
+            case 1: // Interval Core
+            {
+                const size_t chosen = current.size() > 2 ? current.size() / 2 : current.back();
+                auto& n = section.notes[current[chosen]];
+                const int intervalShape = plan.intervalCore % 4;
+                const int delta = intervalShape == 0 ? 2
+                                : intervalShape == 1 ? 3
+                                : intervalShape == 2 ? 5
+                                : -4;
+                n.note = safePitch (n.note + ((chosen & 1u) ? -delta : delta));
+                break;
+            }
+
+            case 2: // Starting Anchor
+            {
+                auto& n = section.notes[current.front()];
+                static constexpr int anchorShifts[7] = { 0, 2, 4, -2, 7, -5, 9 };
+                n.note = safePitch (anchorPitch + anchorShifts[plan.startingAnchor]);
+                break;
+            }
+
+            case 3: // Peak Gesture
+            {
+                size_t peak = 0;
+                for (size_t i = 1; i < current.size(); ++i)
+                    if (section.notes[current[i]].note > section.notes[current[peak]].note)
+                        peak = i;
+
+                auto& n = section.notes[current[peak]];
+                const int peakShift = 1 + (plan.peakGesture % 3) * 2;
+                n.note = safePitch (n.note + ((plan.peakGesture & 1) ? -peakShift : peakShift));
+                if (plan.peakGesture >= 4)
+                    n.length = juce::jmin (6, n.length + 1);
+                break;
+            }
+
+            case 4: // Ending Gesture
+            {
+                auto& n = section.notes[current.back()];
+                const int bar = phraseStartBar + role;
+                const auto prog = progressionDegrees();
+                int target = n.note;
+
+                if (!prog.empty())
+                {
+                    const int degree = prog[(size_t) (bar % (int) prog.size())];
+                    const int root = degreeToPitch (degree, octave);
+                    const int third = degreeToPitch (degree + 2, octave);
+
+                    switch (plan.endingGesture)
+                    {
+                        case 0: target = root; break;
+                        case 1: target = third; break;
+                        case 2: target = juce::jmin (root, third) - 2; break;
+                        case 3: target = anchorPitch + (anchorPitch - n.note); break;
+                        case 4: target = n.note; n.length = juce::jmin (7, n.length + 2); break;
+                        case 5: target = third + 2; break;
+                        default: target = root + 2; break;
+                    }
+                }
+
+                const float blend = role == 3 ? juce::jlimit (0.45f, 0.95f, amount)
+                                              : juce::jlimit (0.20f, 0.70f, amount);
+                n.note = safePitch (juce::roundToInt ((float) n.note * (1.0f - blend)
+                                                    + (float) target * blend));
+                break;
+            }
+
+            case 5: // Signature Leap
+            {
+                if (current.size() < 2)
+                    break;
+
+                const size_t chosen = current.size() / 2;
+                const int prev = section.notes[current[chosen > 0 ? chosen - 1 : chosen]].note;
+                const int next = section.notes[current[juce::jmin (chosen + 1, current.size() - 1)]].note;
+                const int jump = 4 + (plan.signatureLeap % 3) * 2;
+                const int direction = ((plan.signatureLeap + role) & 1) ? -1 : 1;
+                const int target = ((prev + next) / 2) + direction * jump;
+                section.notes[current[chosen]].note = safePitch (target);
+                break;
+            }
+
+            default: // Answer Cell
+            {
+                if (current.size() < 2)
+                    break;
+
+                const size_t a = current.size() - 2;
+                const size_t b = current.size() - 1;
+                auto& first = section.notes[current[a]];
+                auto& last = section.notes[current[b]];
+                const int delta = last.note - first.note;
+
+                switch (plan.answerCell)
+                {
+                    case 0: last.note = safePitch (first.note - delta); break;
+                    case 1: last.note = safePitch (first.note + std::abs (delta)); break;
+                    case 2: last.length = juce::jmax (1, last.length - 1); break;
+                    case 3: last.length = juce::jmin (7, last.length + 1); break;
+                    case 4: last.note = safePitch (last.note - 3); break;
+                    case 5: last.note = safePitch (last.note + 3); break;
+                    default:
+                        last.note = safePitch (first.note + ((plan.answerCell & 1) ? 4 : -4));
+                        break;
+                }
+                break;
+            }
+        }
+
+        juce::ignoreUnused (mappedBase);
+    };
+
+    for (int role = 1; role <= 3; ++role)
+    {
+        auto current = collectBar (phraseStartBar + role);
+        if (current.size() < 2)
+            continue;
+
+        const float preserve = rhythmPreserve (role);
+
+        for (size_t i = 0; i < current.size(); ++i)
+        {
+            auto& n = section.notes[current[i]];
+            const auto& src = base[baseForNote (i)];
+
+            int targetPitch = anchorPitch + (src.note - anchorPitch);
+
+            // B is the deliberate contrast cell: preserve the rhythm skeleton
+            // less strongly and reverse part of the interval contour.
+            if (role == 2)
+            {
+                targetPitch = anchorPitch - (src.note - anchorPitch);
+                if ((i & 1u) != 0u)
+                    targetPitch += (plan.answerCell & 1) ? 2 : -2;
+            }
+
+            const float pitchBlend = role == 1 ? 0.74f
+                                    : role == 2 ? 0.36f
+                                    : 0.86f;
+
+            n.note = safePitch (juce::roundToInt (
+                (float) n.note * (1.0f - pitchBlend)
+                + (float) targetPitch * pitchBlend));
+
+            const int targetStep = baseStart + role * 16 + src.step - baseStart;
+            n.step = juce::jlimit (
+                role * 16 + baseStart,
+                role * 16 + baseStart + 15,
+                juce::roundToInt (
+                    (float) n.step * (1.0f - preserve)
+                    + (float) targetStep * preserve));
+
+            if (role != 2 && ((plan.rhythmicCore + (int) i) & 3) == 0)
+                n.length = juce::jlimit (
+                    1, 8,
+                    juce::roundToInt ((float) n.length * 0.78f + (float) src.length * 0.22f));
+        }
+
+        if (role == 1)
+        {
+            // A' changes one semantic component while leaving the motif core
+            // recognisable.
+            applyAxis (current, plan.primaryMutation, plan.mutationStrength, role);
+        }
+        else if (role == 2)
+        {
+            // B deliberately mutates a second semantic component and increases
+            // contrast without abandoning the original idea.
+            applyAxis (current, plan.primaryMutation,
+                       juce::jlimit (0.42f, 0.92f, plan.contrastStrength), role);
+            applyAxis (current, plan.secondaryMutation,
+                       juce::jlimit (0.30f, 0.80f, plan.contrastStrength * 0.82f), role);
+        }
+        else
+        {
+            // A'' restores the semantic core and gives the loop a fresh ending
+            // gesture instead of cloning A literally.
+            applyAxis (current, 4, plan.returnStrength, role);
+            if (plan.primaryMutation == 0)
+                applyAxis (current, 0, 0.34f, role);
+        }
+    }
+
+    cleanMelodyLine (section.notes);
+    removeDuplicateNotes (section.notes);
+}
+
+float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
+                                                    uint32_t identity) const
+{
+    if (section.bars < 4)
+        return 0.55f;
+
+    auto collect = [&] (int bar)
+    {
+        std::vector<const NoteEvent*> out;
+        for (const auto& n : section.notes)
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (&n);
+        std::stable_sort (out.begin(), out.end(),
+            [] (const NoteEvent* a, const NoteEvent* b)
+            {
+                if (a->step != b->step) return a->step < b->step;
+                return a->note < b->note;
+            });
+        return out;
+    };
+
+    const auto a = collect (0);
+    const auto ap = collect (1);
+    const auto b = collect (2);
+    const auto app = collect (3);
+    if (a.size() < 2 || ap.size() < 2 || b.size() < 2 || app.size() < 2)
+        return 0.35f;
+
+    const auto similarity = [] (const std::vector<const NoteEvent*>& x,
+                                const std::vector<const NoteEvent*>& y)
+    {
+        const size_t n = juce::jmin (x.size(), y.size());
+        if (n == 0)
+            return 0.0f;
+
+        const int xa = x.front()->note;
+        const int ya = y.front()->note;
+        int onset = 0, pitch = 0;
+
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (std::abs ((x[i]->step % 16) - (y[i]->step % 16)) <= 1)
+                ++onset;
+            if (std::abs ((x[i]->note - xa) - (y[i]->note - ya)) <= 2)
+                ++pitch;
+        }
+
+        const float countFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f,
+            (float) std::abs ((int) x.size() - (int) y.size()) / 5.0f);
+
+        return juce::jlimit (0.0f, 1.0f,
+            0.42f * (float) onset / (float) n
+            + 0.42f * (float) pitch / (float) n
+            + 0.16f * countFit);
+    };
+
+    const auto plan = midiforge::MotifSemantics::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    const float aPrime = similarity (a, ap);
+    const float contrast = 1.0f - similarity (a, b);
+    const float returnFit = similarity (a, app);
+
+    float endingFit = 0.5f;
+    const int endingDelta = app.back()->note - a.back()->note;
+    switch (plan.endingGesture)
+    {
+        case 0: endingFit = endingDelta <= 1 ? 0.9f : 0.55f; break;
+        case 1: endingFit = endingDelta >= -2 ? 0.82f : 0.48f; break;
+        case 2: endingFit = endingDelta < 0 ? 0.88f : 0.45f; break;
+        case 3: endingFit = endingDelta != 0 ? 0.76f : 0.42f; break;
+        case 4: endingFit = std::abs (app.back()->length - a.back()->length) >= 1 ? 0.84f : 0.55f; break;
+        default: endingFit = 0.68f;
+    }
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.30f * aPrime
+        + 0.30f * contrast
+        + 0.28f * returnFit
+        + 0.12f * endingFit);
+}
+
 void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int variationSalt)
 {
 song.sections.clear();
@@ -6551,6 +6930,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.08f * phraseMemory4
             + 0.05f * melodicProsody
             + 0.07f * creativeRange
+            + 0.06f * motifSemantics
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
