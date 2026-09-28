@@ -3475,7 +3475,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // Bar-level octave placement: first note near the previous melody note,
         // whole bar inside the melody lane.
         int bestK = 0; float bestCost = 1.0e9f;
-        const float laneCentre = 0.5f * (float)(melLo + melHi);
+        const float laneCentre = 0.5f * (float)(melLo + melHi)
+            + creativeRange.registerBias * 2.0f;
         for (int k = -4; k <= 4; ++k)
         {
             float cost = 0.0f;
