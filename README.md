@@ -433,6 +433,9 @@ The plugin keeps generation and realtime playback concerns separate:
 - the UI does not continuously trigger the expensive MAGIC search while a slider is being dragged.
 
 ## Version history
+### 0.75.0
+- Composer Judge 2.0 adds a whole-composition coherence pass over existing MAGIC candidates.
+
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
 
