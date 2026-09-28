@@ -284,7 +284,22 @@ void applyMotifSemantics (Section& section, int phraseStartBar, int variationSal
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
-float composerJudgeScore (const Section& section, uint32_t identity) const;
+struct ComposerJudgeInputs
+{
+    MelodyFeatures features {};
+    float motifMemory = 0.5f;
+    float grooveQuality = 0.5f;
+    float rhythmGrammar = 0.5f;
+    float melodyExpression = 0.5f;
+    float harmonicIntelligence = 0.5f;
+    float composerGrammar = 0.5f;
+    float melodicProsody = 0.5f;
+    float motifSemantics = 0.5f;
+    float loopClosure = 0.5f;
+    float development = 0.5f;
+};
+float composerJudgeScore (const Section& section, uint32_t identity,
+                          const ComposerJudgeInputs& inputs) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
