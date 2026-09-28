@@ -6984,6 +6984,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float phraseMemory4Quality = phraseMemory4Score (flat);
         const float composerGrammarQuality = composerGrammarScore (flat);
         const float melodicProsodyQuality = melodicProsodyScore (flat);
+        const float creativeRangeQuality = creativeRangeScore (flat, identity);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -7119,6 +7120,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.08f * phraseMemory4Quality;
         quality += 0.07f * composerGrammarQuality;
         quality += 0.07f * melodicProsodyQuality;
+        quality += 0.08f * creativeRangeQuality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
