@@ -7232,6 +7232,198 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
     
 }
 
+float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint32_t identity) const
+{
+    if (section.notes.empty() || section.bars < 1)
+        return 0.28f;
+
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    if (melody.size() < 3)
+        return 0.35f;
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    const int barsN = juce::jmax (1, section.bars);
+    const auto features = melodyFeatures (section, identity);
+    const auto grammar = ComposerGrammar::makePlan (
+        barsN, energy, complexity, melodyType, mood, genre, identity);
+
+    std::vector<int> counts ((size_t) barsN, 0);
+    std::vector<float> meanPitch ((size_t) barsN, 0.0f);
+    std::vector<float> meanVelocity ((size_t) barsN, 0.0f);
+    std::vector<int> maxPitch ((size_t) barsN, 0);
+    std::vector<int> minPitch ((size_t) barsN, 127);
+    std::vector<int> offbeats ((size_t) barsN, 0);
+
+    for (const auto* n : melody)
+    {
+        const int b = juce::jlimit (0, barsN - 1, n->step / 16);
+        ++counts[(size_t) b];
+        meanPitch[(size_t) b] += (float) n->note;
+        meanVelocity[(size_t) b] += (float) n->velocity;
+        maxPitch[(size_t) b] = juce::jmax (maxPitch[(size_t) b], n->note);
+        minPitch[(size_t) b] = juce::jmin (minPitch[(size_t) b], n->note);
+        if ((n->step % 4) != 0)
+            ++offbeats[(size_t) b];
+    }
+
+    const int maxBarCount = *std::max_element (counts.begin(), counts.end());
+    const float safeMaxCount = (float) juce::jmax (4, maxBarCount);
+
+    float roleSum = 0.0f;
+    int roleCount = 0;
+
+    for (int b = 0; b < barsN; ++b)
+    {
+        const auto state = grammar.stateFor (b / 4);
+        const float actualDensity = juce::jlimit (
+            0.0f, 1.0f, (float) counts[(size_t) b] / safeMaxCount);
+
+        const float actualSpace = 1.0f - actualDensity;
+
+        float actualTension = 0.46f;
+        if (counts[(size_t) b] > 0)
+        {
+            meanPitch[(size_t) b] /= (float) counts[(size_t) b];
+            meanVelocity[(size_t) b] /= (float) counts[(size_t) b];
+
+            const float velocityPart = juce::jlimit (
+                0.0f, 1.0f, (meanVelocity[(size_t) b] - 48.0f) / 58.0f);
+            const float registerPart = juce::jlimit (
+                0.0f, 1.0f,
+                ((meanPitch[(size_t) b] - 48.0f) / 36.0f));
+            const float rhythmicPart = (float) offbeats[(size_t) b]
+                / (float) juce::jmax (1, counts[(size_t) b]);
+
+            actualTension = juce::jlimit (
+                0.0f, 1.0f,
+                0.42f * velocityPart
+                + 0.28f * registerPart
+                + 0.30f * rhythmicPart);
+        }
+
+        const float densityFit = 1.0f - std::abs (actualDensity - state.density);
+        const float spaceFit = 1.0f - std::abs (actualSpace - state.space);
+        const float tensionFit = 1.0f - std::abs (actualTension - state.tension);
+
+        roleSum += juce::jlimit (
+            0.0f, 1.0f,
+            0.48f * densityFit
+            + 0.16f * spaceFit
+            + 0.36f * tensionFit);
+        ++roleCount;
+    }
+
+    const float roleConsistency = roleCount > 0
+        ? roleSum / (float) roleCount : 0.5f;
+
+    float arc = 0.50f;
+    if (barsN >= 4)
+    {
+        const int phraseBars = juce::jmin (4, barsN);
+        std::vector<float> p ((size_t) phraseBars, 0.0f);
+        std::vector<int> pc ((size_t) phraseBars, 0);
+
+        for (int b = 0; b < phraseBars; ++b)
+        {
+            for (const auto* n : melody)
+            {
+                if (n->step / 16 != b)
+                    continue;
+                p[(size_t) b] += (float) n->note;
+                ++pc[(size_t) b];
+            }
+            if (pc[(size_t) b] > 0)
+                p[(size_t) b] /= (float) pc[(size_t) b];
+        }
+
+        const float rise = pc[2] > 0 && pc[0] > 0 ? p[2] - p[0] : 0.0f;
+        const float release = pc[2] > 0 && pc[3] > 0 ? p[2] - p[3] : 0.0f;
+        const float riseFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f, std::abs (rise - 2.0f) / 10.0f);
+        const float releaseFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f, std::abs (release - 1.0f) / 9.0f);
+        arc = juce::jlimit (
+            0.0f, 1.0f,
+            0.52f * features.phraseArc
+            + 0.24f * features.tensionArc
+            + 0.14f * riseFit
+            + 0.10f * releaseFit);
+    }
+    else
+    {
+        arc = 0.62f * features.phraseArc + 0.38f * features.tensionArc;
+    }
+
+    const auto creativePlan = midiforge::CreativeRange::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    const float actualNovelty = juce::jlimit (
+        0.0f, 1.0f, 0.55f * features.variety + 0.45f * features.surprise);
+    const float noveltyTarget = juce::jlimit (
+        0.12f, 0.88f, 0.28f + 0.48f * creativePlan.novelty);
+    const float noveltyBalance = 1.0f - juce::jlimit (
+        0.0f, 1.0f, std::abs (actualNovelty - noveltyTarget) / 0.58f);
+
+    const float motifDevelopment = juce::jlimit (
+        0.0f, 1.0f,
+        0.46f * motifSemanticsScore (section, identity)
+        + 0.30f * motifMemoryScore (section)
+        + 0.24f * features.development);
+
+    const float expression = juce::jlimit (
+        0.0f, 1.0f,
+        0.58f * melodyExpressionScore (section)
+        + 0.42f * melodicProsodyScore (section));
+
+    const float harmony = harmonicIntelligenceScore (section);
+    const float prosody = melodicProsodyScore (section);
+    const float closure = juce::jlimit (
+        0.0f, 1.0f, 0.62f * loopClosureScore (section, identity)
+        + 0.38f * features.seam);
+
+    const float densityTarget = juce::jlimit (
+        0.16f, 0.90f, soundProfileFor (soundTarget).densityMul * 0.68f);
+    const float densityFit = 1.0f - juce::jlimit (
+        0.0f, 1.0f, std::abs (features.density - densityTarget) / 0.54f);
+    const float spaceFit = juce::jlimit (
+        0.0f, 1.0f, features.space);
+    const float densitySpace = 0.64f * densityFit + 0.36f * spaceFit;
+
+    const float rhythm = juce::jlimit (
+        0.0f, 1.0f, 0.52f * rhythmGrammarScore (section)
+        + 0.28f * features.rhythmIdentity
+        + 0.20f * features.grooveQuality);
+
+    const float groove = grooveQualityScore (section);
+
+    return midiforge::ComposerJudge::score ({
+        juce::jlimit (0.0f, 1.0f, arc),
+        juce::jlimit (0.0f, 1.0f, roleConsistency),
+        juce::jlimit (0.0f, 1.0f, motifDevelopment),
+        juce::jlimit (0.0f, 1.0f, expression),
+        juce::jlimit (0.0f, 1.0f, harmony),
+        juce::jlimit (0.0f, 1.0f, densitySpace),
+        juce::jlimit (0.0f, 1.0f, rhythm),
+        juce::jlimit (0.0f, 1.0f, features.registerScore),
+        juce::jlimit (0.0f, 1.0f, closure),
+        juce::jlimit (0.0f, 1.0f, noveltyBalance),
+        juce::jlimit (0.0f, 1.0f, groove),
+        juce::jlimit (0.0f, 1.0f, prosody),
+        juce::jlimit (0.0f, 1.0f, features.development)
+    });
+}
+
+
 void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
 {
         const auto profile = soundProfileFor (soundTarget);
@@ -8416,6 +8608,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // 0.40 Taste ML: the features of the whole loop are collected here; the
         // model scores every candidate after the pool statistics are known (below).
         tasteFeatures.push_back(taste::extractFeatures(flat.notes, flat.bars));
+
+        // 0.75 Composer Judge 2.0: one top-level coherence score over the
+        // already-generated candidate. It evaluates the composition as a whole
+        // and never rewrites the MIDI.
+        const float composerJudge = composerJudgeScore (flat, identity);
+        quality += 0.15f * composerJudge;
 
         // Archetype-specific focus: the generic judge remains dominant, while
         // this pass makes sure each creative route gets a meaningful chance.
