@@ -3626,11 +3626,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {
             const uint32_t ah = hash32(identitySeed ^ (uint32_t)(x + 101));
             const float anchorRoll = (float)(ah % 1000u) / 1000.0f;
-            const float tensionChance = juce::jlimit(0.04f, 0.78f,
+            const float harmonyPersonalityBias =
+                (creativeRange.harmonyPersonality <= 1 ? -0.10f
+                 : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f);
+            const float tensionChance = juce::jlimit(0.04f, 0.84f,
                 0.06f
                 + 0.42f * poolTension
                 + 0.20f * phraseTension
                 + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
+                + 0.10f * creativeRange.harmonyColor
+                + harmonyPersonalityBias
                 + tensionPulse);
 
             if (anchorRoll < tensionChance)
