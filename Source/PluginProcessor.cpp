@@ -52,15 +52,18 @@ namespace
     {
         switch (id)
         {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
-            case 2:  return {   0,  92,  0.94f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
+            // 0.71.1 range expansion: regular melodic voices get a much wider
+            // playable lane. The lane is intentionally broad; phrase/register
+            // grammar still decides whether a given melody actually uses it.
+            //                    shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
+            case 1:  return {   0, 100,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
+            case 2:  return {   2, 108,  0.94f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
+            case 3:  return {   8, 112,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
+            case 4:  return {  -4,  94,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
+            case 5:  return {  -2, 102,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
             case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true, true }; // 808 / Sub Lead
-            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
+            case 7:  return {  -8,  96,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
+            default: return {   0, 104, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
         }
     }
 }
