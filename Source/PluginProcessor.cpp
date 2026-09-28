@@ -2925,9 +2925,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (noteCount <= 0) return 0;
         const float pos = (float)noteIndex / (float)juce::jmax(1, noteCount - 1);
 
-        // Six broad contour grammars. They operate in scale degrees, keeping
-        // the result scale-safe while creating different phrase shapes.
-        static const int contours[12][5] =
+        // 0.72 expands the contour vocabulary with less symmetrical human shapes.
+        static const int contours[18][5] =
         {
             { 0,  1,  2,  1,  0 }, // rise / settle
             { 0,  2,  1,  3,  0 }, // hook peak
@@ -2940,7 +2939,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             { 0,  0,  3,  0, -1 }, // plateau / spike
             { 0, -2, -3,  1,  2 }, // descending valley
             { 0,  1,  0, -2,  2 }, // question / answer
-            { 0, -1, -3, -1,  1 }  // dark fall / rebound
+            { 0, -1, -3, -1,  1 }, // dark fall / rebound
+            { 0,  3,  1,  4,  0 }, // climbing hook
+            { 0, -2, -1,  1,  4 }, // slow rise to late peak
+            { 0,  1,  4,  3,  1 }, // apex / hold
+            { 0, -3, -2,  2,  1 }, // deep dip / recovery
+            { 0,  4,  2, -1,  2 }, // leap / fall / answer
+            { 0, -1,  2,  5,  3 }  // long climb / high return
         };
         int slot = juce::jlimit(0, 4, (int)std::floor(pos * 4.999f));
         int value = contours[phraseStyle][slot];
