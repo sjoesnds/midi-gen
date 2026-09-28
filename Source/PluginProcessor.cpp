@@ -7310,7 +7310,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float creativeRange = creativeRangeScore (sec, generationSeed);
         const float motifSemantics = motifSemanticsScore (sec, generationSeed);
         const float loopClosure = loopClosureScore (sec, generationSeed);
-        const auto composerJudge = composerJudge (sec, generationSeed);
+        const auto judgeResult = composerJudge (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -7361,7 +7361,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.07f * creativeRange
             + 0.06f * motifSemantics
             + 0.06f * loopClosure
-            + 0.05f * composerJudge.overall
+            + 0.05f * judgeResult.overall
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
