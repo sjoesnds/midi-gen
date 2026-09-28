@@ -312,9 +312,12 @@ void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
         {
             const auto prof = soundProfileFor (soundTarget);
             if (prof.soloLine) { lo = 28; hi = 50; break; }   // 808: E1..D3
-            lo = 62 + shift + prof.laneShift;
-            hi = juce::jmin (86 + shift + prof.laneShift, prof.laneCap);
-            lo = juce::jmin (lo, hi - 14);
+            // 0.71.1: broaden the practical melody lane before the
+            // profile cap. Wide/register-heavy profiles can now explore more
+            // than the old two-octave window without forcing every phrase wide.
+            lo = 48 + shift + prof.laneShift;
+            hi = juce::jmin (104 + shift + prof.laneShift, prof.laneCap);
+            lo = juce::jmin (lo, hi - 18);
             break;
         }
     }
