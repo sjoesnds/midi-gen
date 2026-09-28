@@ -3087,7 +3087,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
-    const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
+    const bool allowsOffGrid = dnaSync > 0.55f || creativeRange.asymmetry > 0.66f
+        || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
         || fastTempo > 0.58f;
     for (auto& x : positions)
     {
