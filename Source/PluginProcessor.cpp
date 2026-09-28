@@ -7255,7 +7255,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
 
     const int barsN = juce::jmax (1, section.bars);
     const auto& features = inputs.features;
-    const auto grammar = ComposerGrammar::makePlan (
+    const auto grammar = midiforge::ComposerGrammar::makePlan (
         barsN, energy, complexity, melodyType, mood, genre, identity);
 
     std::vector<int> counts ((size_t) barsN, 0);
