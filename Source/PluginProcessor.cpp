@@ -4,6 +4,7 @@
 #include "MelodicProsody.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
+#include "VariationIntelligence.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -8829,19 +8830,43 @@ void MidiForgeAudioProcessor::buildVariationBank()
     
 
     
-    // 0.63 Melodic Memory 3.0: keep the selected idea bank alive through
-    // Loop Forge. Each transformation mode starts from a different selected
-    // winner, so ORIGINAL/TIGHT/SPARSE/etc. remain genuinely different ideas
-    // rather than eight cosmetic edits of one source loop.
+    // 0.63 Melodic Memory 3.0 + 0.76 Variation Intelligence:
+    // keep the selected idea bank alive, but stop assigning transformations by
+    // arbitrary slot order. A dark source should be allowed to feed DARK, a
+    // rhythmic source should feed TIGHT, and a high-surprise source should feed
+    // WEIRD. The assignment is globally optimized and remains one-to-one.
     std::vector<Section> transformationSources;
     transformationSources.reserve (8);
-    for (const auto& candidate : selected)
-        transformationSources.push_back (candidate.section);
-
     std::vector<uint32_t> transformationSeeds;
     transformationSeeds.reserve (8);
+    std::vector<midiforge::VariationTraits> transformationTraits;
+    transformationTraits.reserve (8);
+
     for (const auto& candidate : selected)
+    {
+        transformationSources.push_back (candidate.section);
         transformationSeeds.push_back (candidate.identity);
+
+        midiforge::VariationTraits traits;
+        traits.density = candidate.density;
+        traits.space = candidate.space;
+        traits.rhythm = candidate.rhythm;
+        traits.motif = candidate.motif;
+        traits.leap = candidate.leap;
+        traits.reg = candidate.reg;
+        traits.surprise = candidate.surprise;
+        traits.context = candidate.context;
+        traits.loop = candidate.loop;
+        traits.groove = candidate.groove;
+        traits.memory = candidate.memory;
+        traits.phraseArc = candidate.phraseArc;
+        traits.tension = candidate.tension;
+        traits.development = candidate.development;
+        transformationTraits.push_back (traits);
+    }
+
+    const auto intelligentSourceByMode =
+        midiforge::VariationIntelligence::assign (transformationTraits);
 
     std::vector<Section> result;
     result.reserve (8);
@@ -8850,15 +8875,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         for (int mode = 0; mode < 8; ++mode)
         {
-            const size_t sourceSlot = (size_t) juce::jlimit (
-                0,
-                (int) transformationSources.size() - 1,
-                mode);
+            int sourceSlot = intelligentSourceByMode[(size_t) mode];
+            if (sourceSlot < 0)
+                sourceSlot = juce::jmin (mode, (int) transformationSources.size() - 1);
+
+            const size_t sourceIndex = (size_t) sourceSlot;
 
             Section flat = transformLoop (
-                transformationSources[sourceSlot],
+                transformationSources[sourceIndex],
                 mode,
-                hash32 (transformationSeeds[sourceSlot]
+                hash32 (transformationSeeds[sourceIndex]
                         ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
 
             flat.name = "VARIATION " + juce::String (mode + 1)
