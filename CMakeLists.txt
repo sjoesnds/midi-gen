@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForge VERSION 0.74.0)
+project(MidiForge VERSION 0.75.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -36,6 +36,7 @@ target_sources(MidiForge PRIVATE
     Source/MotifSemantics.cpp
     Source/MotifSemantics.h
     Source/LoopClosure.cpp
+    Source/ComposerJudge.cpp
     Source/LoopClosure.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
