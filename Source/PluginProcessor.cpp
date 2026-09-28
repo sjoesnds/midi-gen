@@ -2964,6 +2964,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             case 7: value += (noteIndex > noteCount / 2 ? -2 : 2); break;         // falling response
             case 8: value += ((noteIndex % 3 == 0) ? 3 : -1); break;              // anchor + drift
             case 9: value += ((noteIndex + phraseStyle) % 4 == 0 ? -3 : 1); break;
+            case 10: value += ((noteIndex % 3 == 1) ? 4 : (noteIndex % 3 == 2 ? -2 : 0)); break; // leap / recovery
+            case 11: value += ((noteIndex & 1) ? 3 : -1); break;                         // pendulum
             default: break;
         }
 
