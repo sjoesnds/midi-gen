@@ -4,6 +4,16 @@
 
 **Current version: 0.72.0**
 
+### Composer Judge 2.0 — 0.75.0
+- Adds a top-level seven-axis musical judge: **Identity, Expression, Harmony, Rhythm, Macro Arc, Loop Closure** and **Humanity**.
+- Candidates are no longer judged only by one large weighted sum. Core musical axes have explicit gates, so a candidate with beautiful melody but broken rhythm or harmony cannot hide the failure behind other scores.
+- Gate thresholds adapt for short loops and sparse material instead of requiring four-bar density from every musical idea.
+- Composer Judge combines the existing specialist judges rather than creating another melody generator.
+- Candidate selection now prefers gate-passing candidates before applying the existing diversity gate.
+- Loop Forge also considers the Composer Judge during final coherence scoring.
+- Adds headless QA for gate behavior, sparse-mode thresholds and varied gate profiles.
+- No new UI controls and no non-MIDI features.
+
 ### Cadence & Loop Closure 2.0 — 0.74.0
 - Adds a dedicated boundary planner for the transition **end of loop → start of loop**.
 - The closure can choose between direct return, answer, pickup, sustain/release, unresolved and deceptive seam behavior.
@@ -426,6 +436,12 @@ The plugin keeps generation and realtime playback concerns separate:
 ## Version history
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
+
+### 0.75.0
+- Composer Judge 2.0
+- Seven-axis gated candidate evaluation
+- Adaptive gates for sparse and short musical material
+- Composer Judge QA and candidate-selection integration
 
 ### 0.74.0
 - Cadence & Loop Closure 2.0
