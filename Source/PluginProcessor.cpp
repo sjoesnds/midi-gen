@@ -3071,6 +3071,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                                           + dnaRhythmBias
                                           + (int)(dnaSync * 3.0f)
                                           + rhythmicLanguage * 2
+                                          + creativeRange.rhythmBias
+                                          + juce::roundToInt (creativeRange.asymmetry * 5.0f)
                                           + juce::roundToInt (fastTempo * 5.0f)
                                           - juce::roundToInt (slowTempo * 2.0f)) % eligibleN + eligibleN) % eligibleN)];
 
