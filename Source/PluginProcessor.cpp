@@ -7375,7 +7375,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         0.0f, 1.0f,
         0.46f * inputs.motifSemantics
         + 0.30f * inputs.motifMemory
-        + 0.24f * inputs.composerGrammar);
+        + 0.24f * inputs.development);
 
     const float expression = juce::jlimit (
         0.0f, 1.0f,
@@ -7416,7 +7416,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         juce::jlimit (0.0f, 1.0f, noveltyBalance),
         juce::jlimit (0.0f, 1.0f, groove),
         juce::jlimit (0.0f, 1.0f, prosody),
-        juce::jlimit (0.0f, 1.0f, inputs.composerGrammar)
+        juce::jlimit (0.0f, 1.0f, inputs.development)
     });
 }
 
