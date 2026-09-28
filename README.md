@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.71.0**
+**Current version: 0.71.1**
+
+### Melodic Range Expansion — 0.71.1
+- Expands the practical melody lane from the old compact ~2-octave window to a much wider register before profile caps.
+- Piano can now explore roughly C3–E7 at the default octave setting, with sound-target biases for pluck, lead, bell, pad, brass and guitar.
+- Wider profiles can use the additional register without forcing every generated phrase to span the full range; existing Composer/Prosody rules still control phrase shape and register movement.
+- Extends bar-level octave placement search by one additional octave in both directions.
+- Keeps the dedicated 808/Sub Lead register unchanged.
+- Adds headless QA that checks the expanded range on actual generated Piano MIDI.
+- No new UI controls and no non-MIDI features.
 
 ### Melodic Prosody — 0.71.0
 - Adds note-level melodic intent: **Anchor**, **Pickup**, **Approach**, **Connect**, **Accent**, **Peak** and **Release**.
