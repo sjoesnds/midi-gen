@@ -76,6 +76,10 @@ MidiForgeAudioProcessor::MidiForgeAudioProcessor()
     preferencesFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                         .getChildFile ("MidiForge").getChildFile ("taste.json");
     loadPreferences();
+    realtimeSwing.store (swing);
+    realtimeHumanize.store (humanize);
+    realtimeHumanizeEnabled.store (humanizeEnabled);
+    realtimeDrumMuteMask.store (drumMuteMask);
     regenerate();
 }
 bool MidiForgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -169,9 +173,9 @@ void MidiForgeAudioProcessor::setChordDensity(float v, bool regenerateNow){chord
 void MidiForgeAudioProcessor::setBassDensity(float v, bool regenerateNow){bassDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setMelodyDensity(float v, bool regenerateNow){melodyDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setArpDensity(float v, bool regenerateNow){arpDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
-void MidiForgeAudioProcessor::setSwing(float v){swing=juce::jlimit(0.f,.75f,v);}
-void MidiForgeAudioProcessor::setHumanize(float v){humanize=juce::jlimit(0.f,1.f,v);}
-void MidiForgeAudioProcessor::setHumanizeEnabled(bool on){if(humanizeEnabled==on)return;humanizeEnabled=on;regenerate();}
+void MidiForgeAudioProcessor::setSwing(float v){swing=juce::jlimit(0.f,.75f,v);realtimeSwing.store(swing);}
+void MidiForgeAudioProcessor::setHumanize(float v){humanize=juce::jlimit(0.f,1.f,v);realtimeHumanize.store(humanize);}
+void MidiForgeAudioProcessor::setHumanizeEnabled(bool on){if(humanizeEnabled==on)return;humanizeEnabled=on;realtimeHumanizeEnabled.store(on);regenerate();}
 void MidiForgeAudioProcessor::setComplexity(float v, bool regenerateNow){complexity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setMelodyLength(float v, bool regenerateNow){melodyLength=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setPauseChance(float v, bool regenerateNow){pauseChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
@@ -9336,12 +9340,20 @@ void MidiForgeAudioProcessor::refreshHostBpm()
 
 void MidiForgeAudioProcessor::regenerate()
 {
+realtimeSwing.store (swing);
+realtimeHumanize.store (humanize);
+realtimeHumanizeEnabled.store (humanizeEnabled);
+realtimeDrumMuteMask.store (drumMuteMask);
 refreshHostBpm();
 buildVariationBank();
 chooseVariation (0);
 }
 void MidiForgeAudioProcessor::regenerateVariations()
 {
+    realtimeSwing.store (swing);
+    realtimeHumanize.store (humanize);
+    realtimeHumanizeEnabled.store (humanizeEnabled);
+    realtimeDrumMuteMask.store (drumMuteMask);
     refreshHostBpm();
     int keep = 0;
     {
@@ -9379,14 +9391,14 @@ void MidiForgeAudioProcessor::emitNote(const NoteEvent& e,juce::MidiBuffer& midi
 int sampleOffset,int velocityBias)
 {
 if(e.step<0)return;
-if(e.channel==5){ const int drow=drumRowForNote(e.note); if(drow>=0 && (drumMuteMask&(1<<drow))!=0) return; }
+if(e.channel==5){ const int drow=drumRowForNote(e.note); if(drow>=0 && (realtimeDrumMuteMask.load()&(1<<drow))!=0) return; }
 int velocity=juce::jlimit(1,127,e.velocity+velocityBias);
 const int midiCh=(e.channel==5)?10:e.channel;      // drums = GM channel 10
 juce::ignoreUnused (midi);
 const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load()) / 4.0;
 const juce::int64 onGlobal  = samplePosition + sampleOffset;
 const int endStep = e.step + juce::jmax (1, e.length);
-const double endSwing = (endStep & 1) != 0 ? (double) swing * stepSamples * 0.5 : 0.0;   // same rule as the note-on offset in processBlock
+const double endSwing = (endStep & 1) != 0 ? (double) realtimeSwing.load() * stepSamples * 0.5 : 0.0;   // same rule as the note-on offset in processBlock
 const juce::int64 offGlobal = juce::jmax (onGlobal + 1, (onGlobal - sampleOffset) + (juce::int64) (juce::jmax (1, e.length) * stepSamples + endSwing));
 // A still-pending note-off of the same pitch that would land AFTER this new note-on would cut the new note: pull it forward.
 for (auto& p : pendingEvents)
@@ -9497,10 +9509,10 @@ if (dueCount > 0)
     uiCurrentStep.store (local);
     int offset = 0;
     if ((local % 2) == 1)
-        offset = (int) (swing * sampleRate * 60.0
+        offset = (int) (realtimeSwing.load() * sampleRate * 60.0
                         / juce::jmax (20.0, currentBpm.load()) / 8.0);
-    const int velBias = humanizeEnabled
-        ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * humanize)
+    const int velBias = realtimeHumanizeEnabled.load()
+        ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * realtimeHumanize.load())
         : 0;
     for (int n = 0; n < dueCount; ++n)
         emitNote (dueNotes[(size_t) n], out, offset, velBias);
