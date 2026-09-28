@@ -3718,8 +3718,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
         // Sound profile: singable/playable interval limit for this kind of sound.
         const int effectiveMaxLeap = prof.maxLeap > 0
-            ? juce::jmin(16, prof.maxLeap + (wideIntervalLanguage ? 3 : 0)
-                                      + ((tensionProfile >= 6) ? 2 : 0))
+            ? juce::jmin(18, prof.maxLeap
+                             + (wideIntervalLanguage ? 3 : 0)
+                             + ((tensionProfile >= 6) ? 2 : 0)
+                             + juce::roundToInt (4.0f * creativeRange.leapBias))
             : 0;
         if (effectiveMaxLeap > 0 && (!generated.empty() || barOffset > 0)
             && std::abs(note - previous) > effectiveMaxLeap)
