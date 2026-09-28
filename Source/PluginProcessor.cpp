@@ -52,15 +52,18 @@ namespace
     {
         switch (id)
         {
-            //                 shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
-            case 1:  return {   0,  92,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
-            case 2:  return {   0,  92,  0.94f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
-            case 3:  return {  12,  96,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
-            case 4:  return {  -7,  84,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
-            case 5:  return {  -5,  88,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
+            // 0.71.1 range expansion: regular melodic voices get a much wider
+            // playable lane. The lane is intentionally broad; phrase/register
+            // grammar still decides whether a given melody actually uses it.
+            //                    shift cap  legato  min max  vc   vspr   nn nh  dens   leap cLen 2hit slide vib  bassOff solo
+            case 1:  return {   0, 100,  0.00f,  1,  2,  88, 0.45f,  5, 5, 1.10f, 12,   6, true,  0.00f, 0.0f, false, false }; // Pluck
+            case 2:  return {   2, 108,  0.94f,  2, 16,  96, 0.40f,  4, 5, 0.95f,  9,  16, false, 0.30f, 0.5f, false, false }; // Synth Lead
+            case 3:  return {   8, 112,  0.60f,  3,  6,  82, 0.60f,  3, 4, 0.72f, 12,  16, false, 0.00f, 0.0f, false, false }; // Bell / Mallet
+            case 4:  return {  -4,  94,  1.00f,  4, 16,  76, 0.30f,  2, 3, 0.50f,  5,  16, false, 0.00f, 0.0f, false, false }; // Pad / Strings
+            case 5:  return {  -2, 102,  0.55f,  2,  6,  98, 0.70f,  4, 5, 0.90f,  7,   5, true,  0.00f, 0.0f, false, false }; // Brass
             case 6:  return { -30,  60,  0.85f,  2, 16, 100, 0.30f,  2, 3, 0.55f,  7,  16, false, 0.55f, 0.0f, true, true }; // 808 / Sub Lead
-            case 7:  return { -10,  80,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
-            default: return {   0,  92, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
+            case 7:  return {  -8,  96,  0.35f,  1,  6,  86, 0.70f,  4, 5, 1.00f,  9,   8, true,  0.20f, 0.0f, false, false }; // Guitar
+            default: return {   0, 104, -1.00f,  1, 16,  80, 1.00f,  4, 5, 1.00f, 12,  16, false, 0.00f, 0.0f, false, false }; // Piano (neutral)
         }
     }
 }
@@ -309,9 +312,12 @@ void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
         {
             const auto prof = soundProfileFor (soundTarget);
             if (prof.soloLine) { lo = 28; hi = 50; break; }   // 808: E1..D3
-            lo = 62 + shift + prof.laneShift;
-            hi = juce::jmin (86 + shift + prof.laneShift, prof.laneCap);
-            lo = juce::jmin (lo, hi - 14);
+            // 0.71.1: broaden the practical melody lane before the
+            // profile cap. Wide/register-heavy profiles can now explore more
+            // than the old two-octave window without forcing every phrase wide.
+            lo = 48 + shift + prof.laneShift;
+            hi = juce::jmin (104 + shift + prof.laneShift, prof.laneCap);
+            lo = juce::jmin (lo, hi - 18);
             break;
         }
     }
@@ -2852,11 +2858,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // contour language, interval language, tension profile and register behavior.
     // These axes deliberately sit outside the genre labels, so the same genre can
     // produce soft, tense, angular, chant-like or wide-register material.
-    const int phraseStyle = (int)(hash32(identitySeed ^ 0x4f1bbcd3u) % 12u);
-    const int intervalLanguage = (int)(hash32(identitySeed ^ 0x5e2d58d8u) % 10u);
-    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u) % 8u);
-    const int registerProfile = (int)(hash32(identitySeed ^ 0x94d049bbu) % 8u);
-    const int rhythmicLanguage = (int)(hash32(identitySeed ^ 0x2545f491u) % 10u);
+    // 0.72 Creative Range: choose a coherent musical language before writing notes.
+    // The plan expands the *creative* search space rather than simply adding pitch
+    // randomness: contour, interval vocabulary, rhythm family, repetition behavior,
+    // register journey, harmonic color and duration language are selected together.
+    const auto creativeRange = midiforge::CreativeRange::makePlan (
+        melodyType, mood, genre, e, complexity,
+        hash32 (identitySeed ^ 0x72C0FFEEu));
+
+    const int phraseStyle = creativeRange.contourFamily;
+    const int intervalLanguage = creativeRange.intervalFamily;
+    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u
+                                             ^ (uint32_t) creativeRange.harmonyPersonality) % 8u);
+    const int registerProfile = creativeRange.registerJourney;
+    const int rhythmicLanguage = creativeRange.rhythmFamily;
 
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
@@ -2910,9 +2925,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (noteCount <= 0) return 0;
         const float pos = (float)noteIndex / (float)juce::jmax(1, noteCount - 1);
 
-        // Six broad contour grammars. They operate in scale degrees, keeping
-        // the result scale-safe while creating different phrase shapes.
-        static const int contours[12][5] =
+        // 0.72 expands the contour vocabulary with less symmetrical human shapes.
+        static const int contours[18][5] =
         {
             { 0,  1,  2,  1,  0 }, // rise / settle
             { 0,  2,  1,  3,  0 }, // hook peak
@@ -2925,7 +2939,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             { 0,  0,  3,  0, -1 }, // plateau / spike
             { 0, -2, -3,  1,  2 }, // descending valley
             { 0,  1,  0, -2,  2 }, // question / answer
-            { 0, -1, -3, -1,  1 }  // dark fall / rebound
+            { 0, -1, -3, -1,  1 }, // dark fall / rebound
+            { 0,  3,  1,  4,  0 }, // climbing hook
+            { 0, -2, -1,  1,  4 }, // slow rise to late peak
+            { 0,  1,  4,  3,  1 }, // apex / hold
+            { 0, -3, -2,  2,  1 }, // deep dip / recovery
+            { 0,  4,  2, -1,  2 }, // leap / fall / answer
+            { 0, -1,  2,  5,  3 }  // long climb / high return
         };
         int slot = juce::jlimit(0, 4, (int)std::floor(pos * 4.999f));
         int value = contours[phraseStyle][slot];
@@ -2944,6 +2964,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             case 7: value += (noteIndex > noteCount / 2 ? -2 : 2); break;         // falling response
             case 8: value += ((noteIndex % 3 == 0) ? 3 : -1); break;              // anchor + drift
             case 9: value += ((noteIndex + phraseStyle) % 4 == 0 ? -3 : 1); break;
+            case 10: value += ((noteIndex % 3 == 1) ? 4 : (noteIndex % 3 == 2 ? -2 : 0)); break; // leap / recovery
+            case 11: value += ((noteIndex & 1) ? 3 : -1); break;                         // pendulum
             default: break;
         }
 
@@ -3049,6 +3071,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                                           + dnaRhythmBias
                                           + (int)(dnaSync * 3.0f)
                                           + rhythmicLanguage * 2
+                                          + creativeRange.rhythmBias
+                                          + juce::roundToInt (creativeRange.asymmetry * 5.0f)
                                           + juce::roundToInt (fastTempo * 5.0f)
                                           - juce::roundToInt (slowTempo * 2.0f)) % eligibleN + eligibleN) % eligibleN)];
 
@@ -3063,7 +3087,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
-    const bool allowsOffGrid = dnaSync > 0.55f || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
+    const bool allowsOffGrid = dnaSync > 0.55f || creativeRange.asymmetry > 0.66f
+        || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
         || fastTempo > 0.58f;
     for (auto& x : positions)
     {
@@ -3341,6 +3366,27 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             d -= juce::roundToInt ((1.0f - phraseTension) * 0.8f);
         }
 
+        // Creative Register Journey: register is a phrase destination, not a
+        // random octave flip. Each journey uses the same scale-degree language
+        // but changes where the line wants to live over the bar.
+        {
+            const float pos = (float) i / (float) juce::jmax<size_t> (1, chosen.size() - 1);
+            float journey = 0.0f;
+            switch (creativeRange.registerJourney)
+            {
+                case 1: journey = 3.5f * pos; break;                              // rising
+                case 2: journey = -3.5f * pos; break;                             // falling
+                case 3: journey = 6.0f * (1.0f - std::abs (2.0f * pos - 1.0f)); break; // peak
+                case 4: journey = -3.5f + 7.0f * pos; break;                    // low -> high
+                case 5: journey = (i & 1u) ? 2.8f : -2.0f; break;                // call/answer register
+                case 6: journey = ((i & 1u) ? -1.0f : 1.0f) * 3.0f; break;       // wide orbit
+                case 7: journey = (pos > 0.45f && pos < 0.75f) ? 5.0f : 0.0f; break; // sudden peak
+                default: break;                                                   // centered
+            }
+            journey += creativeRange.registerBias * (0.25f + 0.75f * pos) / 2.0f;
+            d += juce::roundToInt (journey);
+        }
+
         float contourWeight = (cycle == 2 ? phraseStrength
                                : (cycle == 1 ? phraseStrength * 0.62f
                                              : phraseStrength * 0.48f));
@@ -3429,8 +3475,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // Bar-level octave placement: first note near the previous melody note,
         // whole bar inside the melody lane.
         int bestK = 0; float bestCost = 1.0e9f;
-        const float laneCentre = 0.5f * (float)(melLo + melHi);
-        for (int k = -3; k <= 3; ++k)
+        const float laneCentre = 0.5f * (float)(melLo + melHi)
+            + creativeRange.registerBias * 2.0f;
+        for (int k = -4; k <= 4; ++k)
         {
             float cost = 0.0f;
             std::vector<int> ps;
@@ -3497,9 +3544,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Controlled leap: some archetypes need a recognizable interval,
             // otherwise the generator falls back to scalar motion too often.
             interval = note - last;
-            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage)
+            const bool creativeLeapCell =
+                creativeRange.leapBias > 0.58f
+                && ((int) i + (int) (identitySeed & 7u)) % (creativeRange.leapBias > 0.76f ? 3 : 4) == 2;
+            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage || creativeLeapCell)
                 && (((int)i + (int)(identitySeed & 7u)) % (wideIntervalLanguage ? 4 : 5) == (wideIntervalLanguage ? 2 : 2)))
-                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f < poolLeapChance * 0.62f);
+                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f
+                    < juce::jlimit (0.04f, 0.92f, poolLeapChance * (0.58f + 0.36f * creativeRange.leapBias)));
             if (wantsLeap && std::abs(interval) < 4)
             {
                 const int dir = ((hash32(identitySeed ^ (uint32_t)i) & 1u) ? 1 : -1);
@@ -3538,8 +3589,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // more of the identity. This is phrase memory, not copy/paste.
         if (memoryBar.size() >= 2 && !generated.empty())
         {
-            const float memoryStrength = juce::jlimit(0.0f, 0.72f,
-                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f)));
+            float repetitionFactor = 1.0f;
+            switch (creativeRange.repetitionStyle)
+            {
+                case 0: repetitionFactor = 1.22f; break; // motif-heavy
+                case 1: repetitionFactor = (cycle == 2 ? 0.42f : 1.08f); break; // answer
+                case 2: repetitionFactor = 0.74f; break; // evolving
+                case 3: repetitionFactor = 0.48f; break; // loose
+                case 4: repetitionFactor = (cycle == 1 ? 1.26f : (cycle == 2 ? 0.34f : 0.92f)); break; // A' focus
+                case 5: repetitionFactor = 0.82f; break; // sequence
+                case 6: repetitionFactor = (cycle == 2 ? 0.26f : 1.12f); break; // contrast
+                case 7: repetitionFactor = 1.30f; break; // hook
+                default: break;
+            }
+            const float memoryStrength = juce::jlimit(0.0f, 0.78f,
+                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f))
+                * repetitionFactor
+                * juce::jlimit (0.72f, 1.16f, 0.86f + 0.34f * creativeRange.repetition));
             const uint32_t mh = hash32(seed ^ (uint32_t)(i * 113 + 701));
             if ((float)(mh % 1000u) / 1000.0f < memoryStrength)
             {
@@ -3561,11 +3627,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {
             const uint32_t ah = hash32(identitySeed ^ (uint32_t)(x + 101));
             const float anchorRoll = (float)(ah % 1000u) / 1000.0f;
-            const float tensionChance = juce::jlimit(0.04f, 0.78f,
+            const float harmonyPersonalityBias =
+                (creativeRange.harmonyPersonality <= 1 ? -0.10f
+                 : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f);
+            const float tensionChance = juce::jlimit(0.04f, 0.84f,
                 0.06f
                 + 0.42f * poolTension
                 + 0.20f * phraseTension
                 + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
+                + 0.10f * creativeRange.harmonyColor
+                + harmonyPersonalityBias
                 + tensionPulse);
 
             if (anchorRoll < tensionChance)
@@ -3647,8 +3718,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
         // Sound profile: singable/playable interval limit for this kind of sound.
         const int effectiveMaxLeap = prof.maxLeap > 0
-            ? juce::jmin(16, prof.maxLeap + (wideIntervalLanguage ? 3 : 0)
-                                      + ((tensionProfile >= 6) ? 2 : 0))
+            ? juce::jmin(18, prof.maxLeap
+                             + (wideIntervalLanguage ? 3 : 0)
+                             + ((tensionProfile >= 6) ? 2 : 0)
+                             + juce::roundToInt (4.0f * creativeRange.leapBias))
             : 0;
         if (effectiveMaxLeap > 0 && (!generated.empty() || barOffset > 0)
             && std::abs(note - previous) > effectiveMaxLeap)
@@ -3701,6 +3774,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmin(4, len + 1);
         if (rhythmType >= 14 && (h % 100u) < (uint32_t)(22.0f * dnaGroove))
             len = juce::jmax(1, len - 1);
+
+        // Creative duration language: the same pitch contour can feel vocal,
+        // percussive, declarative or flowing without adding random timing.
+        switch (creativeRange.durationStyle)
+        {
+            case 0: break; // balanced
+            case 1: if ((i & 1u) == 0) len = juce::jmin (4, len + 1); else len = juce::jmax (1, len - 1); break;
+            case 2: if ((i % 3u) == 1u) len = juce::jmax (1, len - 1); else len = juce::jmin (4, len + 1); break;
+            case 3: len = juce::jmin (4, len + 1); break; // flowing
+            case 4: if (i == 0 || i + 1 == chosen.size()) len = juce::jmin (4, len + 1); break; // declarative
+            case 5: if ((i % 4u) == 2u) len = juce::jmin (4, len + 1); else len = juce::jmax (1, len - 1); break;
+            default: break;
+        }
+
+        if (creativeRange.durationContrast > 0.68f
+            && (h % 100u) < 22u)
+            len = (len <= 1 ? juce::jmin (4, len + 2) : juce::jmax (1, len - 1));
 
         len = juce::jmin(len, 16 - x);
 
@@ -6232,6 +6322,172 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
     
 }
 
+float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t identity) const
+{
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : sec.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    if (melody.size() < 3)
+        return 0.42f;
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    const auto plan = midiforge::CreativeRange::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    int minPitch = 127, maxPitch = 0;
+    int leapCount = 0;
+    int directionChanges = 0;
+    int shortNotes = 0, longNotes = 0;
+    std::vector<int> intervalKinds;
+
+    int previousDelta = 0;
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        minPitch = juce::jmin (minPitch, melody[i]->note);
+        maxPitch = juce::jmax (maxPitch, melody[i]->note);
+
+        if (melody[i]->length <= 1) ++shortNotes;
+        if (melody[i]->length >= 3) ++longNotes;
+
+        if (i == 0) continue;
+
+        const int delta = melody[i]->note - melody[i - 1]->note;
+        const int absDelta = std::abs (delta);
+        if (absDelta >= 7) ++leapCount;
+
+        if (absDelta > 0)
+        {
+            intervalKinds.push_back (juce::jlimit (0, 12, absDelta));
+            if (previousDelta != 0 && ((previousDelta > 0) != (delta > 0)))
+                ++directionChanges;
+            previousDelta = delta;
+        }
+    }
+
+    std::sort (intervalKinds.begin(), intervalKinds.end());
+    intervalKinds.erase (std::unique (intervalKinds.begin(), intervalKinds.end()), intervalKinds.end());
+
+    const float leapShare = (float) leapCount / (float) juce::jmax<size_t> (1, melody.size() - 1);
+    const float leapTarget = juce::jlimit (0.05f, 0.62f,
+        0.06f + 0.60f * plan.leapBias);
+    const float leapFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (leapShare - leapTarget) / 0.46f);
+
+    const float contourTurnRate = (float) directionChanges
+        / (float) juce::jmax<size_t> (1, melody.size() - 2);
+    const float turnTarget = juce::jlimit (0.10f, 0.72f,
+        0.16f + 0.54f * plan.asymmetry);
+    const float contourFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (contourTurnRate - turnTarget) / 0.52f);
+
+    const float intervalVariety = juce::jlimit (0.0f, 1.0f,
+        (float) intervalKinds.size() / 5.0f);
+
+    const int barsN = juce::jmax (1, sec.bars);
+    std::vector<int> barMasks ((size_t) barsN, 0);
+    std::vector<float> barPitchMeans ((size_t) barsN, 0.0f);
+    std::vector<int> barPitchCounts ((size_t) barsN, 0);
+    int offbeats = 0;
+
+    for (const auto* n : melody)
+    {
+        const int b = juce::jlimit (0, barsN - 1, n->step / 16);
+        const int local = juce::jlimit (0, 15, n->step % 16);
+        barMasks[(size_t) b] |= (1 << local);
+        barPitchMeans[(size_t) b] += (float) n->note;
+        ++barPitchCounts[(size_t) b];
+        if ((n->step % 4) != 0) ++offbeats;
+    }
+
+    int repeatedBars = 0;
+    int populatedBars = 0;
+    for (int b = 0; b < barsN; ++b)
+    {
+        if (barPitchCounts[(size_t) b] == 0)
+            continue;
+
+        ++populatedBars;
+        barPitchMeans[(size_t) b] /= (float) barPitchCounts[(size_t) b];
+
+        bool repeated = false;
+        for (int prev = 0; prev < b; ++prev)
+            if (barMasks[(size_t) prev] == barMasks[(size_t) b] && barMasks[(size_t) b] != 0)
+            {
+                repeated = true;
+                break;
+            }
+        if (repeated) ++repeatedBars;
+    }
+
+    float repetitionTarget = 0.50f;
+    switch (plan.repetitionStyle)
+    {
+        case 0: repetitionTarget = 0.72f; break;
+        case 1: repetitionTarget = 0.42f; break;
+        case 2: repetitionTarget = 0.52f; break;
+        case 3: repetitionTarget = 0.24f; break;
+        case 4: repetitionTarget = 0.64f; break;
+        case 5: repetitionTarget = 0.50f; break;
+        case 6: repetitionTarget = 0.28f; break;
+        case 7: repetitionTarget = 0.70f; break;
+        default: break;
+    }
+
+    const float repetitionObserved = populatedBars > 1
+        ? (float) repeatedBars / (float) (populatedBars - 1) : repetitionTarget;
+    const float repetitionFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (repetitionObserved - repetitionTarget) / 0.55f);
+
+    const float offbeatShare = (float) offbeats / (float) melody.size();
+    const float offbeatTarget = juce::jlimit (0.18f, 0.86f,
+        0.24f + 0.56f * plan.asymmetry);
+    const float rhythmFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (offbeatShare - offbeatTarget) / 0.52f);
+
+    float journeyMovement = 0.0f;
+    int journeyPairs = 0;
+    for (int b = 1; b < barsN; ++b)
+    {
+        if (barPitchCounts[(size_t) (b - 1)] == 0 || barPitchCounts[(size_t) b] == 0)
+            continue;
+        journeyMovement += std::abs (barPitchMeans[(size_t) b] - barPitchMeans[(size_t) (b - 1)]);
+        ++journeyPairs;
+    }
+    journeyMovement = journeyPairs > 0
+        ? juce::jlimit (0.0f, 1.0f, journeyMovement / (float) journeyPairs / 14.0f)
+        : 0.0f;
+
+    const float journeyTarget = (plan.registerJourney == 0)
+        ? 0.10f
+        : juce::jlimit (0.14f, 0.82f, 0.24f + 0.34f * plan.novelty);
+    const float journeyFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (journeyMovement - journeyTarget) / 0.48f);
+
+    const float durationContrast = (float) (shortNotes + longNotes > 0
+        ? std::abs (longNotes - shortNotes) / (double) (shortNotes + longNotes) : 0.0);
+    const float durationTarget = juce::jlimit (0.08f, 0.92f,
+        0.16f + 0.72f * plan.durationContrast);
+    const float durationFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (durationContrast - durationTarget) / 0.80f);
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.18f * intervalVariety
+        + 0.18f * leapFit
+        + 0.16f * contourFit
+        + 0.14f * rhythmFit
+        + 0.14f * repetitionFit
+        + 0.10f * journeyFit
+        + 0.10f * durationFit);
+}
+
 float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
@@ -6246,6 +6502,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float phraseMemory4 = phraseMemory4Score (sec);
         const float composerGrammar = composerGrammarScore (sec);
         const float melodicProsody = melodicProsodyScore (sec);
+        const float creativeRange = creativeRangeScore (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -6293,6 +6550,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.10f * harmonicIntelligence
             + 0.08f * phraseMemory4
             + 0.05f * melodicProsody
+            + 0.07f * creativeRange
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
@@ -6726,6 +6984,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float phraseMemory4Quality = phraseMemory4Score (flat);
         const float composerGrammarQuality = composerGrammarScore (flat);
         const float melodicProsodyQuality = melodicProsodyScore (flat);
+        const float creativeRangeQuality = creativeRangeScore (flat, identity);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -6861,6 +7120,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.08f * phraseMemory4Quality;
         quality += 0.07f * composerGrammarQuality;
         quality += 0.07f * melodicProsodyQuality;
+        quality += 0.08f * creativeRangeQuality;
         quality += 0.05f*f.registerScore;
         quality += 0.05f*f.surprise;
 
