@@ -6502,6 +6502,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float phraseMemory4 = phraseMemory4Score (sec);
         const float composerGrammar = composerGrammarScore (sec);
         const float melodicProsody = melodicProsodyScore (sec);
+        const float creativeRange = creativeRangeScore (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -6549,6 +6550,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.10f * harmonicIntelligence
             + 0.08f * phraseMemory4
             + 0.05f * melodicProsody
+            + 0.07f * creativeRange
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
