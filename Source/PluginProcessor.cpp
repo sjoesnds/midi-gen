@@ -4,6 +4,7 @@
 #include "MelodicProsody.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
+#include "ComposerJudge.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -7160,6 +7161,138 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
         + 0.10f * durationFit);
 }
 
+
+midiforge::ComposerJudge::Result
+MidiForgeAudioProcessor::composerJudge (const Section& sec, uint32_t identity) const
+{
+    midiforge::ComposerJudge::Result fallback;
+    if (sec.notes.empty())
+        return fallback;
+
+    const auto f = melodyFeatures (sec, identity);
+    const float motif = motifMemoryScore (sec);
+    const float rhythmGrammar = rhythmGrammarScore (sec);
+    const float melodyExpression = melodyExpressionScore (sec);
+    const float harmonicIntelligence = harmonicIntelligenceScore (sec);
+    const float phraseMemory4 = phraseMemory4Score (sec);
+    const float composerGrammar = composerGrammarScore (sec);
+    const float melodicProsody = melodicProsodyScore (sec);
+    const float creativeRange = creativeRangeScore (sec, identity);
+    const float motifSemantics = motifSemanticsScore (sec, identity);
+    const float loopClosure = loopClosureScore (sec, identity);
+    const float groove = grooveQualityScore (sec);
+
+    int melodyCount = 0;
+    int scaleSafe = 0;
+    int chordCount = 0;
+    int bassCount = 0;
+    double velocitySum = 0.0;
+    double velocitySq = 0.0;
+    bool lengthSeen[17] = {};
+    int uniqueLengths = 0;
+
+    for (const auto& n : sec.notes)
+    {
+        if (n.channel == 3)
+        {
+            ++melodyCount;
+            if (n.note == snapToScale (n.note))
+                ++scaleSafe;
+
+            velocitySum += n.velocity;
+            velocitySq += (double) n.velocity * (double) n.velocity;
+
+            if (! lengthSeen[juce::jlimit (1, 16, n.length)])
+            {
+                lengthSeen[juce::jlimit (1, 16, n.length)] = true;
+                ++uniqueLengths;
+            }
+        }
+        else if (n.channel == 1)
+            ++chordCount;
+        else if (n.channel == 2)
+            ++bassCount;
+    }
+
+    const float scaleSafety = melodyCount > 0
+        ? (float) scaleSafe / (float) melodyCount : 1.0f;
+
+    const float layerPresence =
+        ((chordCount > 0 || !chordsEnabled) ? 0.5f : 0.0f)
+        + ((bassCount > 0 || !bassEnabled) ? 0.5f : 0.0f);
+
+    float velocityVariation = 0.30f;
+    if (melodyCount > 1)
+    {
+        const double mean = velocitySum / (double) melodyCount;
+        const double variance = std::max (
+            0.0,
+            velocitySq / (double) melodyCount - mean * mean);
+        velocityVariation = juce::jlimit (
+            0.0f, 1.0f, (float) std::sqrt (variance) / 18.0f);
+    }
+
+    const float durationVariety = juce::jlimit (
+        0.0f, 1.0f, (float) uniqueLengths / 5.0f);
+
+    float humanity = juce::jlimit (
+        0.0f, 1.0f,
+        0.38f * groove
+        + 0.26f * velocityVariation
+        + 0.20f * durationVariety
+        + 0.16f * f.surprise);
+
+    const float identityAxis = juce::jlimit (
+        0.0f, 1.0f,
+        0.30f * motif
+        + 0.20f * phraseMemory4
+        + 0.20f * motifSemantics
+        + 0.15f * creativeRange
+        + 0.15f * f.motifIdentity);
+
+    const float expressionAxis = juce::jlimit (
+        0.0f, 1.0f,
+        0.40f * melodyExpression
+        + 0.22f * melodicProsody
+        + 0.20f * f.surprise
+        + 0.10f * f.context
+        + 0.08f * f.hook);
+
+    const float harmonyAxis = juce::jlimit (
+        0.0f, 1.0f,
+        0.55f * harmonicIntelligence
+        + 0.25f * scaleSafety
+        + 0.20f * layerPresence);
+
+    const float rhythmAxis = juce::jlimit (
+        0.0f, 1.0f,
+        0.48f * rhythmGrammar
+        + 0.30f * groove
+        + 0.14f * f.rhythmIdentity
+        + 0.08f * f.space);
+
+    const float macroAxis = juce::jlimit (
+        0.0f, 1.0f,
+        0.42f * composerGrammar
+        + 0.22f * f.phraseArc
+        + 0.22f * f.tensionArc
+        + 0.14f * f.seam);
+
+    const std::array<float, 7> axes =
+    {
+        identityAxis,
+        expressionAxis,
+        harmonyAxis,
+        rhythmAxis,
+        macroAxis,
+        loopClosure,
+        humanity
+    };
+
+    const bool sparse = melodyType == SparseLeadMelody || genre == Ambient;
+    return midiforge::ComposerJudge::evaluate (axes, juce::jmax (1, sec.bars), sparse);
+}
+
 float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
@@ -7177,6 +7310,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float creativeRange = creativeRangeScore (sec, generationSeed);
         const float motifSemantics = motifSemanticsScore (sec, generationSeed);
         const float loopClosure = loopClosureScore (sec, generationSeed);
+        const auto judgeResult = composerJudge (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -7227,6 +7361,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.07f * creativeRange
             + 0.06f * motifSemantics
             + 0.06f * loopClosure
+            + 0.05f * judgeResult.overall
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
@@ -7661,6 +7796,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float composerGrammarQuality = composerGrammarScore (flat);
         const float melodicProsodyQuality = melodicProsodyScore (flat);
         const float creativeRangeQuality = creativeRangeScore (flat, identity);
+        const auto judgeResult = composerJudge (flat, identity);
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -7770,6 +7906,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         const float development = developmentCoherence (flat);
         float quality=0.0f;
+        quality += 0.16f * judgeResult.overall;
+        quality -= 0.055f * (float) judgeResult.gateFailures;
         // Magic DNA 2.0: candidate features are judged against the same
         // musical universe created by MAGIC. The generic judge remains
         // dominant, while DNA steers the final selection.
@@ -8459,7 +8597,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
             candidates.push_back({std::move(flat), quality, identity, archetype,
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
-                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development, idea});
+                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development, idea,
+                                  judgeResult.passed, judgeResult.gatesPassed});
         }
     }
 
@@ -8535,6 +8674,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         for (size_t i = 0; i < candidates.size(); ++i)
         {
             if (used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
+            if (! candidates[i].composerGatePassed) continue;
             const float diversity = minDiversityToSelected (candidates[i], selected);
             if (diversity < diversityFloor) continue;
 
