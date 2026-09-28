@@ -33,8 +33,17 @@ namespace
     }
     std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
     {
-        char buf[256];
+        char buf[512];
         std::snprintf (buf, sizeof buf, f, a, b, c, d);
+        return buf;
+    }
+
+    std::string fmt7 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h)
+    {
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h);
         return buf;
     }
 
@@ -226,6 +235,62 @@ int main()
 {
     MidiForgeAudioProcessor p;
     p.resetTaste();
+
+    // ------------------------------------------------------------------ 0. Creative Range
+    {
+        const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+        const auto b = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+
+        const bool deterministic =
+            a.contourFamily == b.contourFamily
+            && a.intervalFamily == b.intervalFamily
+            && a.rhythmFamily == b.rhythmFamily
+            && a.repetitionStyle == b.repetitionStyle
+            && a.registerJourney == b.registerJourney
+            && a.harmonyPersonality == b.harmonyPersonality
+            && a.durationStyle == b.durationStyle;
+
+        std::set<std::string> languages;
+        std::set<int> contours, intervals, rhythms, repetitions, journeys, harmonies;
+        for (uint32_t seed = 1; seed <= 160; ++seed)
+        {
+            const auto plan = midiforge::CreativeRange::makePlan (
+                0, 4, 0, 0.70f, 0.65f, seed);
+
+            languages.insert (
+                std::to_string (plan.contourFamily) + ":"
+                + std::to_string (plan.intervalFamily) + ":"
+                + std::to_string (plan.rhythmFamily) + ":"
+                + std::to_string (plan.repetitionStyle) + ":"
+                + std::to_string (plan.registerJourney) + ":"
+                + std::to_string (plan.harmonyPersonality));
+
+            contours.insert (plan.contourFamily);
+            intervals.insert (plan.intervalFamily);
+            rhythms.insert (plan.rhythmFamily);
+            repetitions.insert (plan.repetitionStyle);
+            journeys.insert (plan.registerJourney);
+            harmonies.insert (plan.harmonyPersonality);
+        }
+
+        report ("Creative Range plan is deterministic", deterministic,
+                deterministic ? "same identity -> same language"
+                               : "same identity produced different language");
+
+        report ("Creative Range has a genuinely broad language space",
+                languages.size() >= 120
+                && contours.size() >= 14
+                && intervals.size() >= 9
+                && rhythms.size() >= 9
+                && repetitions.size() >= 6
+                && journeys.size() >= 6
+                && harmonies.size() >= 6,
+                fmt7 ("unique=%.0f contours=%.0f intervals=%.0f rhythms=%.0f repeats=%.0f journeys=%.0f harmony=%.0f",
+                     (double) languages.size(), (double) contours.size(), (double) intervals.size(),
+                     (double) rhythms.size(), (double) repetitions.size(), (double) journeys.size(),
+                     (double) harmonies.size()));
+    }
+
 
     // ------------------------------------------------------------------ 1. invariants (every loop)
     {
