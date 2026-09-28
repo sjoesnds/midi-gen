@@ -3775,6 +3775,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (rhythmType >= 14 && (h % 100u) < (uint32_t)(22.0f * dnaGroove))
             len = juce::jmax(1, len - 1);
 
+        // Creative duration language: the same pitch contour can feel vocal,
+        // percussive, declarative or flowing without adding random timing.
+        switch (creativeRange.durationStyle)
+        {
+            case 0: break; // balanced
+            case 1: if ((i & 1u) == 0) len = juce::jmin (4, len + 1); else len = juce::jmax (1, len - 1); break;
+            case 2: if ((i % 3u) == 1u) len = juce::jmax (1, len - 1); else len = juce::jmin (4, len + 1); break;
+            case 3: len = juce::jmin (4, len + 1); break; // flowing
+            case 4: if (i == 0 || i + 1 == chosen.size()) len = juce::jmin (4, len + 1); break; // declarative
+            case 5: if ((i % 4u) == 2u) len = juce::jmin (4, len + 1); else len = juce::jmax (1, len - 1); break;
+            default: break;
+        }
+
+        if (creativeRange.durationContrast > 0.68f
+            && (h % 100u) < 22u)
+            len = (len <= 1 ? juce::jmin (4, len + 2) : juce::jmax (1, len - 1));
+
         len = juce::jmin(len, 16 - x);
 
         int velocity = 70 + (x % 4 == 0 ? 8 : 0);
