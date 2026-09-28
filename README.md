@@ -4,6 +4,16 @@
 
 **Current version: 0.72.0**
 
+### Motif Semantics 2.0 — 0.73.0
+- Adds a semantic motif planner that treats a four-bar idea as **Rhythmic Core, Interval Core, Starting Anchor, Peak Gesture, Ending Gesture, Signature Leap** and **Answer Cell** instead of treating the motif as one undivided fingerprint.
+- \`A'\` preserves the core while deliberately mutating one semantic component.
+- \`B\` mutates a second component and raises contrast instead of simply inverting or copying the whole phrase.
+- \`A''\` restores the recognizable motif identity while giving the ending a fresh gesture, so the loop can return without sounding pasted.
+- The semantic plan is deterministic per composition identity and combines freely with Creative Range rather than replacing it.
+- Adds a Motif Semantics Judge to Loop Forge so candidate search rewards recognizable development, controlled contrast and meaningful return.
+- Adds headless QA for deterministic semantic planning, language diversity and actual four-bar A/A'/B/A'' behavior.
+- No new UI controls and no non-MIDI features.
+
 ### Creative Range Engine — 0.72.0
 - Adds a dedicated pre-generation creative-language planner instead of relying on independent random melody mutations.
 - Each identity chooses a coherent combination of **contour**, **interval vocabulary**, **rhythm family**, **repetition style**, **register journey**, **harmonic personality** and **duration language**.
@@ -406,6 +416,18 @@ The plugin keeps generation and realtime playback concerns separate:
 ## Version history
 
 The repository previously contained many small README files created for individual milestones. Their useful information is consolidated here; the source code and current version are the source of truth.
+
+### 0.73.0
+- Motif Semantics 2.0
+- Semantic A/A'/B/A'' development with component-level mutation
+- Motif Semantics candidate judge and QA
+
+### 0.72.0
+- Creative Range Engine
+- Coherent contour, interval, rhythm, repetition, register and harmony language planning
+
+### 0.71.1
+- Melodic Range Expansion
 
 ### 0.47
 - Human Phrase Engine
