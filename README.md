@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.76.2**
+**Current version: 0.77.0**
 
 
 
@@ -11,6 +11,16 @@
 - The code previously used `current.back()` (an index into `section.notes`) as if it were a local position inside `current`, which could dereference invalid memory during MAGIC.
 - Sparse candidate bars now always use a valid midpoint index into the local index list.
 - No intended musical behavior change.
+
+### Melody Foundation + Simple Phrases — 0.77.0
+- Adds a final tonal safety pass for every generated melody.
+- Every melody pitch is rechecked against the selected scale before it is accepted.
+- Strong beats and long structural notes are re-anchored to the active chord while passing scale tones remain available.
+- Melody register is now root-relative and deliberately compact, reducing accidental ultra-high notes and octave shocks.
+- Note-to-note leaps are capped, with a stricter limit for simple candidates.
+- MAGIC deliberately explores a meaningful share of 2–4 note phrases alongside the complex material.
+- The MINIMAL archetype is now a true simple-phrase language rather than just a low-density transformation.
+- The foundation runs both during candidate judging and after final variation transformations.
 
 ### Runtime Safety Fix — 0.76.1
 - Fixes a real-time race between the MAGIC candidate search and FL Studio's audio thread.
