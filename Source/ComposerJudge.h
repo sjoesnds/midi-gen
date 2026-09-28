@@ -20,7 +20,7 @@ struct ComposerJudge
         float harmony = 0.5f;
         float densitySpace = 0.5f;
         float rhythm = 0.5f;
-        float register = 0.5f;
+        float registerScore = 0.5f;
         float closure = 0.5f;
         float noveltyBalance = 0.5f;
         float groove = 0.5f;
@@ -39,7 +39,7 @@ struct ComposerJudge
         const float harmony = c (m.harmony);
         const float densitySpace = c (m.densitySpace);
         const float rhythm = c (m.rhythm);
-        const float reg = c (m.register);
+        const float reg = c (m.registerScore);
         const float closure = c (m.closure);
         const float novelty = c (m.noveltyBalance);
         const float groove = c (m.groove);
