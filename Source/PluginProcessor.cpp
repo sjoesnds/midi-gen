@@ -3543,9 +3543,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Controlled leap: some archetypes need a recognizable interval,
             // otherwise the generator falls back to scalar motion too often.
             interval = note - last;
-            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage)
+            const bool creativeLeapCell =
+                creativeRange.leapBias > 0.58f
+                && ((int) i + (int) (identitySeed & 7u)) % (creativeRange.leapBias > 0.76f ? 3 : 4) == 2;
+            const bool wantsLeap = ((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage || creativeLeapCell)
                 && (((int)i + (int)(identitySeed & 7u)) % (wideIntervalLanguage ? 4 : 5) == (wideIntervalLanguage ? 2 : 2)))
-                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f < poolLeapChance * 0.62f);
+                || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f
+                    < juce::jlimit (0.04f, 0.92f, poolLeapChance * (0.58f + 0.36f * creativeRange.leapBias)));
             if (wantsLeap && std::abs(interval) < 4)
             {
                 const int dir = ((hash32(identitySeed ^ (uint32_t)i) & 1u) ? 1 : -1);
