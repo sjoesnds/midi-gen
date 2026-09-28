@@ -3,7 +3,6 @@
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
 #include "MotifSemantics.h"
-#include "LoopClosure.h"
 #ifndef MIDIFORGE_HEADLESS
 #include "PluginEditor.h"
 #endif
@@ -4135,7 +4134,6 @@ for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
     applyMotifSemantics (section, phraseStart, variationSalt);
 }
 
-    applyLoopClosure (section, hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
 }
 
 void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
@@ -4512,295 +4510,6 @@ float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
         + 0.12f * endingFit);
 }
 
-
-void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t identity) const
-{
-    if (! melodyEnabled || soundProfileFor (soundTarget).soloLine
-        || section.bars < 2)
-        return;
-
-    std::vector<size_t> melody;
-    for (size_t i = 0; i < section.notes.size(); ++i)
-        if (section.notes[i].channel == 3)
-            melody.push_back (i);
-
-    if (melody.size() < 3)
-        return;
-
-    std::stable_sort (melody.begin(), melody.end(),
-        [&] (size_t a, size_t b)
-        {
-            if (section.notes[a].step != section.notes[b].step)
-                return section.notes[a].step < section.notes[b].step;
-            return section.notes[a].note < section.notes[b].note;
-        });
-
-    const auto plan = midiforge::LoopClosure::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
-
-    const int totalSteps = section.bars * 16;
-    const int finalBarStart = (section.bars - 1) * 16;
-
-    std::vector<size_t> head;
-    std::vector<size_t> tail;
-
-    for (const auto index : melody)
-    {
-        const auto& n = section.notes[index];
-        if (n.step < 32)
-            head.push_back (index);
-        if (n.step >= finalBarStart)
-            tail.push_back (index);
-    }
-
-    if (head.size() < 2 || tail.empty())
-        return;
-
-    const size_t lastIndex = tail.back();
-    const size_t previousIndex = tail.size() >= 2 ? tail[tail.size() - 2] : tail.back();
-
-    auto safeMelodyPitch = [&] (int pitch)
-    {
-        int lo = 34, hi = 108;
-        registerLane (2, lo, hi);
-        return juce::jlimit (lo, hi, snapToScale (pitch));
-    };
-
-    const int firstPitch = section.notes[head.front()].note;
-    const int openingDelta = section.notes[head[1]].note - firstPitch;
-    const int lastPitch = section.notes[lastIndex].note;
-
-    auto nearest = [] (int a, int b, int value)
-    {
-        return std::abs (a - value) <= std::abs (b - value) ? a : b;
-    };
-
-    int target = firstPitch;
-
-    const auto prog = progressionDegrees();
-    if (plan.targetStrategy == 0)
-    {
-        target = firstPitch;
-    }
-    else if (plan.targetStrategy == 1)
-    {
-        target = firstPitch - openingDelta;
-    }
-    else if (plan.targetStrategy == 2)
-    {
-        target = firstPitch + openingDelta;
-    }
-    else if (plan.targetStrategy >= 3 && ! prog.empty())
-    {
-        const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
-        const int root = degreeToPitch (degree, octave);
-        const int third = degreeToPitch (degree + 2, octave);
-        const int fifth = degreeToPitch (degree + 4, octave);
-
-        if (plan.targetStrategy == 3)
-            target = nearest (root, third, lastPitch);
-        else if (plan.targetStrategy == 4)
-            target = fifth;
-        else
-            target = firstPitch + ((openingDelta >= 0) ? -2 : 2);
-    }
-
-    // Bridge styles alter how strongly the end points back toward the opening.
-    float blend = plan.returnStrength;
-    if (plan.bridgeStyle == 1) // answer
-        target = firstPitch - openingDelta;
-    else if (plan.bridgeStyle == 2) // pickup
-        blend *= 0.92f;
-    else if (plan.bridgeStyle == 3) // sustain / release
-        blend *= 0.84f;
-    else if (plan.bridgeStyle == 4) // unresolved
-        blend *= 0.62f;
-    else if (plan.bridgeStyle == 5) // deceptive
-        blend *= 0.72f;
-
-    const uint32_t seamHash = hash32 (
-        identity ^ (uint32_t) section.bars * 0x45d9f3bu ^ 0xC1045EAu);
-    const float unresolvedRoll = (float) (seamHash % 1000u) / 1000.0f;
-
-    if (unresolvedRoll < plan.unresolvedBias && ! prog.empty())
-    {
-        const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
-        int tensionTargets[3] =
-        {
-            degree + 1,
-            degree + 3,
-            degree + 6
-        };
-
-        int best = lastPitch;
-        int bestDistance = 1000;
-        for (const int degreeOffset : tensionTargets)
-        {
-            const int raw = degreeToPitch (degreeOffset, octave);
-            for (int k = -2; k <= 2; ++k)
-            {
-                const int candidate = safeMelodyPitch (raw + 12 * k);
-                const int distance = std::abs (candidate - lastPitch);
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = candidate;
-                }
-            }
-        }
-
-        target = best;
-        blend *= 0.74f;
-    }
-
-    const int blended = juce::roundToInt (
-        (float) lastPitch * (1.0f - blend)
-        + (float) target * blend);
-
-    auto& last = section.notes[lastIndex];
-    last.note = safeMelodyPitch (blended);
-
-    if (plan.pickupBias > 0.28f
-        && plan.pickupStyle != 0
-        && last.step > finalBarStart + 1)
-    {
-        const bool hasSpaceBefore = previousIndex == lastIndex
-            || last.step > section.notes[previousIndex].step + 1;
-
-        if (hasSpaceBefore)
-        {
-            if (plan.pickupStyle == 1 || plan.pickupStyle == 3 || plan.pickupStyle == 4)
-                last.step = juce::jmax (finalBarStart, last.step - 1);
-
-            if (plan.pickupStyle == 2 && last.step < totalSteps - 1)
-                last.step = juce::jmin (totalSteps - 1, last.step + 1);
-        }
-    }
-
-    if (plan.releaseStyle == 1 || plan.bridgeStyle == 3)
-    {
-        last.length = juce::jmin (16 - (last.step % 16),
-                                  juce::jmax (last.length, 2));
-        last.length = juce::jmin (last.length,
-                                  juce::jmax (1, totalSteps - last.step));
-    }
-    else if (plan.releaseStyle == 2)
-    {
-        last.length = juce::jmax (1, juce::jmin (last.length, 2));
-    }
-    else if (plan.releaseStyle == 3 && previousIndex != lastIndex)
-    {
-        section.notes[previousIndex].length =
-            juce::jmax (1, juce::jmin (section.notes[previousIndex].length, 2));
-    }
-
-    // A tiny seam accent makes the final event feel intentional without
-    // simply turning every loop ending into the same velocity peak.
-    if (plan.bridgeStyle == 0 || plan.bridgeStyle == 1)
-        last.velocity = juce::jlimit (40, 118, last.velocity + 2);
-    else
-        last.velocity = juce::jlimit (40, 118, last.velocity - 2);
-
-    cleanMelodyLine (section.notes);
-    removeDuplicateNotes (section.notes);
-}
-
-float MidiForgeAudioProcessor::loopClosureScore (const Section& section, uint32_t identity) const
-{
-    std::vector<const NoteEvent*> melody;
-    for (const auto& n : section.notes)
-        if (n.channel == 3)
-            melody.push_back (&n);
-
-    if (section.bars < 2 || melody.size() < 3)
-        return 0.48f;
-
-    std::stable_sort (melody.begin(), melody.end(),
-        [] (const NoteEvent* a, const NoteEvent* b)
-        {
-            if (a->step != b->step) return a->step < b->step;
-            return a->note < b->note;
-        });
-
-    const NoteEvent* first = melody.front();
-    const NoteEvent* second = melody.size() > 1 ? melody[1] : melody.front();
-
-    const NoteEvent* last = nullptr;
-    const NoteEvent* previous = nullptr;
-    for (auto it = melody.rbegin(); it != melody.rend(); ++it)
-    {
-        if ((*it)->step / 16 == section.bars - 1)
-        {
-            if (last == nullptr)
-                last = *it;
-            else
-            {
-                previous = *it;
-                break;
-            }
-        }
-    }
-
-    if (last == nullptr)
-        return 0.36f;
-
-    if (previous == nullptr)
-        previous = last;
-
-    const auto plan = midiforge::LoopClosure::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
-
-    const int seamDistance = std::abs (last->note - first->note);
-    const float seamFit = 1.0f - juce::jlimit (0.0f, 1.0f,
-        (float) std::max (0, seamDistance - 2) / 18.0f);
-
-    const int openingDelta = second->note - first->note;
-    const int endingDelta = last->note - previous->note;
-
-    float gestureFit = 0.5f;
-    if (openingDelta == 0 || endingDelta == 0)
-        gestureFit = 0.58f;
-    else
-    {
-        const bool opposite = (openingDelta > 0) != (endingDelta > 0);
-        const bool same = (openingDelta > 0) == (endingDelta > 0);
-        gestureFit = opposite ? 0.92f : same ? 0.62f : 0.50f;
-
-        if (plan.bridgeStyle == 1)
-            gestureFit = juce::jmax (gestureFit, opposite ? 0.96f : 0.42f);
-    }
-
-    const auto prog = progressionDegrees();
-    float harmonyFit = 0.55f;
-    if (! prog.empty())
-    {
-        const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
-        const int root = degreeToPitch (degree, octave);
-        const int third = degreeToPitch (degree + 2, octave);
-        const int fifth = degreeToPitch (degree + 4, octave);
-        const int rootDistance = std::abs (last->note - root);
-        const int thirdDistance = std::abs (last->note - third);
-        const int fifthDistance = std::abs (last->note - fifth);
-        const int best = std::min (rootDistance, std::min (thirdDistance, fifthDistance));
-        harmonyFit = 1.0f - juce::jlimit (0.0f, 1.0f,
-            (float) std::max (0, best - 1) / 12.0f);
-    }
-
-    const int tailGap = juce::jmax (0, section.bars * 16 - (last->step + last->length));
-    const float seamRelease = tailGap <= 1 ? 0.94f
-        : tailGap <= 3 ? 0.78f
-        : 0.58f;
-
-    const float resolvedPenalty = plan.unresolvedBias > 0.28f && harmonyFit > 0.90f
-        ? 0.10f : 0.0f;
-
-    return juce::jlimit (0.0f, 1.0f,
-        0.34f * seamFit
-        + 0.28f * gestureFit
-        + 0.22f * harmonyFit
-        + 0.16f * seamRelease
-        - resolvedPenalty);
-}
 
 void MidiForgeAudioProcessor::buildBaseSong(SongData& song,juce::Random& r, int variationSalt)
 {
@@ -7176,7 +6885,6 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float melodicProsody = melodicProsodyScore (sec);
         const float creativeRange = creativeRangeScore (sec, generationSeed);
         const float motifSemantics = motifSemanticsScore (sec, generationSeed);
-        const float loopClosure = loopClosureScore (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -7226,7 +6934,6 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
             + 0.05f * melodicProsody
             + 0.07f * creativeRange
             + 0.06f * motifSemantics
-            + 0.06f * loopClosure
             + 0.02f * scaleSafety
             + 0.02f * layerPresence;
     
