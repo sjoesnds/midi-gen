@@ -6882,6 +6882,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float composerGrammar = composerGrammarScore (sec);
         const float melodicProsody = melodicProsodyScore (sec);
         const float creativeRange = creativeRangeScore (sec, generationSeed);
+        const float motifSemantics = motifSemanticsScore (sec, generationSeed);
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
