@@ -399,6 +399,7 @@ void registerLane (int part, int& lo, int& hi) const;
 bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
 float rhythmGrammarScore (const Section& section) const;
+void applyMelodyFoundation (Section& section, uint32_t identity) const;
 void applyMelodyExpression (Section& section, uint32_t identity) const;
 float melodyExpressionScore (const Section& section) const;
 void applyHarmonicIntelligence (Section& section, uint32_t identity) const;
