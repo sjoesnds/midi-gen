@@ -80,7 +80,12 @@ MidiForgeAudioProcessor::MidiForgeAudioProcessor()
     realtimeHumanize.store (humanize);
     realtimeHumanizeEnabled.store (humanizeEnabled);
     realtimeDrumMuteMask.store (drumMuteMask);
-    regenerate();
+    regenerateBlocking (0);
+}
+
+MidiForgeAudioProcessor::~MidiForgeAudioProcessor()
+{
+    waitForGeneration();
 }
 bool MidiForgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
@@ -9212,6 +9217,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
 void MidiForgeAudioProcessor::magicRandomize()
 {
+    if (isGenerating()) return;   // 0.78: the worker is reading the controls
     // MAGIC 2.0: first create one coherent musical DNA, then derive the
     // existing controls from it. This keeps the search space expressive
     // without introducing a second parallel generation engine.
@@ -9307,10 +9313,10 @@ void MidiForgeAudioProcessor::magicRandomize()
 
 void MidiForgeAudioProcessor::rerollSameDNA()
 {
+    if (isGenerating()) return;
     // Preserve all DNA axes and controls; only change the generation identity.
     seed = static_cast<int>(hash32(magicDnaSeed ^ generationNonce ^ 0x6d2b79f5u));
-    regenerateVariations();
-    chooseVariation(0);
+    startGeneration (0);
 }
 
 void MidiForgeAudioProcessor::mutateSelected(float amount)
@@ -9596,30 +9602,86 @@ void MidiForgeAudioProcessor::refreshHostBpm()
     }
 }
 
-void MidiForgeAudioProcessor::regenerate()
-{
-realtimeSwing.store (swing);
-realtimeHumanize.store (humanize);
-realtimeHumanizeEnabled.store (humanizeEnabled);
-realtimeDrumMuteMask.store (drumMuteMask);
-refreshHostBpm();
-buildVariationBank();
-chooseVariation (0);
-}
-void MidiForgeAudioProcessor::regenerateVariations()
+void MidiForgeAudioProcessor::regenerateBlocking (int selectionAfter)
 {
     realtimeSwing.store (swing);
     realtimeHumanize.store (humanize);
     realtimeHumanizeEnabled.store (humanizeEnabled);
     realtimeDrumMuteMask.store (drumMuteMask);
     refreshHostBpm();
+    buildVariationBank();
+    chooseVariation (selectionAfter);
+}
+
+void MidiForgeAudioProcessor::waitForGeneration()
+{
+    std::lock_guard<std::mutex> g (generationThreadMutex);
+    if (generationThread.joinable())
+        generationThread.join();
+}
+
+// 0.78: the ~1.5 s MAGIC search used to run on the UI thread and froze FL Studio. In the plugin it now runs on a
+// worker thread. The editor blocks input while isGenerating() (the generator reads the live controls and temporarily
+// adjusts some of them), a request that arrives during a job is coalesced into one follow-up run, and the finished
+// bank is swapped in under variationsLock exactly as before. The headless QA build stays synchronous.
+void MidiForgeAudioProcessor::startGeneration (int selectionAfter)
+{
+    if (! asyncGeneration.load())
+    {
+        regenerateBlocking (selectionAfter);
+        return;
+    }
+    realtimeSwing.store (swing);
+    realtimeHumanize.store (humanize);
+    realtimeHumanizeEnabled.store (humanizeEnabled);
+    realtimeDrumMuteMask.store (drumMuteMask);
+    refreshHostBpm();   // needs the message thread (play head)
+    {
+        std::lock_guard<std::mutex> g (generationMutex);
+        if (generating.load())
+        {
+            regenQueued = true;
+            queuedSelection = selectionAfter;
+            return;
+        }
+        generating.store (true);
+    }
+    std::lock_guard<std::mutex> tg (generationThreadMutex);
+    if (generationThread.joinable())
+        generationThread.join();   // previous job already finished: returns immediately
+    generationThread = std::thread ([this, selectionAfter]
+    {
+        int sel = selectionAfter;
+        for (;;)
+        {
+            buildVariationBank();
+            chooseVariation (sel);
+            generationDone.fetch_add (1);
+            std::lock_guard<std::mutex> g (generationMutex);
+            if (! regenQueued)
+            {
+                generating.store (false);
+                return;
+            }
+            regenQueued = false;
+            sel = queuedSelection;
+        }
+    });
+}
+
+void MidiForgeAudioProcessor::regenerate()
+{
+    startGeneration (0);
+}
+
+void MidiForgeAudioProcessor::regenerateVariations()
+{
     int keep = 0;
     {
         const juce::ScopedLock sl (variationsLock);
         keep = selectedVariation;
     }
-    buildVariationBank();
-    chooseVariation (keep);
+    startGeneration (keep);
 }
 void MidiForgeAudioProcessor::chooseVariation(int index)
 {
@@ -9806,6 +9868,7 @@ midi.swapWith(out);
 }
 void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
+waitForGeneration();   // 0.78: never save controls the worker is temporarily adjusting
 juce::MemoryOutputStream o(dest,false);
 o.writeInt(rootPc);o.writeInt(genre);o.writeInt(scale);o.writeInt(progression);
 o.writeInt(rhythm);o.writeInt(bars);o.writeInt(seed);o.writeInt(octave);o.writeInt(sectionMode);
@@ -9831,6 +9894,7 @@ o.writeBool(humanizeEnabled);
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
 if(!data||size<=0)return;
+waitForGeneration();   // 0.78
 juce::MemoryInputStream i(data,(size_t)size,false);
 rootPc=i.readInt();genre=i.readInt();scale=i.readInt();progression=i.readInt();
 rhythm=i.readInt();bars=i.readInt();seed=i.readInt();octave=i.readInt();sectionMode=i.readInt();
@@ -9841,12 +9905,6 @@ arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inve
 motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
-if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
-if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
-if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
-if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
-if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
-
 // Reset every optional field to its historical default before reading appended
 // bytes. A legacy preset can legitimately end before these fields; loading it
 // into an already-used processor must not leak the previous UI state.
@@ -9865,6 +9923,12 @@ lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
 tasteEnabled = true;
 humanizeEnabled = false;
 
+if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
+if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
+if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
+if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
+if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
+
 // 0.46: older preset states simply stop before these optional bytes.
 if (i.getNumBytesRemaining() >= 1) leadStyleSoundCloud = i.readBool();
 if (i.getNumBytesRemaining() >= 4)
@@ -9876,8 +9940,7 @@ if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
 // Older states stop before this byte, so legacy presets remain Humanize OFF.
 humanizeEnabled = false;
 if (i.getNumBytesRemaining() >= 1) humanizeEnabled = i.readBool();
-regenerate();
-chooseVariation (savedSelection);
+regenerateBlocking (savedSelection);
 }
 // --- MIDI export --------------------------------------------------------
 std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const

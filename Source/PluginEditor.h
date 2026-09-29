@@ -22,6 +22,37 @@ void refreshTaste();
 void scheduleRegeneration (bool preserveSelection);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
+// 0.78: MAGIC runs on a worker thread; this overlay blocks input while it works (the generator reads the live controls).
+struct BusyOverlay : public juce::Component, private juce::Timer
+{
+    explicit BusyOverlay (MidiForgeAudioProcessor& p) : proc (p)
+    {
+        setInterceptsMouseClicks (true, true);
+        setVisible (false);
+        startTimerHz (30);
+    }
+    ~BusyOverlay() override { stopTimer(); }
+    void sync()
+    {
+        const bool busy = proc.isGenerating();
+        if (busy != isVisible())
+        {
+            setVisible (busy);
+            if (busy) toFront (false);
+        }
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0x99000000));
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::FontOptions (26.0f));
+        g.drawFittedText ("GENERATING...", getLocalBounds(), juce::Justification::centred, 1);
+    }
+    void timerCallback() override { sync(); }
+    MidiForgeAudioProcessor& proc;
+};
+BusyOverlay busyOverlay { processor };
+uint32_t lastGenerationDone = 0;
 juce::Label title, sectionLabel, variationInfoLabel, versionLabel, tempoLabel;
 juce::int64 regenerationDueMs = 0;
 uint32_t scheduledGenerationNonce = 0;

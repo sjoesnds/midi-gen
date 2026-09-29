@@ -11,6 +11,8 @@
 #include <vector>
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <thread>
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -25,7 +27,7 @@ enum SectionMode { Loop, SongMode, SongExtended };
 enum Mood { NeutralMood, DarkMood, MelancholicMood, EuphoricMood, AggressiveMood, DreamyMood, NostalgicMood, MysteriousMood, EnergeticMood };
 enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMelody, CounterMelody, SparseLeadMelody, PhraseMelody };
 MidiForgeAudioProcessor();
-~MidiForgeAudioProcessor() override = default;
+~MidiForgeAudioProcessor() override;
 void prepareToPlay(double, int) override;
 void releaseResources() override
 {
@@ -56,6 +58,12 @@ void getStateInformation(juce::MemoryBlock&) override;
 void setStateInformation(const void*, int) override;
 void regenerate();
 void regenerateVariations();
+// 0.78: MAGIC / regenerate run on a worker thread in the plugin (synchronously in the headless QA build).
+// While isGenerating() is true the editor blocks input, because the generator reads the live controls.
+bool isGenerating() const { return generating.load(); }
+uint32_t getGenerationDoneCounter() const { return generationDone.load(); }
+void waitForGeneration();
+void setAsyncGeneration (bool on) { asyncGeneration.store (on); }   // QA hook; headless builds default to synchronous
 // Magic Overhaul: explore the whole musical state coherently.
 void magicRandomize();
 void rerollSameDNA();
@@ -155,7 +163,7 @@ bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
-uint32_t getGenerationNonce() const { return generationNonce; }
+uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
 void likeVariation(int varIndex);
 void dislikeVariation(int varIndex);
@@ -323,7 +331,20 @@ int drumPitchMode = 0;
 int articulation = 0;   // Off by default: overlapping notes sound like dyads on a polyphonic patch
 bool autoNextOnDislike = true;
 int rhythm = Straight, bars = 4, seed = 1337, octave = 4;
-uint32_t generationNonce = 0;
+std::atomic<uint32_t> generationNonce { 0 };
+// 0.78 background generation
+#ifdef MIDIFORGE_HEADLESS
+std::atomic<bool> asyncGeneration { false };
+#else
+std::atomic<bool> asyncGeneration { true };
+#endif
+std::thread generationThread;
+std::mutex generationThreadMutex;   // guards the std::thread object itself
+std::mutex generationMutex;         // guards generating / regenQueued / queuedSelection
+std::atomic<bool> generating { false };
+std::atomic<uint32_t> generationDone { 0 };
+bool regenQueued = false;
+int queuedSelection = 0;
 uint32_t generationSeed = 0;
 // Magic DNA 2.0: coherent latent targets used by the candidate judge.
 float dnaMelody = 0.50f, dnaRhythm = 0.50f, dnaHarmony = 0.50f, dnaMotif = 0.50f;
@@ -439,6 +460,8 @@ Section transformLoop (Section source, int mode, uint32_t identity) const;
 float loopForgeScore (const Section& sec) const;
 void finalizeLoop (Section& sec) const;
 void buildVariationBank();
+void startGeneration (int selectionAfter);
+void regenerateBlocking (int selectionAfter);
 void refreshHostBpm();
 Section mergedSelectedSong() const;
 void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias);

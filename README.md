@@ -2,9 +2,22 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.77.0**
+**Current version: 0.78.0**
 
 
+
+### Background MAGIC — 0.78.0
+- MAGIC / NEW SEED / control changes no longer freeze FL Studio: the ~1.5 s candidate search now runs on a worker thread.
+- While it runs, the editor shows a "GENERATING..." overlay and blocks input (the generator reads the live controls).
+- Requests that arrive during a job are coalesced into a single follow-up run; a MAGIC press while busy is ignored.
+- Saving or loading a project waits for a running job; closing the plugin joins the worker.
+- Project load and plugin creation stay synchronous so a full bank always exists. The headless QA build stays synchronous too, with a switch to test the async path.
+- QA: new checks for async completion, coalescing, state-save waiting and safe destruction.
+
+### Project State Fix — 0.77.1
+- Fixes project reload: Sound target, Articulation, Auto-Next, Chord style, Drums, drum mute/pitch mode, Mood, Melody type and Era were reset to defaults on every load.
+- The legacy-defaults reset now runs before the optional fields are read instead of after.
+- QA: the "older project" case now truncates by the correct size (28 + 7 trailing flag bytes) and a new check ensures legacy loads do not inherit a previous processor state.
 
 ### Crash Fix — 0.76.2
 - Fixes a concrete out-of-bounds index in Motif Semantics when a sparse melody bar contained one or two notes.

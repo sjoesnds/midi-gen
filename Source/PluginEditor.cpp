@@ -243,8 +243,8 @@ generate.setButtonText("MAGIC");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
-generate.onClick=[this]{ processor.magicRandomize(); pianoRoll.resetEditHistory(); };
-newSeed.onClick=[this]{ processor.rerollSameDNA(); pianoRoll.resetEditHistory(); };
+generate.onClick=[this]{ processor.magicRandomize(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
+newSeed.onClick=[this]{ processor.rerollSameDNA(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
 applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 exportMidi.onClick=[this]{
 fileChooser = std::make_unique<juce::FileChooser>(
@@ -345,6 +345,8 @@ addAndMakeVisible(lockMelodyBtn);addAndMakeVisible(lockArpBtn);
 addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
+addChildComponent (busyOverlay);
+lastGenerationDone = processor.getGenerationDoneCounter();
 startTimerHz (10);
 }
 void MidiForgeAudioProcessorEditor::scheduleRegeneration (bool preserveSelection)
@@ -385,6 +387,7 @@ g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left
 }
 void MidiForgeAudioProcessorEditor::resized()
 {
+busyOverlay.setBounds (getLocalBounds());
 const int W = getWidth();
 const int left = 20;
 const int contentW = W - 40;
@@ -531,6 +534,14 @@ void MidiForgeAudioProcessorEditor::timerCallback()
             pianoRoll.resetEditHistory();
         }
     }
+
+const uint32_t generationDone = processor.getGenerationDoneCounter();
+if (generationDone != lastGenerationDone)
+{
+    lastGenerationDone = generationDone;
+    pianoRoll.resetEditHistory();   // the background job finished: fresh bank, old undo history no longer applies
+    repaint();
+}
 
 const double bpm = processor.getHostBpm();
 const juce::String bpmText = "DAW BPM " + juce::String (juce::roundToInt (bpm));

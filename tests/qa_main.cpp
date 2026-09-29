@@ -15,10 +15,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 using Note = MidiForgeAudioProcessor::VisibleNote;
@@ -1487,8 +1489,10 @@ int main()
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
         MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 24);    // project saved by 0.40 / 0.41
         report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 0, "defaults applied");
-        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 28);    // project saved by 0.38 / 0.39
+        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 35);    // project saved by 0.38 / 0.39 (28 + the 7 trailing flag bytes added later)
         report ("older project (no sound field) loads", d.getSoundTarget() == 0, "defaults applied");
+        MidiForgeAudioProcessor dirty; dirty.setSoundTarget (5); dirty.setDrumsEnabled (true); dirty.setStateInformation (mb.getData(), (int) mb.getSize() - 35);
+        report ("legacy project does not inherit previous processor state", dirty.getSoundTarget() == 0 && ! dirty.isDrumsEnabled(), "defaults applied");
     }
     {
         MidiForgeAudioProcessor a; a.setAutoNext (true); a.magicRandomize();
@@ -1585,6 +1589,45 @@ int main()
         }
         report ("live MIDI: every event inside its block (swing 0.75)", events > 0 && beyond == 0, fmt ("%.0f note-ons, %.0f outside the block", events, beyond));
         report ("live MIDI: note-on / note-off pair up, no retrigger cut", minDepth >= 0 && maxDepth <= 1, fmt ("depth min %.0f, max %.0f", minDepth, maxDepth));
+    }
+
+    // ------------------------------------------------------------------ 9. background generation (0.78)
+    {
+        auto waitIdle = [] (MidiForgeAudioProcessor& p)
+        {
+            for (int t = 0; t < 60000 && p.isGenerating(); t += 5) std::this_thread::sleep_for (std::chrono::milliseconds (5));
+            return ! p.isGenerating();
+        };
+        {
+            MidiForgeAudioProcessor a; a.setAsyncGeneration (true);
+            const auto done0 = a.getGenerationDoneCounter();
+            a.setSeed (4242);
+            const bool running = a.isGenerating();
+            const bool finished = waitIdle (a);
+            report ("async generation: call returns while the job runs", running, "isGenerating right after the call");
+            report ("async generation: job finishes with a full bank", finished && a.getVariationCount() == 8 && a.getGenerationDoneCounter() == done0 + 1,
+                   fmt ("%.0f variations", a.getVariationCount()));
+        }
+        {
+            MidiForgeAudioProcessor a; a.setAsyncGeneration (true);
+            const auto done0 = a.getGenerationDoneCounter();
+            a.regenerate(); a.regenerate(); a.regenerate();
+            const bool ok = waitIdle (a);
+            report ("async generation: requests during a job coalesce into one follow-up run", ok && a.getGenerationDoneCounter() == done0 + 2,
+                   fmt ("%.0f runs for 3 requests", (double) (a.getGenerationDoneCounter() - done0)));
+        }
+        {
+            MidiForgeAudioProcessor a; a.setAsyncGeneration (true);
+            a.regenerate();
+            juce::MemoryBlock mb; a.getStateInformation (mb);
+            report ("async generation: saving state waits for the worker", ! a.isGenerating() && mb.getSize() > 0, "state saved after the job");
+        }
+        {
+            auto* a = new MidiForgeAudioProcessor(); a->setAsyncGeneration (true);
+            a->regenerate();
+            delete a;
+            report ("async generation: destroying the processor mid-job is safe", true, "worker joined");
+        }
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
