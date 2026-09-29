@@ -13,6 +13,8 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+inline constexpr const char* kMidiForgeEngineVersion = "0.79.0";
+
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -63,6 +65,11 @@ void regenerateVariations();
 bool isGenerating() const { return generating.load(); }
 uint32_t getGenerationDoneCounter() const { return generationDone.load(); }
 void waitForGeneration();
+// 0.79 feedback log: one CSV row per LIKE / DISLIKE / export / drag, so the real like-rate of every archetype, transform,
+// genre and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
+void setFeedbackLogFile (const juce::File& f) { feedbackFile = f; }
+juce::File getFeedbackLogFile() const { return feedbackFile; }
+void logFeedback (int variationIndex, const char* verdict) const;
 void setAsyncGeneration (bool on) { asyncGeneration.store (on); }   // QA hook; headless builds default to synchronous
 // Magic Overhaul: explore the whole musical state coherently.
 void magicRandomize();
@@ -211,6 +218,8 @@ struct Section {
     float energy = 0.5f;
     float densityMultiplier = 1.0f;
     int transpose = 0;
+    int sourceArchetype = -1;   // 0.79: MAGIC archetype the loop came from (for the feedback log)
+    int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
     std::vector<NoteEvent> notes;
 };
 struct SongData {
@@ -398,6 +407,8 @@ std::array<float,8> likedFeatures {};
 std::array<float,8> dislikedFeatures {};
 int likedFeatureN = 0, dislikedFeatureN = 0;
 juce::File preferencesFile;
+juce::File feedbackFile;
+mutable juce::CriticalSection feedbackLock;
 taste::Model tasteModel;
 taste::Vec tasteMean {};
 taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();

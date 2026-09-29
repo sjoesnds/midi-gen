@@ -1630,6 +1630,35 @@ int main()
         }
     }
 
+    // ------------------------------------------------------------------ 10. feedback log (0.79)
+    {
+        const auto logFile = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("midiforge_qa_feedback.csv");
+        logFile.deleteFile();
+        MidiForgeAudioProcessor a; a.setFeedbackLogFile (logFile);
+        a.magicRandomize();
+        a.likeVariation (2);
+        a.dislikeVariation (5);
+        const auto exportFile = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("midiforge_qa_export.mid");
+        a.exportMidi (exportFile);
+        exportFile.deleteFile();
+
+        juce::StringArray lines;
+        lines.addLines (logFile.loadFileAsString());
+        lines.removeEmptyStrings();
+        const int cols = lines.size() > 0 ? juce::StringArray::fromTokens (lines[0], ",", "").size() : 0;
+        bool sameCols = lines.size() == 4;
+        for (const auto& l : lines) sameCols = sameCols && juce::StringArray::fromTokens (l, ",", "").size() == cols;
+        report ("feedback log: header + one row per like / dislike / export", sameCols && cols == 22 && lines[0].startsWith ("time_utc,engine,verdict"),
+               fmt ("%.0f lines, %.0f columns", (double) lines.size(), (double) cols));
+        const auto like = juce::StringArray::fromTokens (lines.size() > 1 ? lines[1] : juce::String(), ",", "");
+        const auto dislike = juce::StringArray::fromTokens (lines.size() > 2 ? lines[2] : juce::String(), ",", "");
+        report ("feedback log: verdicts and slots are recorded", like.size() > 3 && like[2] == "like" && like[3] == "3"
+               && dislike.size() > 3 && dislike[2] == "dislike" && dislike[3] == "6", "like slot 3, dislike slot 6");
+        report ("feedback log: rows carry transform and archetype names", like.size() > 5 && like[4] != "?" && like[5] != "?",
+               like.size() > 5 ? (like[4] + " / " + like[5]).toStdString() : std::string ("no row"));
+        logFile.deleteFile();
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

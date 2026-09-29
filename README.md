@@ -2,9 +2,17 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.78.0**
+**Current version: 0.79.0**
 
 
+
+### Feedback Log — 0.79.0
+- Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.
+- Each row records engine version, verdict, variation slot, **transform**, **source archetype**, genre, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
+- `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, genre, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
+- Loops now remember the archetype they came from and their transform slot.
+- QA: new checks for the log format, verdict/slot recording and archetype/transform names.
+- No new UI controls.
 
 ### Background MAGIC — 0.78.0
 - MAGIC / NEW SEED / control changes no longer freeze FL Studio: the ~1.5 s candidate search now runs on a worker thread.

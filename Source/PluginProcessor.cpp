@@ -75,6 +75,7 @@ MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 {
     preferencesFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                         .getChildFile ("MidiForge").getChildFile ("taste.json");
+    feedbackFile = preferencesFile.getSiblingFile ("feedback.csv");
     loadPreferences();
     realtimeSwing.store (swing);
     realtimeHumanize.store (humanize);
@@ -2255,6 +2256,7 @@ void MidiForgeAudioProcessor::applyTasteToCandidate(float& quality, float densit
 void MidiForgeAudioProcessor::likeVariation(int vi)
 {
     if (vi < 0 || vi > 7) return;
+    logFeedback (vi, "like");
     likeCounts[(size_t)vi]++;
     float d, e, c; sampleVariationFeatures(vi, d, e, c);
     std::array<float,8> f; sampleVariationTaste(vi, f);
@@ -2274,6 +2276,7 @@ void MidiForgeAudioProcessor::likeVariation(int vi)
 void MidiForgeAudioProcessor::dislikeVariation(int vi)
 {
     if (vi < 0 || vi > 7) return;
+    logFeedback (vi, "dislike");
     dislikeCounts[(size_t)vi]++;
     float d, e, c; sampleVariationFeatures(vi, d, e, c);
     std::array<float,8> f; sampleVariationTaste(vi, f);
@@ -2344,6 +2347,67 @@ void MidiForgeAudioProcessor::applyLearnedWeights()
     melodyDensity = juce::jlimit(0.f, 1.f, melodyDensity + dirD * g);
     energy = juce::jlimit(0.f, 1.f, energy + dirE * g);
     complexity = juce::jlimit(0.f, 1.f, complexity + dirC * g);
+}
+
+void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
+{
+    static constexpr const char* archetypes[8] = { "HOOK", "GROOVE", "HARMONY", "MOTIF", "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD" };
+    static constexpr const char* transforms[8] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK" };
+    static constexpr const char* genres[16] = { "Universal", "Trap", "House", "Techno", "BoomBap", "Ambient", "Cinematic", "RnB",
+                                                "Pop", "Drill", "DnB", "Jersey", "Afro", "Hyperpop", "Experimental", "Lofi" };
+    static constexpr const char* scales[7] = { "Major", "Minor", "Dorian", "Phrygian", "HarmonicMinor", "MelodicMinor", "Pentatonic" };
+    static constexpr const char* sounds[8] = { "Piano", "Pluck", "SynthLead", "Bell", "Pad", "Brass", "808", "Guitar" };
+    static constexpr const char* moods[9] = { "Neutral", "Dark", "Melancholic", "Euphoric", "Aggressive", "Dreamy", "Nostalgic", "Mysterious", "Energetic" };
+    static constexpr const char* melodyTypes[8] = { "Hook", "VocalLike", "Riff", "Ostinato", "Arp", "Counter", "SparseLead", "Phrase" };
+    auto nameOf = [] (const char* const* table, int n, int i) { return juce::String (i >= 0 && i < n ? table[i] : "?"); };
+
+    int slot = 0, archetype = -1, transform = -1, melodyNotes = 0, totalNotes = 0, loopBars = bars;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (variations.empty()) return;
+        slot = juce::jlimit (0, (int) variations.size() - 1, vi < 0 ? selectedVariation : vi);
+        const auto& v = variations[(size_t) slot];
+        archetype = v.sourceArchetype;
+        transform = v.transformMode;
+        loopBars = v.bars;
+        totalNotes = (int) v.notes.size();
+        for (const auto& n : v.notes) if (n.channel == 3) ++melodyNotes;
+    }
+
+    juce::StringArray row;
+    row.add (juce::Time::getCurrentTime().toISO8601 (false));
+    row.add (kMidiForgeEngineVersion);
+    row.add (verdict);
+    row.add (juce::String (slot + 1));
+    row.add (nameOf (transforms, 8, transform));
+    row.add (nameOf (archetypes, 8, archetype));
+    row.add (nameOf (genres, 16, genre));
+    row.add (nameOf (moods, 9, mood));
+    row.add (nameOf (melodyTypes, 8, melodyType));
+    row.add (nameOf (sounds, 8, soundTarget));
+    row.add (juce::String (era));
+    row.add (nameOf (scales, 7, scale));
+    row.add (juce::String (progression));
+    row.add (juce::String (loopBars));
+    row.add (juce::String (currentBpm.load(), 1));
+    row.add (juce::String (complexity, 2));
+    row.add (juce::String (energy, 2));
+    row.add (juce::String (melodyDensity, 2));
+    row.add (juce::String (melodyNotes));
+    row.add (juce::String (totalNotes));
+    row.add (juce::String ((juce::int64) generationSeed));
+    row.add (juce::String ((juce::int64) magicDnaSeed));
+
+    const juce::ScopedLock fl (feedbackLock);
+    if (feedbackFile == juce::File()) return;
+    feedbackFile.getParentDirectory().createDirectory();
+    const bool needHeader = ! feedbackFile.existsAsFile() || feedbackFile.getSize() == 0;
+    juce::FileOutputStream out (feedbackFile);
+    if (! out.openedOk()) return;
+    out.setPosition (feedbackFile.getSize());
+    if (needHeader)
+        out << "time_utc,engine,verdict,slot,transform,archetype,genre,mood,melody_type,sound,era,scale,progression,bars,bpm,complexity,energy,melody_density,melody_notes,total_notes,generation_seed,dna_seed\n";
+    out << row.joinIntoString (",") << "\n";
 }
 
 void MidiForgeAudioProcessor::savePreferences()
@@ -9141,6 +9205,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 hash32 (transformationSeeds[sourceIndex]
                         ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
 
+            flat.sourceArchetype = selected[sourceIndex].archetype;
+            flat.transformMode = mode;
             flat.name = "VARIATION " + juce::String (mode + 1)
                       + " • " + juce::String (transformationNames[mode]);
 
@@ -9794,7 +9860,9 @@ output.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
 auto stream = output.createOutputStream();
 if (stream == nullptr)
 return false;
-return file.writeTo (*stream, 1);
+const bool exported = file.writeTo (*stream, 1);
+if (exported) logFeedback (-1, "export");
+return exported;
 }
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer& midi)
 {
@@ -10073,6 +10141,7 @@ juce::File MidiForgeAudioProcessor::writeTemporaryMidiFile() const
 auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
 .getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
 exportMidiFileTo (file);
+logFeedback (-1, "drag_all");
 return file;
 }
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForChannel (int channel) const
@@ -10082,6 +10151,7 @@ auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
 .getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 5, channel)])
 + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
 exportMidiFileToChannel (file, channel);
+logFeedback (-1, "drag_part");
 return file;
 }
 std::vector<MidiForgeAudioProcessor::VisibleNote> MidiForgeAudioProcessor::getVisibleNotes() const
