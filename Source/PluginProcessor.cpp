@@ -101,7 +101,7 @@ pendingEvents.reserve (4096);
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
-void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
+void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,(int)ScaleCount-1,v);regenerate();}
 void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
 void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7,v);regenerate();}
@@ -209,7 +209,15 @@ case Dorian:return{0,2,3,5,7,9,10};
 case Phrygian:return{0,1,3,5,7,8,10};
 case HarmonicMinor:return{0,2,3,5,7,8,11};
 case MelodicMinor:return{0,2,3,5,7,9,11};
-default:return{0,2,4,7,9};
+case Pentatonic:return{0,2,4,7,9};
+case Lydian:return{0,2,4,6,7,9,11};
+case Mixolydian:return{0,2,4,5,7,9,10};
+case Locrian:return{0,1,3,5,6,8,10};
+case MajorPentatonic:return{0,2,4,7,9};
+case MinorPentatonic:return{0,3,5,7,10};
+case DoubleHarmonic:return{0,1,4,5,7,8,11};
+case HungarianMinor:return{0,2,3,6,7,8,11};
+default:return{0,2,4,5,7,9,11};
 }
 }
 std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
@@ -9238,7 +9246,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     if (!lockChordsLayer)
     {
         rootPc = pick(12);
-        scale = pick(7);
+        scale = pick((int)ScaleCount);
         progression = pick(7);
         chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
         chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
