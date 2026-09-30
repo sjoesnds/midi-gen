@@ -2721,6 +2721,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     const uint32_t intentRoll = hash32 (identitySeed ^ 0xA11CE55u);
+    // 0.81.1 Underground language: a soft compositional bias toward negative
+    // space, color tones, repeated cells and late entrances. It never leaves
+    // the active scale and it is not tied to a genre label.
+    const float undergroundLevel =
+        0.30f + 0.70f * ((float) (hash32 (identitySeed ^ 0x7B0E4A11u) % 1000u) / 999.0f);
+    const bool undergroundLanguage = undergroundLevel > 0.54f;
+
     // 0.81 Melody Core: explicit compositional intent. Simple is a real
     // population, Balanced remains the default, Complex gets the elaborate
     // vocabulary only when the intent roll calls for it.
@@ -3233,6 +3240,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         if (fastTempo > 0.05f && (x % 4) != 0)
             positionDensity *= 1.0f + tempoOffbeatBoost;
 
+        // 0.81.1 Underground pocket: leave more room on obvious downbeats and
+        // make late/offbeat entries compete on equal footing. This produces
+        // phrases that feel discovered inside the groove instead of spelling out
+        // every chord change.
+        if (undergroundLanguage)
+        {
+            if ((x % 4) == 0)
+                positionDensity *= 0.78f;
+            else if ((x % 4) == 1 || (x % 4) == 3)
+                positionDensity *= 1.12f;
+
+            if (x >= 12)
+                positionDensity *= 1.08f;
+        }
+
         // 0.58.3: avoid stacking the melody onto a fully occupied slice of the
         // backdrop, while still allowing deliberate chord/bass alignment.
         positionDensity *= contextStepWeight (x);
@@ -3288,6 +3310,17 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         chosen.push_back(bestPos);
     }
     std::sort(chosen.begin(), chosen.end());
+
+    // 0.81.1 Underground pocket: when the line has enough events, deliberately
+    // remove an obvious downbeat and keep a later entry. The min-note repair below
+    // still guarantees a playable phrase.
+    if (undergroundLanguage && chosen.size() > (size_t) minNotes)
+    {
+        const auto it = std::find_if (chosen.begin(), chosen.end(),
+            [] (int x) { return x == 0 || x == 4; });
+        if (it != chosen.end())
+            chosen.erase (it);
+    }
 
     // Phrase punctuation: don't fill every bar.  Some loops enter late or leave
     // the last quarter empty, which makes the loop breathe when repeated.
@@ -3446,6 +3479,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const int style = (int) (hash32 (identitySeed ^ 0xC0FFEE11u)
                                      % 8u);
             const int idx = (int) (i % 5u);
+
+            // Underground simple phrases often revolve around a small color
+            // cell rather than a bright root-third-root cadence.
+            if (undergroundLanguage && idx == 0)
+            {
+                static const int undergroundAnchors[4] = { 1, 3, 5, 6 };
+                const int anchorIndex = (int) (hash32 (identitySeed ^ 0x5EED4411u) % 4u);
+                return degree + undergroundAnchors[anchorIndex];
+            }
+
             int d = degree + simplePatterns[style][idx];
 
             // Keep A'/B/A'' related without manufacturing a new contour family.
@@ -3708,6 +3751,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             }
         }
 
+        // 0.81.1 Underground contour: favor an occasionally repeated
+        // note/cell instead of constantly inventing a new pitch. The repetition
+        // is scale-safe because it reuses the already-authored previous note.
+        if (undergroundLanguage && ! generated.empty() && generated.size() >= 1)
+        {
+            const uint32_t repeatHash = hash32 (identitySeed ^ (uint32_t) (i * 173 + 0x4D2));
+            const float repeatChance = 0.20f + 0.18f * undergroundLevel;
+            if ((float) (repeatHash % 1000u) / 999.0f < repeatChance
+                && ((i % 3u) != 0u || simpleCandidate))
+            {
+                note = generated.back();
+            }
+        }
+
         // Composition profiles: each generation has a different balance of
         // anchor / contrast / register / repetition.  These are musical rules,
         // not random pitch noise, and they are intentionally subtle.
@@ -3771,12 +3828,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const float harmonyPersonalityBias =
                 (creativeRange.harmonyPersonality <= 1 ? -0.10f
                  : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f);
+            const float undergroundColor = undergroundLanguage
+                ? (0.18f + 0.22f * undergroundLevel)
+                : 0.0f;
             const float tensionChance = juce::jlimit(0.04f, 0.84f,
                 0.06f
                 + 0.42f * poolTension
                 + 0.20f * phraseTension
                 + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
                 + 0.10f * creativeRange.harmonyColor
+                + undergroundColor
                 + harmonyPersonalityBias
                 + tensionPulse);
 
@@ -3802,8 +3863,54 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             {
                 const int root = pitchForDegree(degree, octave);
                 const int third = pitchForDegree(degree + 2, octave);
-                if ((ah % 100u) < (uint32_t)(50.0f + 40.0f * (1.0f - poolTension)))
+
+                if (undergroundLanguage)
+                {
+                    // Prefer legal color degrees (2/4/6/7 relative to the chord
+                    // degree) and only resolve to the chord when the phrase actually
+                    // needs closure. This keeps the line harmonically safe without
+                    // making every strong hit sound like an arpeggio.
+                    const int colorDegrees[] = {
+                        degree + 1, degree + 3, degree + 5, degree + 6
+                    };
+
+                    int bestColor = note;
+                    int bestDistance = 999;
+                    for (const int colorDegree : colorDegrees)
+                    {
+                        const int base = pitchForDegree (colorDegree, octave);
+                        for (int oct = -2; oct <= 2; ++oct)
+                        {
+                            const int cand = base + oct * 12;
+                            if (cand < melLo || cand > melHi || chordTone (cand))
+                                continue;
+
+                            const int d = std::abs (cand - note);
+                            if (d < bestDistance)
+                            {
+                                bestDistance = d;
+                                bestColor = cand;
+                            }
+                        }
+                    }
+
+                    const bool needsClosure = (cycle == 3 && x >= 12);
+                    const bool chooseColor =
+                        ! needsClosure
+                        && ((ah % 1000u) < (uint32_t) juce::roundToInt (
+                            620.0f + 220.0f * undergroundLevel));
+
+                    if (chooseColor && bestDistance < 100)
+                        note = bestColor;
+                    else if ((ah % 100u) < 34u)
+                        note = third;
+                    else
+                        note = root;
+                }
+                else if ((ah % 100u) < (uint32_t)(50.0f + 40.0f * (1.0f - poolTension)))
+                {
                     note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
+                }
             }
 
             note = foldIntoLane(note, melLo, melHi);
