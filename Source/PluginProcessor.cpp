@@ -3144,6 +3144,43 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         positions.push_back(x);
     }
 
+    // 0.81 Simple Rhythm Grammar: simple phrases get their own small
+    // vocabulary instead of borrowing the complex rhythm bank and merely
+    // deleting hits. The cells intentionally use 2-4 onsets and leave air.
+    if (simpleCandidate)
+    {
+        static const int simpleRhythms[8][4] =
+        {
+            { 0,  4,  8, -1 },
+            { 0,  6, 12, -1 },
+            { 0,  4, 10, 14 },
+            { 0,  8, 12, -1 },
+            { 2,  6, 12, -1 },
+            { 0,  6,  8, 14 },
+            { 0,  4, 12, 14 },
+            { 1,  7, 12, -1 }
+        };
+
+        const int simpleStyle = (int) (hash32 (identitySeed ^ 0x51A11CE5u)
+                                       % 8u);
+        positions.clear();
+        for (int i = 0; i < 4; ++i)
+        {
+            const int x = simpleRhythms[simpleStyle][i];
+            if (x < 0)
+                break;
+            positions.push_back (x);
+        }
+
+        // B gets a small late entry variation; the return bar settles back to
+        // the original pocket instead of becoming busier.
+        if (cycle == 2 && positions.size() >= 3)
+            positions[(size_t) (positions.size() - 1)] =
+                juce::jlimit (0, 15, positions.back() + 1);
+        if (cycle == 3 && positions.size() >= 3)
+            positions.pop_back();
+    }
+
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
@@ -3389,6 +3426,39 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // made lines angular (about half of all intervals used to be >= a minor sixth).
     auto planDegree = [&](size_t i) -> int
     {
+        // 0.81 Simple Pitch Grammar: simple phrases do not inherit the full
+        // motif/interval/register mutation stack. They use a tiny scale-degree
+        // vocabulary with intentional repetition and one small answer gesture.
+        if (simpleCandidate)
+        {
+            static const int simplePatterns[8][5] =
+            {
+                { 0,  0,  1,  0,  0 },
+                { 0,  1,  0, -1,  0 },
+                { 0,  2,  1,  0,  0 },
+                { 0, -1,  0,  1,  0 },
+                { 0,  2,  2,  1,  0 },
+                { 0,  1,  2,  1,  0 },
+                { 0,  0, -1,  0,  1 },
+                { 0,  2,  0,  2,  1 }
+            };
+
+            const int style = (int) (hash32 (identitySeed ^ 0xC0FFEE11u)
+                                     % 8u);
+            const int idx = (int) (i % 5u);
+            int d = degree + simplePatterns[style][idx];
+
+            // Keep A'/B/A'' related without manufacturing a new contour family.
+            if (cycle == 1 && idx == 2)
+                d += (phraseIdentity & 1) ? 1 : -1;
+            else if (cycle == 2 && idx == 2)
+                d += 2 + (phraseIdentity == 2 ? 1 : 0);
+            else if (cycle == 3 && idx >= 3)
+                d += (phraseIdentity == 3 ? -1 : 0);
+
+            return d;
+        }
+
         int d = motifDegree((int)i);
 
         // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
