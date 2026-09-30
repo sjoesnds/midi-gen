@@ -53,6 +53,15 @@ namespace
         return buf;
     }
 
+    std::string fmt8 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h, double i)
+    {
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h, i);
+        return buf;
+    }
+
     struct Loop { std::vector<Note> notes; int bars = 1; };
 
     std::vector<Loop> makeLoops (MidiForgeAudioProcessor& p, int n)
@@ -607,7 +616,7 @@ int main()
 
         report ("0.81 melody intent telemetry is diverse",
                 populated > 0 && simple > 0 && (balanced > 0 || complex > 0),
-                fmt7 ("simple=%.0f (%.1f%%), balanced=%.0f (%.1f%%), complex=%.0f (%.1f%%), avg notes=%.2f, max notes=%.0f",
+                fmt8 ("simple=%.0f (%.1f%%), balanced=%.0f (%.1f%%), complex=%.0f (%.1f%%), avg notes=%.2f, max notes=%.0f",
                       (double) simple, 100.0 * (double) simple / (double) juce::jmax (1, populated),
                       (double) balanced, 100.0 * (double) balanced / (double) juce::jmax (1, populated),
                       (double) complex, 100.0 * (double) complex / (double) juce::jmax (1, populated),
