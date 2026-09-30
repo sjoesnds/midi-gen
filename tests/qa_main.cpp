@@ -476,6 +476,55 @@ int main()
 
 
 
+    // ------------------------------------------------------------------ 0g. Expanded scale library + MAGIC scale randomization
+    {
+        p.setRoot (0);
+        p.setOctave (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setBars (4);
+
+        int passedScales = 0;
+        for (int s = 0; s < (int) MidiForgeAudioProcessor::ScaleCount; ++s)
+        {
+            p.setScale (s);
+            p.setSeed (1000 + s);
+            p.regenerate ();
+
+            bool safe = true;
+            for (const auto& n : p.getVisibleNotes ())
+            {
+                if (n.channel == 3 && p.snapPitchToScale (n.note) != n.note)
+                {
+                    safe = false;
+                    break;
+                }
+            }
+
+            if (safe)
+                ++passedScales;
+        }
+
+        report ("expanded scale library remains tonal",
+                passedScales == (int) MidiForgeAudioProcessor::ScaleCount,
+                fmt ("validated %d/%d scale modes",
+                     (double) passedScales,
+                     (double) MidiForgeAudioProcessor::ScaleCount));
+
+        std::set<int> magicScales;
+        for (int seed = 1; seed <= 64; ++seed)
+        {
+            p.setSeed (5000 + seed);
+            p.magicRandomize ();
+            magicScales.insert (p.getScale ());
+        }
+
+        report ("MAGIC randomizes expanded scale library",
+                magicScales.size () >= 5,
+                fmt ("MAGIC exposed %.0f distinct scale modes across 64 runs",
+                     (double) magicScales.size ()));
+    }
+
     // ------------------------------------------------------------------ 0e. Melody Foundation: tonal/register/simple-phrase invariants
     {
         p.setRoot (0);
