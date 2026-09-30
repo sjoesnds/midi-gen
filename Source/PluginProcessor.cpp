@@ -2954,13 +2954,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool highRegisterLanguage =
         registerProfile == 2 || registerProfile == 5 || registerProfile == 7;
 
-    const float phraseStrength = juce::jlimit(0.24f, 0.95f,
+    const float phraseStrength = juce::jlimit(0.20f, 0.95f,
         (0.38f
         + 0.22f * dnaMotif
         + 0.18f * poolTension
         + 0.10f * (1.0f - dnaSurprise)
         + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f))
-        * (simpleCandidate ? 0.58f : 1.0f));
+        * (simpleCandidate ? 0.58f : 1.0f)
+        * (undergroundLanguage ? 0.78f : 1.0f));
 
     // 0.58.4 Phrase Tension Engine: tension is now an explicit four-bar target,
     // not only an incidental result of contour/leaps. The engine creates a
@@ -3408,7 +3409,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     const int motifType = (int)(hash32(identitySeed ^ (uint32_t)(archetype * 0x51ed270bu)
                                            ^ (uint32_t)(dnaMotif * 1000.0f)) % (complexCandidate ? 32u : 18u));
-    const int motifShift = (int)((identitySeed >> 16) % (uint32_t)scaleCount);
+    const int motifShift = undergroundLanguage
+        ? (1 + (int) (hash32 (identitySeed ^ 0x3E77A11Eu) % 3u))
+        : (int)((identitySeed >> 16) % (uint32_t)scaleCount);
 
     const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 8u);
     const int motifRotation = (int)(hash32(identitySeed ^ 0x1b873593u) % 5u);
@@ -3800,9 +3803,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 case 7: repetitionFactor = 1.30f; break; // hook
                 default: break;
             }
-            const float memoryStrength = juce::jlimit(0.0f, 0.78f,
-                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f))
+            const float memoryStrength = juce::jlimit(0.0f, 0.82f,
+                motifStrength * (cycle == 2 ? 0.20f : (cycle == 1 ? 0.58f : 0.48f))
                 * repetitionFactor
+                * (undergroundLanguage ? 1.12f : 1.0f)
                 * juce::jlimit (0.72f, 1.16f, 0.86f + 0.34f * creativeRange.repetition));
             const uint32_t mh = hash32(seed ^ (uint32_t)(i * 113 + 701));
             if ((float)(mh % 1000u) / 1000.0f < memoryStrength)
@@ -3828,20 +3832,51 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const float harmonyPersonalityBias =
                 (creativeRange.harmonyPersonality <= 1 ? -0.10f
                  : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f);
-            const float undergroundColor = undergroundLanguage
-                ? (0.18f + 0.22f * undergroundLevel)
-                : 0.0f;
             const float tensionChance = juce::jlimit(0.04f, 0.84f,
                 0.06f
                 + 0.42f * poolTension
                 + 0.20f * phraseTension
                 + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
                 + 0.10f * creativeRange.harmonyColor
-                + undergroundColor
+                + (undergroundLanguage ? 0.18f + 0.22f * undergroundLevel : 0.0f)
                 + harmonyPersonalityBias
                 + tensionPulse);
 
-            if (anchorRoll < tensionChance)
+            const bool needsClosure = (cycle == 3 && x >= 12);
+
+            // Underground anchors deliberately avoid default root/third resolution.
+            // Pick a legal color degree first, then let the normal cadence machinery
+            // resolve the phrase at the very end of the four-bar cell.
+            if (undergroundLanguage && ! needsClosure && anchorRoll < 0.72f)
+            {
+                const int colorDegrees[] = {
+                    degree + 1, degree + 3, degree + 5, degree + 6
+                };
+
+                int bestColor = note;
+                int bestDistance = 999;
+                for (const int colorDegree : colorDegrees)
+                {
+                    const int base = pitchForDegree (colorDegree, octave);
+                    for (int oct = -2; oct <= 2; ++oct)
+                    {
+                        const int cand = base + oct * 12;
+                        if (cand < melLo || cand > melHi || chordTone (cand))
+                            continue;
+
+                        const int d = std::abs (cand - note);
+                        if (d < bestDistance)
+                        {
+                            bestDistance = d;
+                            bestColor = cand;
+                        }
+                    }
+                }
+
+                if (bestDistance < 100)
+                    note = bestColor;
+            }
+            else if (anchorRoll < tensionChance)
             {
                 int bestTension = note;
                 int bestDist = 1000;
@@ -3854,7 +3889,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                         if (cand < melLo || cand > melHi) continue;
                         if (chordTone(cand)) continue;
                         const int dist = std::abs(cand - note);
-                        if (dist < bestDist) { bestDist = dist; bestTension = cand; }
+                        if (dist < bestDist)
+                        {
+                            bestDist = dist;
+                            bestTension = cand;
+                        }
                     }
                 }
                 note = bestTension;
@@ -3863,61 +3902,15 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             {
                 const int root = pitchForDegree(degree, octave);
                 const int third = pitchForDegree(degree + 2, octave);
-
-                if (undergroundLanguage)
-                {
-                    // Prefer legal color degrees (2/4/6/7 relative to the chord
-                    // degree) and only resolve to the chord when the phrase actually
-                    // needs closure. This keeps the line harmonically safe without
-                    // making every strong hit sound like an arpeggio.
-                    const int colorDegrees[] = {
-                        degree + 1, degree + 3, degree + 5, degree + 6
-                    };
-
-                    int bestColor = note;
-                    int bestDistance = 999;
-                    for (const int colorDegree : colorDegrees)
-                    {
-                        const int base = pitchForDegree (colorDegree, octave);
-                        for (int oct = -2; oct <= 2; ++oct)
-                        {
-                            const int cand = base + oct * 12;
-                            if (cand < melLo || cand > melHi || chordTone (cand))
-                                continue;
-
-                            const int d = std::abs (cand - note);
-                            if (d < bestDistance)
-                            {
-                                bestDistance = d;
-                                bestColor = cand;
-                            }
-                        }
-                    }
-
-                    const bool needsClosure = (cycle == 3 && x >= 12);
-                    const bool chooseColor =
-                        ! needsClosure
-                        && ((ah % 1000u) < (uint32_t) juce::roundToInt (
-                            620.0f + 220.0f * undergroundLevel));
-
-                    if (chooseColor && bestDistance < 100)
-                        note = bestColor;
-                    else if ((ah % 100u) < 34u)
-                        note = third;
-                    else
-                        note = root;
-                }
-                else if ((ah % 100u) < (uint32_t)(50.0f + 40.0f * (1.0f - poolTension)))
-                {
+                if ((ah % 100u) < (uint32_t)(50.0f + 40.0f * (1.0f - poolTension)))
                     note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
-                }
             }
 
-            note = foldIntoLane(note, melLo, melHi);
             note = juce::jlimit(melLo, melHi, snapToScale(note));
         }
 
         // 0.58.3: when the chord voicing already occupies the lead's middle
+
         // register, bias the melody toward a clear upper voice instead of
         // repeatedly landing inside the chord stack.
         if (context.chordPitchCenter >= 0.0f)
