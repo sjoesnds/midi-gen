@@ -520,7 +520,7 @@ int main()
         }
 
         report ("MAGIC randomizes expanded scale library",
-                magicScales.size () >= 5,
+                magicScales.size () >= 8,
                 fmt ("MAGIC exposed %.0f distinct scale modes across 64 runs",
                      (double) magicScales.size ()));
     }
