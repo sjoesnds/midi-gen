@@ -11,6 +11,8 @@
 - The stopped transport no longer emits notes, and pressing play again at the same position plays the downbeat.
 - `processBlock` reuses one MIDI buffer instead of creating a new one every block.
 - QA: new live-timing section with a fake play head (grid accuracy at 512/1024 samples and odd BPM, first downbeat, stopped transport, restart).
+- **Implicit taste signal wired up.** Dragging or exporting a loop to the DAW now trains Taste ML as a weak positive sample (weight 0.5), as the Taste ML header always described but the code never did. Counted once per loop, skipped for loops you already rated explicitly, and only while Taste learning is on.
+- QA: new checks for the implicit signal (weight, once per loop, explicit rating wins, fresh bank, Taste off).
 
 ### Feedback Log — 0.79.0
 - Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.

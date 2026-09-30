@@ -2310,6 +2310,25 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
     tasteModel.update(z, soundTarget, genre, likeTarget, weight);
 }
 
+bool MidiForgeAudioProcessor::noteKeptVariation()
+{
+    if (! tasteEnabled) return false;
+    int vi = 0;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (variations.empty()) return false;
+        vi = juce::jlimit (0, juce::jmin (7, (int) variations.size() - 1), selectedVariation);
+    }
+    const uint32_t nonce = generationNonce.load();
+    if (keptNonce != nonce) { keptNonce = nonce; keptMask = 0; }   // a fresh bank: forget what was already counted
+    if ((keptMask & (1u << vi)) != 0) return false;                  // this loop already counted once
+    keptMask |= (1u << vi);
+    if (likeCounts[(size_t) vi] > 0 || dislikeCounts[(size_t) vi] > 0) return false;   // an explicit rating outranks the implicit one
+    trainTaste (vi, 1.0f, 0.5f);   // the drag / export itself is already a row in feedback.csv
+    savePreferences();
+    return true;
+}
+
 void MidiForgeAudioProcessor::resetTaste()
 {
     tasteModel.reset();

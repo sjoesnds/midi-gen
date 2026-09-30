@@ -1731,6 +1731,28 @@ int main()
         }
     }
 
+    // ------------------------------------------------------------------ 12. implicit taste signal (drag / export)
+    {
+        MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
+        a.resetTaste();
+        const float c0 = a.getTasteSamples();
+        const bool first = a.noteKeptVariation();
+        const float c1 = a.getTasteSamples();
+        report ("kept loop: the first drag / export adds a taste sample", first && std::abs ((c1 - c0) - 0.5f) < 0.01f, fmt ("taste samples %.2f -> %.2f (weight 0.5)", (double) c0, (double) c1));
+        report ("kept loop: the same loop is counted only once", ! a.noteKeptVariation() && a.getTasteSamples() == c1, "second call ignored");
+        a.chooseVariation (3);
+        report ("kept loop: another variation counts separately", a.noteKeptVariation(), "slot 4");
+        a.chooseVariation (4);
+        a.likeVariation (4);
+        report ("kept loop: an explicitly rated loop is not counted again", ! a.noteKeptVariation(), "liked slot skipped");
+        a.regenerate();
+        a.chooseVariation (0);
+        report ("kept loop: a fresh bank is counted again", a.noteKeptVariation(), "new generation");
+        a.setTasteEnabled (false);
+        a.chooseVariation (1);
+        report ("kept loop: nothing is learned while Taste is off", ! a.noteKeptVariation(), "taste disabled");
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

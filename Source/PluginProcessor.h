@@ -181,11 +181,15 @@ int getTasteLikes() const { return likedN; }
 int getTasteDislikes() const { return disN; }
 // 0.40 Taste ML (online logistic regression, see TasteModel.h)
 float getTasteConfidence() const { return tasteModel.confidence(); }
+float getTasteSamples() const { return tasteModel.samples(); }
 juce::String getTasteSummary() const;
 bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
+// Implicit taste signal: dragging / exporting a loop to the DAW is a weak positive sample (weight 0.5). Counted once per
+// loop, only if the loop was not rated explicitly, and only while Taste learning is on. Returns true if a sample was added.
+bool noteKeptVariation();
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
 juce::MidiFile buildMidiFile (int channelFilter = 0, int drumRow = -1) const;
@@ -414,6 +418,8 @@ taste::Model tasteModel;
 taste::Vec tasteMean {};
 taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();
 bool tasteEnabled = true;
+uint32_t keptNonce = 0;
+unsigned keptMask = 0;
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();
