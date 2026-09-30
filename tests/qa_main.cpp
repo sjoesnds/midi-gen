@@ -53,6 +53,15 @@ namespace
         return buf;
     }
 
+    std::string fmt8 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h, double i)
+    {
+        char buf[512];
+        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h, i);
+        return buf;
+    }
+
     struct Loop { std::vector<Note> notes; int bars = 1; };
 
     std::vector<Loop> makeLoops (MidiForgeAudioProcessor& p, int n)
@@ -467,6 +476,55 @@ int main()
 
 
 
+    // ------------------------------------------------------------------ 0g. Expanded scale library + MAGIC scale randomization
+    {
+        p.setRoot (0);
+        p.setOctave (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setBars (4);
+
+        int passedScales = 0;
+        for (int s = 0; s < (int) MidiForgeAudioProcessor::ScaleCount; ++s)
+        {
+            p.setScale (s);
+            p.setSeed (1000 + s);
+            p.regenerate ();
+
+            bool safe = true;
+            for (const auto& n : p.getVisibleNotes ())
+            {
+                if (n.channel == 3 && p.snapPitchToScale (n.note) != n.note)
+                {
+                    safe = false;
+                    break;
+                }
+            }
+
+            if (safe)
+                ++passedScales;
+        }
+
+        report ("expanded scale library remains tonal",
+                passedScales == (int) MidiForgeAudioProcessor::ScaleCount,
+                fmt ("validated %d/%d scale modes",
+                     (double) passedScales,
+                     (double) MidiForgeAudioProcessor::ScaleCount));
+
+        std::set<int> magicScales;
+        for (int seed = 1; seed <= 64; ++seed)
+        {
+            p.setSeed (5000 + seed);
+            p.magicRandomize ();
+            magicScales.insert (p.getScale ());
+        }
+
+        report ("MAGIC randomizes expanded scale library",
+                magicScales.size () >= 8,
+                fmt ("MAGIC exposed %.0f distinct scale modes across 64 runs",
+                     (double) magicScales.size ()));
+    }
+
     // ------------------------------------------------------------------ 0e. Melody Foundation: tonal/register/simple-phrase invariants
     {
         p.setRoot (0);
@@ -519,6 +577,99 @@ int main()
         report ("MAGIC produces a real simple-phrase population",
                 melodyBars > 0 && simpleBars >= 18,
                 fmt ("%.0f simple bars / %.0f populated bars", (double) simpleBars, (double) melodyBars));
+    }
+
+    // ------------------------------------------------------------------ 0f. Melody intent distribution telemetry
+    // We cannot observe the private intent roll directly from the headless test,
+    // so classify the resulting bars by the musical shape they actually expose.
+    // This is telemetry rather than a hard style gate: it tells us whether the
+    // generator is genuinely producing restrained, balanced and elaborate phrases.
+    {
+        p.setBars (4);
+        p.setRoot (0);
+        p.setScale (MidiForgeAudioProcessor::Major);
+        p.setOctave (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setComplexity (0.70f, false);
+        p.setMelodyDensity (0.58f, false);
+        p.setPauseChance (0.16f, false);
+
+        int simple = 0;
+        int balanced = 0;
+        int complex = 0;
+        int populated = 0;
+        int maxNotesInBar = 0;
+        double averageNotesPerBar = 0.0;
+
+        for (int seed = 1; seed <= 48; ++seed)
+        {
+            p.setSeed (seed);
+            p.regenerate ();
+
+            std::array<std::vector<int>, 4> bars;
+            for (const auto& n : p.getVisibleNotes ())
+            {
+                if (n.channel != 3)
+                    continue;
+
+                const int bar = n.step / 16;
+                if (bar >= 0 && bar < 4)
+                    bars[(size_t) bar].push_back (n.note);
+            }
+
+            for (const auto& notes : bars)
+            {
+                if (notes.empty())
+                    continue;
+
+                ++populated;
+                const int count = (int) notes.size();
+                maxNotesInBar = juce::jmax (maxNotesInBar, count);
+                averageNotesPerBar += (double) count;
+
+                int sumAbs = 0;
+                int maxLeap = 0;
+                for (size_t i = 1; i < notes.size(); ++i)
+                {
+                    const int leap = std::abs (notes[i] - notes[i - 1]);
+                    sumAbs += leap;
+                    maxLeap = juce::jmax (maxLeap, leap);
+                }
+
+                const double meanLeap = notes.size() > 1
+                    ? (double) sumAbs / (double) (notes.size() - 1)
+                    : 0.0;
+
+                const bool isSimple =
+                    count >= 2 && count <= 4
+                    && meanLeap <= 5.0
+                    && maxLeap <= 9;
+
+                const bool isComplex =
+                    count >= 6
+                    || meanLeap >= 5.5
+                    || maxLeap >= 11;
+
+                if (isSimple)
+                    ++simple;
+                else if (isComplex)
+                    ++complex;
+                else
+                    ++balanced;
+            }
+        }
+
+        if (populated > 0)
+            averageNotesPerBar /= (double) populated;
+
+        report ("0.81 melody intent telemetry is diverse",
+                populated > 0 && simple > 0 && (balanced > 0 || complex > 0),
+                fmt8 ("simple=%.0f (%.1f%%), balanced=%.0f (%.1f%%), complex=%.0f (%.1f%%), avg notes=%.2f, max notes=%.0f",
+                      (double) simple, 100.0 * (double) simple / (double) juce::jmax (1, populated),
+                      (double) balanced, 100.0 * (double) balanced / (double) juce::jmax (1, populated),
+                      (double) complex, 100.0 * (double) complex / (double) juce::jmax (1, populated),
+                      averageNotesPerBar, (double) maxNotesInBar));
     }
 
     // ------------------------------------------------------------------ 0c. Cadence & Loop Closure 2.0

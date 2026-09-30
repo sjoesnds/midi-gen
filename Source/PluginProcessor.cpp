@@ -101,7 +101,7 @@ pendingEvents.reserve (4096);
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
-void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
+void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,(int)ScaleCount-1,v);regenerate();}
 void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
 void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7,v);regenerate();}
@@ -209,7 +209,21 @@ case Dorian:return{0,2,3,5,7,9,10};
 case Phrygian:return{0,1,3,5,7,8,10};
 case HarmonicMinor:return{0,2,3,5,7,8,11};
 case MelodicMinor:return{0,2,3,5,7,9,11};
-default:return{0,2,4,7,9};
+case Pentatonic:return{0,2,4,7,9};
+case Lydian:return{0,2,4,6,7,9,11};
+case Mixolydian:return{0,2,4,5,7,9,10};
+case Locrian:return{0,1,3,5,6,8,10};
+case MajorPentatonic:return{0,2,4,7,9};
+case MinorPentatonic:return{0,3,5,7,10};
+case DoubleHarmonic:return{0,1,4,5,7,8,11};
+case HungarianMinor:return{0,2,3,6,7,8,11};
+case WholeTone:return{0,2,4,6,8,10};
+case Blues:return{0,3,5,6,7,10};
+case NeapolitanMinor:return{0,1,3,5,7,8,11};
+case Persian:return{0,1,4,5,6,8,11};
+case Hirajoshi:return{0,2,3,7,8};
+case InSen:return{0,1,5,7,10};
+default:return{0,2,4,5,7,9,11};
 }
 }
 std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
@@ -355,9 +369,9 @@ return juce::jlimit(0,127,best);
 
 void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t identity) const
 {
-    // 0.77 Melody Foundation:
-    // The earlier engines are allowed to explore; this layer is the final
-    // musical safety contract before a melody is accepted.
+    // 0.81 Melody Core: Foundation is a safety gate, not a second composer.
+    // Generation owns register, contour and harmony; this pass repairs only
+    // hard violations that make a phrase unusable.
     if (section.notes.empty() || ! melodyEnabled || soundProfileFor (soundTarget).soloLine)
         return;
 
@@ -378,19 +392,10 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
             return section.notes[a].note < section.notes[b].note;
         });
 
-    const auto profile = soundProfileFor (soundTarget);
-    const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 32u;
-
-    // Keep the line around the tonic-relative centre instead of allowing the
-    // creative-range engine to roam through a 4+ octave melody lane.
-    int centre = degreeToPitch (0, octave) + 7
-               + juce::roundToInt (0.35f * (float) profile.laneShift);
-    if (soundTarget == 3) centre += 3;
-    if (soundTarget == 4) centre -= 3;
-
-    const int laneLo = juce::jlimit (40, 84, centre - 10);
-    const int laneHi = juce::jlimit (laneLo + 14, 104, centre + 14);
-    const auto scale = scaleSemitones();
+    const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 42u;
+    const int maxLeap = simple ? 10 : 13;
+    constexpr int globalLo = 40;
+    constexpr int globalHi = 96;
 
     auto pitchClass = [] (int n)
     {
@@ -399,12 +404,12 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
 
     auto inScale = [&] (int pitch)
     {
-        const int pc = pitchClass (pitch);
-        const int rel = (pc - rootPc + 12) % 12;
+        const int rel = (pitchClass (pitch) - rootPc + 12) % 12;
+        const auto scale = scaleSemitones();
         return std::find (scale.begin(), scale.end(), rel) != scale.end();
     };
 
-    auto nearestScalePitch = [&] (int target, int lo, int hi)
+    auto nearestSafeScalePitch = [&] (int target, int lo, int hi)
     {
         lo = juce::jlimit (0, 127, lo);
         hi = juce::jlimit (lo, 127, hi);
@@ -426,137 +431,37 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
         return best;
     };
 
-    auto chordPitchesForBar = [&] (int bar)
-    {
-        std::vector<int> out;
-        for (const auto& n : section.notes)
-            if (n.channel == 1 && n.step / 16 == bar)
-                out.push_back (pitchClass (n.note));
+    // Derive the guard envelope from the phrase that was actually authored,
+    // rather than forcing every profile toward a tonic-relative centre.
+    std::vector<int> authoredPitches;
+    authoredPitches.reserve (melody.size());
+    for (const auto index : melody)
+        authoredPitches.push_back (juce::jlimit (globalLo, globalHi, section.notes[index].note));
 
-        if (out.empty())
-        {
-            const auto prog = progressionDegrees();
-            if (! prog.empty())
-            {
-                const int degree = prog[(size_t) (bar % (int) prog.size())];
-                for (const int d : { degree, degree + 2, degree + 4 })
-                    out.push_back (pitchClass (degreeToPitch (d, octave)));
-            }
-        }
-
-        std::sort (out.begin(), out.end());
-        out.erase (std::unique (out.begin(), out.end()), out.end());
-        return out;
-    };
-
-    // Simple phrases get a deliberately tighter interval envelope.
-    const int maxLeap = simple
-        ? 7
-        : juce::jlimit (8, 11, 8 + juce::roundToInt (2.0f * complexity));
+    std::sort (authoredPitches.begin(), authoredPitches.end());
+    const int median = authoredPitches[authoredPitches.size() / 2];
+    const int span = simple ? 14 : 18;
+    const int laneLo = juce::jlimit (globalLo, 74, median - span);
+    const int laneHi = juce::jlimit (laneLo + 14, globalHi, median + span);
 
     int previous = -1;
     for (const auto index : melody)
     {
         auto& n = section.notes[index];
-        int note = nearestScalePitch (n.note, laneLo, laneHi);
+        int note = nearestSafeScalePitch (n.note, laneLo, laneHi);
 
-        if (previous >= 0)
+        if (previous >= 0 && std::abs (note - previous) > maxLeap)
         {
-            const int lo = juce::jmax (laneLo, previous - maxLeap);
-            const int hi = juce::jmin (laneHi, previous + maxLeap);
-            note = nearestScalePitch (note, lo, hi);
+            const int boundedTarget = previous + (note > previous ? maxLeap : -maxLeap);
+            const int bounded = nearestSafeScalePitch (boundedTarget, laneLo, laneHi);
+
+            // Preserve the authored pitch whenever the repair would not
+            // actually improve the jump.
+            if (std::abs (bounded - previous) < std::abs (note - previous))
+                note = bounded;
         }
 
         n.note = juce::jlimit (laneLo, laneHi, note);
-        previous = n.note;
-    }
-
-    // Important beats belong to the active chord. Passing tones remain legal
-    // scale tones between anchors, so the line does not become an arpeggio.
-    for (size_t k = 0; k < melody.size(); ++k)
-    {
-        auto& n = section.notes[melody[k]];
-        const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
-        const int local = n.step % 16;
-        const auto chordPcs = chordPitchesForBar (bar);
-        if (chordPcs.empty())
-            continue;
-
-        const bool finalEvent = (k + 1 == melody.size());
-        const bool anchor = local == 0
-                         || (local == 8 && n.length >= 3)
-                         || (finalEvent && bar == section.bars - 1);
-        if (! anchor)
-            continue;
-
-        if (std::find (chordPcs.begin(), chordPcs.end(), pitchClass (n.note)) != chordPcs.end())
-            continue;
-
-        int best = n.note;
-        int bestDistance = 1000;
-        for (const int chordPc : chordPcs)
-        {
-            for (int oct = 3; oct <= 8; ++oct)
-            {
-                const int candidate = oct * 12 + chordPc;
-                if (candidate < laneLo || candidate > laneHi || ! inScale (candidate))
-                    continue;
-
-                const int d = std::abs (candidate - n.note);
-                if (d < bestDistance)
-                {
-                    bestDistance = d;
-                    best = candidate;
-                }
-            }
-        }
-
-        // Harmony never wins by creating a giant jump.
-        if (k > 0)
-        {
-            const int prevNote = section.notes[melody[k - 1]].note;
-            if (std::abs (best - prevNote) > maxLeap)
-            {
-                const int lo = juce::jmax (laneLo, prevNote - maxLeap);
-                const int hi = juce::jmin (laneHi, prevNote + maxLeap);
-                int bounded = nearestScalePitch (n.note, lo, hi);
-                int boundedDistance = 1000;
-
-                for (int p = lo; p <= hi; ++p)
-                {
-                    if (! inScale (p))
-                        continue;
-                    if (std::find (chordPcs.begin(), chordPcs.end(), pitchClass (p)) == chordPcs.end())
-                        continue;
-
-                    const int d = std::abs (p - n.note);
-                    if (d < boundedDistance)
-                    {
-                        boundedDistance = d;
-                        bounded = p;
-                    }
-                }
-                best = bounded;
-            }
-        }
-
-        n.note = best;
-    }
-
-    // Final invariant pass after anchor edits.
-    previous = -1;
-    for (const auto index : melody)
-    {
-        auto& n = section.notes[index];
-        n.note = nearestScalePitch (n.note, laneLo, laneHi);
-
-        if (previous >= 0)
-        {
-            const int lo = juce::jmax (laneLo, previous - maxLeap);
-            const int hi = juce::jmin (laneHi, previous + maxLeap);
-            n.note = nearestScalePitch (n.note, lo, hi);
-        }
-
         previous = n.note;
     }
 
@@ -1017,11 +922,9 @@ float MidiForgeAudioProcessor::melodyExpressionScore (const Section& section) co
 
 void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t identity) const
 {
-    // 0.71 Melodic Prosody:
-    // Every melody note gets a musical function before Harmony resolves its
-    // exact pitch. This pass does not invent a second melody; it gives existing
-    // notes intentional jobs: anchor, pickup, approach, connective motion,
-    // accent, peak and release.
+    // 0.81 Melody Core: Prosody is expressive annotation, not a pitch editor.
+    // The authored contour belongs to addMelody; Harmony and Foundation handle
+    // tonal safety. Prosody shapes articulation, emphasis and sustain only.
     if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
         return;
 
@@ -1046,56 +949,22 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
         section.bars, energy, complexity, melodyType, mood, genre,
         hash32 (identity ^ 0xC0719F0u));
 
-    std::vector<int> prosodyScalePitches;
-    prosodyScalePitches.reserve (56);
-    const auto prosodyScale = scaleSemitones();
-    for (int oct = 1; oct <= 8; ++oct)
-        for (int p : prosodyScale)
-        {
-            const int n = 12 * oct + rootPc + p;
-            if (n >= 24 && n <= 108)
-                prosodyScalePitches.push_back (n);
-        }
-    std::sort (prosodyScalePitches.begin(), prosodyScalePitches.end());
-    prosodyScalePitches.erase (
-        std::unique (prosodyScalePitches.begin(), prosodyScalePitches.end()),
-        prosodyScalePitches.end());
-
-    auto shiftScale = [&] (int midi, int steps)
-    {
-        if (steps == 0)
-            return snapToScale (midi);
-
-        const auto& scalePitches = prosodyScalePitches;
-        if (scalePitches.empty())
-            return juce::jlimit (24, 108, midi);
-
-        const int base = snapToScale (midi);
-        auto it = std::lower_bound (scalePitches.begin(), scalePitches.end(), base);
-        int idx = (int) std::distance (scalePitches.begin(), it);
-        if (idx >= (int) scalePitches.size())
-            idx = (int) scalePitches.size() - 1;
-        else if (*it != base && idx > 0
-                 && std::abs (scalePitches[(size_t) idx - 1] - base) <= std::abs (*it - base))
-            --idx;
-
-        idx = juce::jlimit (0, (int) scalePitches.size() - 1, idx + steps);
-        return scalePitches[(size_t) idx];
-    };
-
     for (size_t i = 0; i < melody.size(); ++i)
     {
         auto& n = section.notes[melody[i]];
-        const int phrase = juce::jlimit (0, (int) composerPlan.phrases.size() - 1, n.step / 64);
+        const int phrase = juce::jlimit (
+            0, (int) composerPlan.phrases.size() - 1, n.step / 64);
         const auto composerState = composerPlan.stateFor (phrase);
 
-        const int nextStep = (i + 1 < melody.size()) ? section.notes[melody[i + 1]].step : n.step;
-        const int nextLocalStep = (i + 1 < melody.size()) ? (nextStep % 16) : -1;
+        const int nextStep = (i + 1 < melody.size())
+            ? section.notes[melody[i + 1]].step : n.step;
+        const int nextLocalStep = (i + 1 < melody.size())
+            ? (nextStep % 16) : -1;
         const int localStep = n.step % 16;
         const int nextInterval = (i + 1 < melody.size())
-            ? section.notes[melody[i + 1]].note - n.note
-            : 0;
-        const bool finalOfPhrase = (i + 1 == melody.size())
+            ? section.notes[melody[i + 1]].note - n.note : 0;
+        const bool finalOfPhrase =
+            (i + 1 == melody.size())
             || (nextStep / 64 != n.step / 64);
 
         const auto intent = midiforge::MelodicProsody::classify (
@@ -1129,48 +998,40 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
                 break;
 
             case midiforge::MelodicProsody::Approach:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 4)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? intent.scaleMotion : -intent.scaleMotion);
+                // Pitch is intentionally preserved. The authored phrase already
+                // chose the approach note; Harmony may support it later.
+                n.velocity = juce::jlimit (35, 118,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 70.0f));
                 n.length = juce::jmax (1, n.length);
                 break;
 
             case midiforge::MelodicProsody::Connect:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 8)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? 1 : -1);
+                n.length = juce::jmax (1, n.length);
                 break;
 
             case midiforge::MelodicProsody::Peak:
-                n.note = shiftScale (n.note, juce::jlimit (1, 2,
-                    1 + (composerState.registerLift > 4.0f ? 1 : 0)));
+                // Peak is expressed through articulation, not forced register.
                 n.velocity = juce::jlimit (40, 122,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmax (1, n.length - 1);
                 break;
 
             case midiforge::MelodicProsody::Release:
-                if (i > 0)
-                {
-                    const int previous = section.notes[melody[i - 1]].note;
-                    if (std::abs (n.note - previous) >= 2)
-                        n.note = shiftScale (n.note, n.note > previous ? -1 : 1);
-                    else if (n.note > previous)
-                        n.note = shiftScale (n.note, -1);
-                }
                 n.velocity = juce::jlimit (35, 118,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmin (6, n.length + 1);
                 break;
         }
 
-        if (intent.sustainBias > 0.04f && (intent.role == midiforge::MelodicProsody::Anchor
-                                         || intent.role == midiforge::MelodicProsody::Release))
+        if (intent.sustainBias > 0.04f
+            && (intent.role == midiforge::MelodicProsody::Anchor
+                || intent.role == midiforge::MelodicProsody::Release))
             n.length = juce::jmin (6, n.length + 1);
     }
 
-    cleanMelodyLine (section.notes);
+    // No pitch rewrite here. Keep the authored contour intact.
     removeDuplicateNotes (section.notes);
+    cleanMelodyLine (section.notes);
 }
 
 float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) const
@@ -1296,114 +1157,63 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
 
 void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint32_t identity) const
 {
-    // 0.68 Harmonic Intelligence 2.0:
-    // Harmony provides destinations and voice-leading gravity, but it does not
-    // flatten the melody into an arpeggio. Strong/long notes prefer the active
-    // chord, weak notes may remain as passing/color tones, and late-bar notes
-    // can anticipate the next chord.
-    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
+    juce::ignoreUnused (identity);
+
+    // 0.81 Melody Core: harmony is a preference + repair layer, not a second
+    // composer. It supports the authored contour instead of re-authoring it.
+    if (section.notes.empty() || soundProfileFor (soundTarget).soloLine)
         return;
 
     const auto prog = progressionDegrees();
     if (prog.empty())
         return;
 
-    auto pitchClass = [] (int n) { return (n % 12 + 12) % 12; };
+    auto pc = [] (int n)
+    {
+        return (n % 12 + 12) % 12;
+    };
 
     auto chordPcsForBar = [&] (int bar)
     {
-        std::array<int, 12> pcs {};
-        int count = 0;
-
+        std::array<bool, 12> pcs {};
         for (const auto& n : section.notes)
-        {
-            if (n.channel != 1 || n.step / 16 != bar)
-                continue;
+            if (n.channel == 1 && n.step / 16 == bar)
+                pcs[(size_t) pc (n.note)] = true;
 
-            const int pc = pitchClass (n.note);
-            if (pcs[(size_t) pc] == 0)
-            {
-                pcs[(size_t) pc] = 1;
-                ++count;
-            }
-        }
-
-        if (count == 0)
+        if (std::none_of (pcs.begin(), pcs.end(), [] (bool x) { return x; }))
         {
             const int degree = prog[(size_t) (bar % (int) prog.size())];
-            for (int offset : { 0, 2, 4 })
-            {
-                const int pc = pitchClass (degreeToPitch (degree + offset, octave));
-                if (pcs[(size_t) pc] == 0)
-                {
-                    pcs[(size_t) pc] = 1;
-                    ++count;
-                }
-            }
+            for (const int offset : { 0, 2, 4 })
+                pcs[(size_t) pc (degreeToPitch (degree + offset, octave))] = true;
         }
 
         return pcs;
     };
 
-    auto nearestChordPitch = [&] (int bar, int pitch, bool preferStable) -> int
+    auto nearestChordPitch = [&] (int bar, int pitch)
     {
         const auto pcs = chordPcsForBar (bar);
-        const int degree = prog[(size_t) (bar % (int) prog.size())];
-        const int rootPcForBar = pitchClass (degreeToPitch (degree, octave));
-        const int thirdPcForBar = pitchClass (degreeToPitch (degree + 2, octave));
-        const int fifthPcForBar = pitchClass (degreeToPitch (degree + 4, octave));
-
         int best = pitch;
-        float bestScore = 1.0e9f;
+        int bestDistance = 999;
 
-        for (int oct = -3; oct <= 3; ++oct)
+        for (int p = 40; p <= 96; ++p)
         {
-            const int baseOct = ((pitch / 12) * 12) + (oct * 12);
-            for (int pc = 0; pc < 12; ++pc)
+            if (! pcs[(size_t) pc (p)])
+                continue;
+
+            const int distance = std::abs (p - pitch);
+            if (distance < bestDistance)
             {
-                if (pcs[(size_t) pc] == 0)
-                    continue;
-
-                const int candidate = baseOct + pc;
-                if (candidate < 34 || candidate > 108)
-                    continue;
-
-                float score = (float) std::abs (candidate - pitch);
-
-                // On a bar anchor, roots are useful. Everywhere else, thirds and
-                // fifths are slightly preferred so the melody does not become
-                // a root-note machine.
-                if (preferStable)
-                {
-                    if (pc == rootPcForBar) score -= 0.85f;
-                    if (pc == thirdPcForBar) score -= 1.15f;
-                    if (pc == fifthPcForBar) score -= 0.45f;
-                }
-                else
-                {
-                    if (pc == thirdPcForBar) score -= 1.55f;
-                    if (pc == fifthPcForBar) score -= 0.80f;
-                    if (pc == rootPcForBar) score += 0.80f;
-                }
-
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    best = candidate;
-                }
+                bestDistance = distance;
+                best = p;
             }
         }
 
-        return best;
-    };
-
-    auto isChordTone = [&] (int bar, int pitch)
-    {
-        const auto pcs = chordPcsForBar (bar);
-        return pcs[(size_t) pitchClass (pitch)] != 0;
+        return std::pair<int, int> { best, bestDistance };
     };
 
     std::vector<size_t> melody;
+    melody.reserve (section.notes.size());
     for (size_t i = 0; i < section.notes.size(); ++i)
         if (section.notes[i].channel == 3)
             melody.push_back (i);
@@ -1411,102 +1221,35 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint3
     std::stable_sort (melody.begin(), melody.end(),
         [&] (size_t a, size_t b)
         {
-            return section.notes[a].step < section.notes[b].step;
+            if (section.notes[a].step != section.notes[b].step)
+                return section.notes[a].step < section.notes[b].step;
+            return section.notes[a].note < section.notes[b].note;
         });
 
-    if (melody.size() < 2)
-        return;
-
-    for (size_t k = 0; k < melody.size(); ++k)
+    for (const auto index : melody)
     {
-        auto& n = section.notes[melody[k]];
+        auto& n = section.notes[index];
         const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
         const int local = n.step % 16;
         const bool strong = (local % 4) == 0;
         const bool longNote = n.length >= 3;
-        const bool late = local >= 12;
-        const bool firstOfBar = (k == 0 || section.notes[melody[k - 1]].step / 16 != bar);
 
-        float targetWeight = 0.0f;
-        if (strong)
-            targetWeight = firstOfBar ? 0.68f : 0.46f;
-        else if (longNote)
-            targetWeight = 0.34f;
-        else
-            targetWeight = 0.10f;
+        const auto chordPcs = chordPcsForBar (bar);
+        if (chordPcs[(size_t) pc (n.note)])
+            continue;
 
-        // Keep some harmonic tension in the B bar and on deliberately weak events.
-        if ((bar & 3) == 2 && !firstOfBar && !longNote)
-            targetWeight *= 0.72f;
-        if (complexity > 0.70f && !strong)
-            targetWeight *= 0.72f;
+        const auto nearest = nearestChordPitch (bar, n.note);
 
-        int target = nearestChordPitch (bar, n.note, firstOfBar || strong);
-
-        // Late notes are allowed to point into the next harmony. This is the
-        // main anticipation mechanism: the note can remain slightly tense while
-        // its destination is clearly implied before the bar changes.
-        if (late && bar + 1 < section.bars)
+        // Only repair a close miss. A larger distance may be deliberate color
+        // or tension and should remain untouched.
+        if ((strong || longNote) && nearest.second <= 2)
         {
-            const int nextTarget = nearestChordPitch (bar + 1, n.note, false);
-            const float anticipation = ((bar & 3) == 3) ? 0.78f : 0.56f;
-            const int blend = juce::roundToInt (
-                (1.0f - anticipation) * (float) target
-                + anticipation * (float) nextTarget);
-            target = juce::jlimit (34, 108, blend);
-            targetWeight = juce::jmax (targetWeight, 0.24f);
+            const float pull = strong ? 0.35f : 0.22f;
+            n.note = juce::roundToInt (
+                (1.0f - pull) * (float) n.note + pull * (float) nearest.first);
         }
-
-        // At a phrase seam, prioritize a smooth destination instead of a random
-        // octave jump between bars.
-        if (firstOfBar && k > 0)
-        {
-            const int previous = section.notes[melody[k - 1]].note;
-            const int voiceTarget = nearestChordPitch (bar, previous, true);
-            target = juce::roundToInt (
-                0.48f * (float) target
-                + 0.52f * (float) voiceTarget);
-            targetWeight = juce::jmax (targetWeight, 0.42f);
-        }
-
-        // Only rewrite the note when the destination is musically needed. This
-        // preserves color/passing tones instead of erasing the expressive layer.
-        if (!isChordTone (bar, n.note) || strong || longNote || late)
-        {
-            const int blended = juce::roundToInt (
-                (1.0f - targetWeight) * (float) n.note
-                + targetWeight * (float) target);
-            n.note = foldIntoLane (snapToScale (blended), 34, 108);
-        }
-
-        // A non-chord tone followed quickly by a chord tone is a useful passing
-        // gesture. Make the following destination a little more intentional.
-        if (k + 1 < melody.size())
-        {
-            auto& next = section.notes[melody[k + 1]];
-            const int nextBar = next.step / 16;
-            if (nextBar == bar && next.step - n.step <= 3 && !isChordTone (bar, n.note)
-                && !isChordTone (bar, next.note))
-            {
-                const int resolution = nearestChordPitch (bar, next.note, false);
-                next.note = foldIntoLane (
-                    snapToScale (juce::roundToInt (
-                        0.35f * (float) next.note + 0.65f * (float) resolution)),
-                    34, 108);
-            }
-        }
-
-        // Slight dynamic separation: harmonic anchors speak more clearly than
-        // passing tones, while anticipation stays audible but does not dominate.
-        if (strong)
-            n.velocity = juce::jlimit (42, 118, n.velocity + 3);
-        else if (late && bar + 1 < section.bars)
-            n.velocity = juce::jlimit (42, 118, n.velocity + 1);
-        else if (!isChordTone (bar, n.note))
-            n.velocity = juce::jlimit (42, 118, n.velocity - 1);
     }
 
-    removeDuplicateNotes (section.notes);
     cleanMelodyLine (section.notes);
 }
 
@@ -2991,7 +2734,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     registerLane(2, melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
-    const bool simpleCandidate = (hash32 (identitySeed ^ 0xA11CE55u) % 100u) < 32u;
+    const uint32_t intentRoll = hash32 (identitySeed ^ 0xA11CE55u);
+    // 0.81.1 Underground language: a soft compositional bias toward negative
+    // space, color tones, repeated cells and late entrances. It never leaves
+    // the active scale and it is not tied to a genre label.
+    const float undergroundLevel =
+        0.30f + 0.70f * ((float) (hash32 (identitySeed ^ 0x7B0E4A11u) % 1000u) / 999.0f);
+    const bool undergroundLanguage = undergroundLevel > 0.54f;
+
+    // 0.81 Melody Core: explicit compositional intent. Simple is a real
+    // population, Balanced remains the default, Complex gets the elaborate
+    // vocabulary only when the intent roll calls for it.
+    const bool simpleCandidate = (intentRoll % 100u) < 42u;
+    const bool complexCandidate = !simpleCandidate
+        && (((intentRoll / 100u) % 100u) < 64u);
 
     // 0.61 Tempo Feel Engine: BPM changes the *time feel* of the same musical
     // language instead of simply deleting notes at faster tempos. The old engine
@@ -3205,20 +2961,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             + 0.05f * dnaLeap);
 
     const bool wideIntervalLanguage =
-        !simpleCandidate &&
+        complexCandidate &&
         (intervalLanguage == 2 || intervalLanguage == 3 || intervalLanguage == 5
          || intervalLanguage == 6 || intervalLanguage == 7);
 
     const bool highRegisterLanguage =
         registerProfile == 2 || registerProfile == 5 || registerProfile == 7;
 
-    const float phraseStrength = juce::jlimit(0.24f, 0.95f,
+    const float phraseStrength = juce::jlimit(0.20f, 0.95f,
         (0.38f
         + 0.22f * dnaMotif
         + 0.18f * poolTension
         + 0.10f * (1.0f - dnaSurprise)
         + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f))
-        * (simpleCandidate ? 0.58f : 1.0f));
+        * (simpleCandidate ? 0.58f : 1.0f)
+        * (undergroundLanguage ? 0.78f : 1.0f));
 
     // 0.58.4 Phrase Tension Engine: tension is now an explicit four-bar target,
     // not only an incidental result of contour/leaps. The engine creates a
@@ -3409,6 +3166,43 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         positions.push_back(x);
     }
 
+    // 0.81 Simple Rhythm Grammar: simple phrases get their own small
+    // vocabulary instead of borrowing the complex rhythm bank and merely
+    // deleting hits. The cells intentionally use 2-4 onsets and leave air.
+    if (simpleCandidate)
+    {
+        static const int simpleRhythms[8][4] =
+        {
+            { 0,  4,  8, -1 },
+            { 0,  6, 12, -1 },
+            { 0,  4, 10, 14 },
+            { 0,  8, 12, -1 },
+            { 2,  6, 12, -1 },
+            { 0,  6,  8, 14 },
+            { 0,  4, 12, 14 },
+            { 1,  7, 12, -1 }
+        };
+
+        const int simpleStyle = (int) (hash32 (identitySeed ^ 0x51A11CE5u)
+                                       % 8u);
+        positions.clear();
+        for (int i = 0; i < 4; ++i)
+        {
+            const int x = simpleRhythms[simpleStyle][i];
+            if (x < 0)
+                break;
+            positions.push_back (x);
+        }
+
+        // B gets a small late entry variation; the return bar settles back to
+        // the original pocket instead of becoming busier.
+        if (cycle == 2 && positions.size() >= 3)
+            positions[(size_t) (positions.size() - 1)] =
+                juce::jlimit (0, 15, positions.back() + 1);
+        if (cycle == 3 && positions.size() >= 3)
+            positions.pop_back();
+    }
+
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
@@ -3460,6 +3254,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // of becoming simply emptier. This makes 170-220 BPM retain a usable pulse.
         if (fastTempo > 0.05f && (x % 4) != 0)
             positionDensity *= 1.0f + tempoOffbeatBoost;
+
+        // 0.81.1 Underground pocket: leave more room on obvious downbeats and
+        // make late/offbeat entries compete on equal footing. This produces
+        // phrases that feel discovered inside the groove instead of spelling out
+        // every chord change.
+        if (undergroundLanguage)
+        {
+            if ((x % 4) == 0)
+                positionDensity *= 0.78f;
+            else if ((x % 4) == 1 || (x % 4) == 3)
+                positionDensity *= 1.12f;
+
+            if (x >= 12)
+                positionDensity *= 1.08f;
+        }
 
         // 0.58.3: avoid stacking the melody onto a fully occupied slice of the
         // backdrop, while still allowing deliberate chord/bass alignment.
@@ -3516,6 +3325,17 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         chosen.push_back(bestPos);
     }
     std::sort(chosen.begin(), chosen.end());
+
+    // 0.81.1 Underground pocket: when the line has enough events, deliberately
+    // remove an obvious downbeat and keep a later entry. The min-note repair below
+    // still guarantees a playable phrase.
+    if (undergroundLanguage && chosen.size() > (size_t) minNotes)
+    {
+        const auto it = std::find_if (chosen.begin(), chosen.end(),
+            [] (int x) { return x == 0 || x == 4; });
+        if (it != chosen.end())
+            chosen.erase (it);
+    }
 
     // Phrase punctuation: don't fill every bar.  Some loops enter late or leave
     // the last quarter empty, which makes the loop breathe when repeated.
@@ -3602,8 +3422,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     };
 
     const int motifType = (int)(hash32(identitySeed ^ (uint32_t)(archetype * 0x51ed270bu)
-                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % (simpleCandidate ? 16u : 32u));
-    const int motifShift = (int)((identitySeed >> 16) % (uint32_t)scaleCount);
+                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % (complexCandidate ? 32u : 18u));
+    const int motifShift = undergroundLanguage
+        ? (1 + (int) (hash32 (identitySeed ^ 0x3E77A11Eu) % 3u))
+        : (int)((identitySeed >> 16) % (uint32_t)scaleCount);
 
     const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 8u);
     const int motifRotation = (int)(hash32(identitySeed ^ 0x1b873593u) % 5u);
@@ -3654,6 +3476,49 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // made lines angular (about half of all intervals used to be >= a minor sixth).
     auto planDegree = [&](size_t i) -> int
     {
+        // 0.81 Simple Pitch Grammar: simple phrases do not inherit the full
+        // motif/interval/register mutation stack. They use a tiny scale-degree
+        // vocabulary with intentional repetition and one small answer gesture.
+        if (simpleCandidate)
+        {
+            static const int simplePatterns[8][5] =
+            {
+                { 0,  0,  1,  0,  0 },
+                { 0,  1,  0, -1,  0 },
+                { 0,  2,  1,  0,  0 },
+                { 0, -1,  0,  1,  0 },
+                { 0,  2,  2,  1,  0 },
+                { 0,  1,  2,  1,  0 },
+                { 0,  0, -1,  0,  1 },
+                { 0,  2,  0,  2,  1 }
+            };
+
+            const int style = (int) (hash32 (identitySeed ^ 0xC0FFEE11u)
+                                     % 8u);
+            const int idx = (int) (i % 5u);
+
+            // Underground simple phrases often revolve around a small color
+            // cell rather than a bright root-third-root cadence.
+            if (undergroundLanguage && idx == 0)
+            {
+                static const int undergroundAnchors[4] = { 1, 3, 5, 6 };
+                const int anchorIndex = (int) (hash32 (identitySeed ^ 0x5EED4411u) % 4u);
+                return degree + undergroundAnchors[anchorIndex];
+            }
+
+            int d = degree + simplePatterns[style][idx];
+
+            // Keep A'/B/A'' related without manufacturing a new contour family.
+            if (cycle == 1 && idx == 2)
+                d += (phraseIdentity & 1) ? 1 : -1;
+            else if (cycle == 2 && idx == 2)
+                d += 2 + (phraseIdentity == 2 ? 1 : 0);
+            else if (cycle == 3 && idx >= 3)
+                d += (phraseIdentity == 3 ? -1 : 0);
+
+            return d;
+        }
+
         int d = motifDegree((int)i);
 
         // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
@@ -3756,7 +3621,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // Octave displacement (formerly `note += 12`) is part of the plan.
             const uint32_t rh = hash32(identitySeed ^ (uint32_t)(i * 313 + 73));
             const bool octaveLift =
-                !simpleCandidate &&
+                complexCandidate &&
                 ((registerProfile == 1 && (i & 1u))
                 || (registerProfile == 2 && i == chosen.size() / 2)
                 || (registerProfile == 3 && (rh % 100u) < 34u)
@@ -3882,7 +3747,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const bool creativeLeapCell =
                 creativeRange.leapBias > 0.58f
                 && ((int) i + (int) (identitySeed & 7u)) % (creativeRange.leapBias > 0.76f ? 3 : 4) == 2;
-            const bool wantsLeap = !simpleCandidate
+            const bool wantsLeap = complexCandidate
                 && (((archetype == 2 || archetype == 5 || archetype == 6 || wideIntervalLanguage || creativeLeapCell)
                 && (((int)i + (int)(identitySeed & 7u)) % (wideIntervalLanguage ? 4 : 5) == (wideIntervalLanguage ? 2 : 2)))
                 || ((float)(hash32(identitySeed ^ (uint32_t)(i * 131 + 7)) % 1000u) / 1000.0f
@@ -3900,6 +3765,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 const int prior = last - generated[generated.size() - 2];
                 if (std::abs(prior) >= 5 && std::abs(interval) <= 2)
                     note = juce::jlimit(melLo, melHi, snapToScale(last + (prior > 0 ? -3 : 3)));
+            }
+        }
+
+        // 0.81.1 Underground contour: favor an occasionally repeated
+        // note/cell instead of constantly inventing a new pitch. The repetition
+        // is scale-safe because it reuses the already-authored previous note.
+        if (undergroundLanguage && ! generated.empty() && generated.size() >= 1)
+        {
+            const uint32_t repeatHash = hash32 (identitySeed ^ (uint32_t) (i * 173 + 0x4D2));
+            const float repeatChance = 0.20f + 0.18f * undergroundLevel;
+            if ((float) (repeatHash % 1000u) / 999.0f < repeatChance
+                && ((i % 3u) != 0u || simpleCandidate))
+            {
+                note = generated.back();
             }
         }
 
@@ -3938,9 +3817,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 case 7: repetitionFactor = 1.30f; break; // hook
                 default: break;
             }
-            const float memoryStrength = juce::jlimit(0.0f, 0.78f,
-                motifStrength * (cycle == 2 ? 0.24f : (cycle == 1 ? 0.52f : 0.44f))
+            const float memoryStrength = juce::jlimit(0.0f, 0.82f,
+                motifStrength * (cycle == 2 ? 0.20f : (cycle == 1 ? 0.58f : 0.48f))
                 * repetitionFactor
+                * (undergroundLanguage ? 1.12f : 1.0f)
                 * juce::jlimit (0.72f, 1.16f, 0.86f + 0.34f * creativeRange.repetition));
             const uint32_t mh = hash32(seed ^ (uint32_t)(i * 113 + 701));
             if ((float)(mh % 1000u) / 1000.0f < memoryStrength)
@@ -3972,10 +3852,45 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 + 0.20f * phraseTension
                 + 0.08f * ((intervalLanguage == 3 || intervalLanguage == 7) ? 1.0f : 0.0f)
                 + 0.10f * creativeRange.harmonyColor
+                + (undergroundLanguage ? 0.18f + 0.22f * undergroundLevel : 0.0f)
                 + harmonyPersonalityBias
                 + tensionPulse);
 
-            if (anchorRoll < tensionChance)
+            const bool needsClosure = (cycle == 3 && x >= 12);
+
+            // Underground anchors deliberately avoid default root/third resolution.
+            // Pick a legal color degree first, then let the normal cadence machinery
+            // resolve the phrase at the very end of the four-bar cell.
+            if (undergroundLanguage && ! needsClosure && anchorRoll < 0.72f)
+            {
+                const int colorDegrees[] = {
+                    degree + 1, degree + 3, degree + 5, degree + 6
+                };
+
+                int bestColor = note;
+                int bestDistance = 999;
+                for (const int colorDegree : colorDegrees)
+                {
+                    const int base = pitchForDegree (colorDegree, octave);
+                    for (int oct = -2; oct <= 2; ++oct)
+                    {
+                        const int cand = base + oct * 12;
+                        if (cand < melLo || cand > melHi || chordTone (cand))
+                            continue;
+
+                        const int d = std::abs (cand - note);
+                        if (d < bestDistance)
+                        {
+                            bestDistance = d;
+                            bestColor = cand;
+                        }
+                    }
+                }
+
+                if (bestDistance < 100)
+                    note = bestColor;
+            }
+            else if (anchorRoll < tensionChance)
             {
                 int bestTension = note;
                 int bestDist = 1000;
@@ -3988,7 +3903,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                         if (cand < melLo || cand > melHi) continue;
                         if (chordTone(cand)) continue;
                         const int dist = std::abs(cand - note);
-                        if (dist < bestDist) { bestDist = dist; bestTension = cand; }
+                        if (dist < bestDist)
+                        {
+                            bestDist = dist;
+                            bestTension = cand;
+                        }
                     }
                 }
                 note = bestTension;
@@ -4001,11 +3920,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                     note = (std::abs(root - previous) <= std::abs(third - previous)) ? root : third;
             }
 
-            note = foldIntoLane(note, melLo, melHi);
             note = juce::jlimit(melLo, melHi, snapToScale(note));
         }
 
         // 0.58.3: when the chord voicing already occupies the lead's middle
+
         // register, bias the melody toward a clear upper voice instead of
         // repeatedly landing inside the chord stack.
         if (context.chordPitchCenter >= 0.0f)
@@ -9333,7 +9252,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     if (!lockChordsLayer)
     {
         rootPc = pick(12);
-        scale = pick(7);
+        scale = pick((int)ScaleCount);
         progression = pick(7);
         chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
         chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
