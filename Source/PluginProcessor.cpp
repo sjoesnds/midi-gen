@@ -930,15 +930,28 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section) const
             return section.notes[a].note < section.notes[b].note;
         });
 
-    for (size_t k = 0; k < melody.size(); ++k)
+    for (const auto index : melody)
     {
-        auto& n = section.notes[melody[k]];
+        auto& n = section.notes[index];
         const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
         const int local = n.step % 16;
         const bool strong = (local % 4) == 0;
         const bool longNote = n.length >= 3;
 
-        if (isChordTone) {}
+        const auto chordPcs = chordPcsForBar (bar);
+        if (chordPcs[(size_t) pc (n.note)])
+            continue;
+
+        const auto nearest = nearestChordPitch (bar, n.note);
+
+        // Only repair a near miss. A note that is several semitones away from
+        // the chord may be an intentional color tone or melodic tension.
+        if ((strong || longNote) && nearest.second <= 2)
+        {
+            const float pull = strong ? 0.35f : 0.22f;
+            n.note = juce::roundToInt (
+                (1.0f - pull) * (float) n.note + pull * (float) nearest.first);
+        }
     }
 
     removeDuplicateNotes (section.notes);
