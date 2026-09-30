@@ -279,8 +279,10 @@ ok ? "MIDI exported successfully."
 };
 mutateButton.onClick=[this]{ processor.mutateSelected(0.45f); pianoRoll.resetEditHistory(); };
 evolveButton.onClick=[this]{ processor.evolveSelected(); pianoRoll.resetEditHistory(); };
+similarButton.onClick=[this]{ processor.similarToSelected(); pianoRoll.resetEditHistory(); repaint(); };
+similarButton.setTooltip ("More like this: keeps the selected loop as variation 1 and fills 2-8 with close relatives, nearest first");
 addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
-addAndMakeVisible(mutateButton); addAndMakeVisible(evolveButton);
+addAndMakeVisible(mutateButton); addAndMakeVisible(evolveButton); addAndMakeVisible(similarButton);
 
 // --- P2: Undo / Redo / Clear ------------------------------------------
 undoBtn.onClick = [this] { pianoRoll.undo(); };
@@ -495,6 +497,7 @@ dislikeBtn.setBounds(730,687,82,32);
 mutateButton.setBounds(818,687,76,32);
 evolveButton.setBounds(900,687,76,32);
 
+similarButton.setBounds(20,733,124,28);
 undoBtn.setBounds(150,733,66,28);
 redoBtn.setBounds(224,733,66,28);
 clearBtn.setBounds(298,733,66,28);

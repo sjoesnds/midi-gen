@@ -73,7 +73,7 @@ bool preserveSelectionOnRegenerate = false;
                   halfTimeButton{"HALF"}, rotateButton{"ROT"}, normalizeVelocityButton{"VEL 100"},
                   frameSelectionButton{"FRAME"};
  juce::Label selectionLabel;
- juce::TextButton mutateButton{"MUTATE"}, evolveButton{"EVOLVE"};
+ juce::TextButton mutateButton{"MUTATE"}, evolveButton{"EVOLVE"}, similarButton{"SIMILAR"};
  // --- Learning: лайк/дизлайк текущей вариации + счётчик профиля вкуса ---
  juce::TextButton likeBtn, dislikeBtn;
  juce::Label tasteLabel;

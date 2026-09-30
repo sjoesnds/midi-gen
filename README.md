@@ -2,11 +2,18 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.79.0**
+**Current version: 0.80.0**
 
 
 
-### Unreleased (next version)
+### SIMILAR / More Like This — 0.80.0
+- New **SIMILAR** button (bottom row, left of UNDO). Select a loop you like and press it: the bank is rebuilt as the **untouched source loop in slot 1** plus **seven close relatives in slots 2-8, ordered from nearest to boldest**.
+- Relatives come from the existing MUTATE engine (motif, rhythm, cadence and groove edits at seven strengths), so layer locks are respected. Each candidate must (a) change at least ~8% of the notes, (b) score within a tolerance of the source in the Forge judge, and (c) differ from the relatives already picked; the spread requirement only relaxes step by step if seven cannot be found.
+- It builds on the currently selected loop including your edits, and can be pressed repeatedly to walk away from (or back toward) a sound. Feedback-log rows for these loops carry the transform `SIMILAR`, so their like-rate can be measured separately.
+- The bank is not stored in the project file: like every bank it is regenerated from the seed when the project is reloaded.
+- QA: new SIMILAR checks (seven relatives, slot 1 untouched, no identical loops, size and drum pattern kept, no clones among the eight, repeatable).
+
+### Also in 0.80.0 (previously unreleased)
 - **Live playback timing fixed.** A step was only noticed by the first audio block that *started* inside it, so every live note was late by up to one full buffer (measured: up to ~500 samples at 512, ~900 at 1024) and its jitter changed with the buffer size. The step boundary is now located inside the block and notes are placed on that exact sample (measured error <= 1 sample). Drag and export were never affected.
 - The stopped transport no longer emits notes, and pressing play again at the same position plays the downbeat.
 - `processBlock` reuses one MIDI buffer instead of creating a new one every block.

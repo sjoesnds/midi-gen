@@ -2371,7 +2371,7 @@ void MidiForgeAudioProcessor::applyLearnedWeights()
 void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
 {
     static constexpr const char* archetypes[8] = { "HOOK", "GROOVE", "HARMONY", "MOTIF", "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD" };
-    static constexpr const char* transforms[8] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK" };
+    static constexpr const char* transforms[9] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK", "SIMILAR" };
     static constexpr const char* genres[16] = { "Universal", "Trap", "House", "Techno", "BoomBap", "Ambient", "Cinematic", "RnB",
                                                 "Pop", "Drill", "DnB", "Jersey", "Afro", "Hyperpop", "Experimental", "Lofi" };
     static constexpr const char* scales[7] = { "Major", "Minor", "Dorian", "Phrygian", "HarmonicMinor", "MelodicMinor", "Pentatonic" };
@@ -2398,7 +2398,7 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
     row.add (kMidiForgeEngineVersion);
     row.add (verdict);
     row.add (juce::String (slot + 1));
-    row.add (nameOf (transforms, 8, transform));
+    row.add (nameOf (transforms, 9, transform));
     row.add (nameOf (archetypes, 8, archetype));
     row.add (nameOf (genres, 16, genre));
     row.add (nameOf (moods, 9, mood));
@@ -9667,6 +9667,130 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
         return a.note < b.note;
     });
     replaceVisibleNotes (notes);
+}
+
+int MidiForgeAudioProcessor::similarToSelected()
+{
+    if (isGenerating()) return 0;
+
+    Section ref;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (variations.empty()) return 0;
+        ref = variations[(size_t) juce::jlimit (0, (int) variations.size() - 1, selectedVariation)];
+    }
+    const std::vector<VisibleNote> refNotes = getVisibleNotes();   // includes the user's edits
+    if (refNotes.empty()) return 0;
+    ref.notes.clear();
+    for (const auto& n : refNotes)
+        ref.notes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+
+    // Distance between two loops = share of notes that differ, compared note by note (step, pitch, part). This is stricter
+    // and cheaper than the judge's similarity(), which happily calls two different mutations "the same loop".
+    auto noteKeys = [] (const Section& sec)
+    {
+        std::vector<uint32_t> keys;
+        keys.reserve (sec.notes.size());
+        for (const auto& n : sec.notes)
+            keys.push_back (((uint32_t) n.step << 16) | ((uint32_t) n.note << 8) | (uint32_t) n.channel);
+        std::sort (keys.begin(), keys.end());
+        return keys;
+    };
+    auto keyDistance = [] (const std::vector<uint32_t>& x, const std::vector<uint32_t>& y)
+    {
+        std::vector<uint32_t> common;
+        std::set_intersection (x.begin(), x.end(), y.begin(), y.end(), std::back_inserter (common));
+        const float biggest = (float) juce::jmax<size_t> (1, juce::jmax (x.size(), y.size()));
+        return 1.0f - (float) common.size() / biggest;
+    };
+
+    struct Relative { Section sec; std::vector<uint32_t> keys; float distance = 0.0f; float score = 0.0f; };
+    std::vector<Relative> pool;
+    const auto refKeys = noteKeys (ref);
+    const float refScore = loopForgeScore (ref);
+    static constexpr float ladder[7] = { 0.16f, 0.26f, 0.36f, 0.46f, 0.58f, 0.70f, 0.85f };
+
+    // Pass 0 keeps the strict gates; pass 1 only runs when too few relatives were found.
+    for (int pass = 0; pass < 2 && pool.size() < 24; ++pass)
+    {
+        const float scoreTolerance = pass == 0 ? 0.06f : 0.14f;
+        const float minChange = pass == 0 ? 0.08f : 0.03f;
+        for (int t = 0; t < 72; ++t)
+        {
+            replaceVisibleNotes (refNotes);                        // work on a fresh copy of the reference
+            mutateSelected (ladder[t % 7]);                        // one musical domain per call, new rolls every call
+            Section m = ref;
+            m.notes.clear();
+            for (const auto& n : getVisibleNotes())
+                m.notes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+            auto keys = noteKeys (m);
+            const float dist = keyDistance (refKeys, keys);
+            if (dist < minChange) continue;                        // effectively the same loop
+            const float score = loopForgeScore (m);
+            if (score < refScore - scoreTolerance) continue;       // never trade musicality for novelty
+            pool.push_back ({ std::move (m), std::move (keys), dist, score });
+        }
+    }
+
+    // Greedy pick: good score, and clearly different from the relatives already picked (the bank must not be seven clones).
+    // The spread requirement relaxes step by step only if seven relatives cannot be found otherwise.
+    std::vector<Relative> picked;
+    std::vector<bool> taken (pool.size(), false);
+    for (const float minSpread : { 0.14f, 0.07f, 0.02f })
+    {
+        while (picked.size() < 7)
+        {
+            int best = -1;
+            float bestValue = -1000.0f;
+            for (size_t i = 0; i < pool.size(); ++i)
+            {
+                if (taken[i]) continue;
+                float minDist = 1.0f;
+                for (const auto& p : picked)
+                    minDist = juce::jmin (minDist, keyDistance (pool[i].keys, p.keys));
+                if (! picked.empty() && minDist < minSpread) continue;
+                const float value = pool[i].score + 0.9f * (picked.empty() ? 0.0f : minDist);
+                if (value > bestValue) { bestValue = value; best = (int) i; }
+            }
+            if (best < 0) break;
+            taken[(size_t) best] = true;
+            picked.push_back (pool[(size_t) best]);
+        }
+        if (picked.size() >= 7) break;
+    }
+    const int found = (int) picked.size();
+
+    // Nearest first, so slot 2 is the closest relative and slot 8 the boldest.
+    std::sort (picked.begin(), picked.end(), [] (const Relative& a, const Relative& b) { return a.distance < b.distance; });
+
+    std::vector<Section> bank;
+    bank.reserve (8);
+    ref.name = "VARIATION 1 • SOURCE";
+    bank.push_back (ref);
+    for (const auto& r : picked)
+    {
+        Section s = r.sec;
+        s.transformMode = 8;   // "SIMILAR" in the feedback log
+        s.name = "VARIATION " + juce::String ((int) bank.size() + 1) + " • SIMILAR";
+        bank.push_back (std::move (s));
+    }
+    while (bank.size() < 8)    // could not find seven relatives: repeat the source rather than shrink the bank
+    {
+        Section s = ref;
+        s.name = "VARIATION " + juce::String ((int) bank.size() + 1) + " • SOURCE";
+        bank.push_back (std::move (s));
+    }
+
+    {
+        const juce::ScopedLock sl (variationsLock);
+        variations = std::move (bank);
+        selectedVariation = 0;
+    }
+    likeCounts.fill (0);
+    dislikeCounts.fill (0);
+    ++generationNonce;
+    chooseVariation (0);
+    return found;
 }
 
 void MidiForgeAudioProcessor::evolveSelected()

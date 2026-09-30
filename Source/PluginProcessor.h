@@ -13,7 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-inline constexpr const char* kMidiForgeEngineVersion = "0.79.0";
+inline constexpr const char* kMidiForgeEngineVersion = "0.80.0";
 
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
@@ -76,6 +76,9 @@ void magicRandomize();
 void rerollSameDNA();
 void mutateSelected(float amount = 0.45f);
 void evolveSelected();
+// 0.80 SIMILAR ("more like this"): replaces the bank with the selected loop (slot 1, untouched) and seven close relatives of it,
+// ordered from nearest to furthest. Returns how many relatives passed the musicality and diversity gates.
+int similarToSelected();
 void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls

@@ -18,6 +18,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
+#include <iterator>
 #include <map>
 #include <set>
 #include <string>
@@ -1751,6 +1753,76 @@ int main()
         a.setTasteEnabled (false);
         a.chooseVariation (1);
         report ("kept loop: nothing is learned while Taste is off", ! a.noteKeptVariation(), "taste disabled");
+    }
+
+    // ------------------------------------------------------------------ 13. SIMILAR / more like this (0.80)
+    {
+        MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
+        a.chooseVariation (2);
+        std::vector<MidiForgeAudioProcessor::VisibleNote> ref = a.getVisibleNotes();
+        const auto t0 = std::chrono::steady_clock::now();
+        const int found = a.similarToSelected();
+        const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
+        report ("SIMILAR: finds seven relatives", found == 7, fmt ("%.0f relatives in %.0f ms", (double) found, ms));
+        report ("SIMILAR: the bank keeps eight variations and selects slot 1", a.getVariationCount() == 8 && a.getSelectedVariation() == 0, "8 variations, slot 1 selected");
+        const auto now = a.getVisibleNotes();
+        bool same = now.size() == ref.size();
+        for (size_t i = 0; same && i < ref.size(); ++i)
+            same = now[i].step == ref[i].step && now[i].note == ref[i].note && now[i].channel == ref[i].channel && now[i].length == ref[i].length;
+        report ("SIMILAR: slot 1 is the untouched source loop", same, fmt ("%.0f notes", (double) now.size()));
+        int identical = 0, tooFar = 0, tooFew = 0;
+        for (int k = 1; k < 8; ++k)
+        {
+            a.chooseVariation (k);
+            const auto v = a.getVisibleNotes();
+            if (v.size() == ref.size())
+            {
+                bool eq = true;
+                for (size_t i = 0; eq && i < ref.size(); ++i)
+                    eq = v[i].step == ref[i].step && v[i].note == ref[i].note && v[i].channel == ref[i].channel;
+                if (eq) ++identical;
+            }
+            if (v.size() < ref.size() / 2) ++tooFew;
+            int drums = 0, refDrums = 0;
+            for (const auto& n : v) if (n.channel == 5) ++drums;
+            for (const auto& n : ref) if (n.channel == 5) ++refDrums;
+            if (std::abs (drums - refDrums) > 4) ++tooFar;
+        }
+        report ("SIMILAR: every relative differs from the source", identical == 0, fmt ("%.0f identical", (double) identical));
+        report ("SIMILAR: relatives keep the loop's size and drum pattern", tooFew == 0 && tooFar == 0, fmt ("%.0f thin, %.0f drum drift", (double) tooFew, (double) tooFar));
+        // the seven relatives must not be clones of each other or of the source (compared note by note)
+        {
+            float worst = 1.0f;
+            for (int seedTry = 0; seedTry < 4; ++seedTry)
+            {
+                MidiForgeAudioProcessor b; b.setFeedbackLogFile (juce::File());
+                b.setSeed (100 + seedTry * 17);
+                b.chooseVariation (seedTry);
+                b.similarToSelected();
+                std::vector<std::vector<std::uint32_t>> keys;
+                for (int k = 0; k < 8; ++k)
+                {
+                    b.chooseVariation (k);
+                    std::vector<std::uint32_t> kk;
+                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 16) | ((std::uint32_t) n.note << 8) | (std::uint32_t) n.channel);
+                    std::sort (kk.begin(), kk.end());
+                    keys.push_back (std::move (kk));
+                }
+                for (size_t i = 0; i < keys.size(); ++i)
+                    for (size_t j = i + 1; j < keys.size(); ++j)
+                    {
+                        std::vector<std::uint32_t> common;
+                        std::set_intersection (keys[i].begin(), keys[i].end(), keys[j].begin(), keys[j].end(), std::back_inserter (common));
+                        const float d = 1.0f - (float) common.size() / (float) std::max<size_t> (1, std::max (keys[i].size(), keys[j].size()));
+                        worst = std::min (worst, d);
+                    }
+            }
+            report ("SIMILAR: no two variations are clones (4 different loops)", worst >= 0.05f, fmt ("closest pair differs in %.0f%% of notes", 100.0 * worst));
+        }
+        // a second press builds on whatever is selected now
+        a.chooseVariation (3);
+        const int again = a.similarToSelected();
+        report ("SIMILAR: can be applied repeatedly", again >= 5 && a.getVariationCount() == 8, fmt ("%.0f relatives", (double) again));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
