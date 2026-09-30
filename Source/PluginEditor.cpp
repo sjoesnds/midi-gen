@@ -86,7 +86,7 @@ root.setSelectedId(p.getRoot()+1); root.onChange=[this]{processor.setRoot(root.g
 genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic",
                     "R&B","Pop","Drill","DnB","Jersey","Afro","Hyperpop","Experimental","Lo-Fi"},1);
 genre.setSelectedId(p.getGenre()+1); genre.onChange=[this]{processor.setGenre(genre.getSelectedId()-1);}; addAndMakeVisible(genre);
-scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic","Lydian","Mixolydian","Locrian","Major Pentatonic","Minor Pentatonic","Double Harmonic","Hungarian Minor"},1);
+scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic","Lydian","Mixolydian","Locrian","Major Pentatonic","Minor Pentatonic","Double Harmonic","Hungarian Minor","Whole Tone","Blues","Neapolitan Minor","Persian","Hirajoshi","In Sen"},1);
 scale.setSelectedId(p.getScale()+1); scale.onChange=[this]{processor.setScale(scale.getSelectedId()-1);}; addAndMakeVisible(scale);
 progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like","Looping"},1);
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
@@ -556,6 +556,10 @@ if (tempoLabel.getText() != bpmText)
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
 variationBox.setSelectedId (id, juce::dontSendNotification);
+if (root.getSelectedId() != processor.getRoot()+1) root.setSelectedId(processor.getRoot()+1, juce::dontSendNotification);
+if (scale.getSelectedId() != processor.getScale()+1) scale.setSelectedId(processor.getScale()+1, juce::dontSendNotification);
+if (progression.getSelectedId() != processor.getProgression()+1) progression.setSelectedId(processor.getProgression()+1, juce::dontSendNotification);
+if (rhythm.getSelectedId() != processor.getRhythm()+1) rhythm.setSelectedId(processor.getRhythm()+1, juce::dontSendNotification);
 if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
 if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
