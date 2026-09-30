@@ -217,6 +217,12 @@ case MajorPentatonic:return{0,2,4,7,9};
 case MinorPentatonic:return{0,3,5,7,10};
 case DoubleHarmonic:return{0,1,4,5,7,8,11};
 case HungarianMinor:return{0,2,3,6,7,8,11};
+case WholeTone:return{0,2,4,6,8,10};
+case Blues:return{0,3,5,6,7,10};
+case NeapolitanMinor:return{0,1,3,5,7,8,11};
+case Persian:return{0,1,4,5,6,8,11};
+case Hirajoshi:return{0,2,3,7,8};
+case InSen:return{0,1,5,7,10};
 default:return{0,2,4,5,7,9,11};
 }
 }
