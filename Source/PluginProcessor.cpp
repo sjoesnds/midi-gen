@@ -908,11 +908,9 @@ float MidiForgeAudioProcessor::melodyExpressionScore (const Section& section) co
 
 void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t identity) const
 {
-    // 0.71 Melodic Prosody:
-    // Every melody note gets a musical function before Harmony resolves its
-    // exact pitch. This pass does not invent a second melody; it gives existing
-    // notes intentional jobs: anchor, pickup, approach, connective motion,
-    // accent, peak and release.
+    // 0.81 Melody Core: Prosody is expressive annotation, not a pitch editor.
+    // The authored contour belongs to addMelody; Harmony and Foundation handle
+    // tonal safety. Prosody shapes articulation, emphasis and sustain only.
     if (section.notes.empty() || soundProfileFor (soundTarget).soloLine || ! melodyEnabled)
         return;
 
@@ -937,56 +935,22 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
         section.bars, energy, complexity, melodyType, mood, genre,
         hash32 (identity ^ 0xC0719F0u));
 
-    std::vector<int> prosodyScalePitches;
-    prosodyScalePitches.reserve (56);
-    const auto prosodyScale = scaleSemitones();
-    for (int oct = 1; oct <= 8; ++oct)
-        for (int p : prosodyScale)
-        {
-            const int n = 12 * oct + rootPc + p;
-            if (n >= 24 && n <= 108)
-                prosodyScalePitches.push_back (n);
-        }
-    std::sort (prosodyScalePitches.begin(), prosodyScalePitches.end());
-    prosodyScalePitches.erase (
-        std::unique (prosodyScalePitches.begin(), prosodyScalePitches.end()),
-        prosodyScalePitches.end());
-
-    auto shiftScale = [&] (int midi, int steps)
-    {
-        if (steps == 0)
-            return snapToScale (midi);
-
-        const auto& scalePitches = prosodyScalePitches;
-        if (scalePitches.empty())
-            return juce::jlimit (24, 108, midi);
-
-        const int base = snapToScale (midi);
-        auto it = std::lower_bound (scalePitches.begin(), scalePitches.end(), base);
-        int idx = (int) std::distance (scalePitches.begin(), it);
-        if (idx >= (int) scalePitches.size())
-            idx = (int) scalePitches.size() - 1;
-        else if (*it != base && idx > 0
-                 && std::abs (scalePitches[(size_t) idx - 1] - base) <= std::abs (*it - base))
-            --idx;
-
-        idx = juce::jlimit (0, (int) scalePitches.size() - 1, idx + steps);
-        return scalePitches[(size_t) idx];
-    };
-
     for (size_t i = 0; i < melody.size(); ++i)
     {
         auto& n = section.notes[melody[i]];
-        const int phrase = juce::jlimit (0, (int) composerPlan.phrases.size() - 1, n.step / 64);
+        const int phrase = juce::jlimit (
+            0, (int) composerPlan.phrases.size() - 1, n.step / 64);
         const auto composerState = composerPlan.stateFor (phrase);
 
-        const int nextStep = (i + 1 < melody.size()) ? section.notes[melody[i + 1]].step : n.step;
-        const int nextLocalStep = (i + 1 < melody.size()) ? (nextStep % 16) : -1;
+        const int nextStep = (i + 1 < melody.size())
+            ? section.notes[melody[i + 1]].step : n.step;
+        const int nextLocalStep = (i + 1 < melody.size())
+            ? (nextStep % 16) : -1;
         const int localStep = n.step % 16;
         const int nextInterval = (i + 1 < melody.size())
-            ? section.notes[melody[i + 1]].note - n.note
-            : 0;
-        const bool finalOfPhrase = (i + 1 == melody.size())
+            ? section.notes[melody[i + 1]].note - n.note : 0;
+        const bool finalOfPhrase =
+            (i + 1 == melody.size())
             || (nextStep / 64 != n.step / 64);
 
         const auto intent = midiforge::MelodicProsody::classify (
@@ -1020,48 +984,40 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
                 break;
 
             case midiforge::MelodicProsody::Approach:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 4)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? intent.scaleMotion : -intent.scaleMotion);
+                // Pitch is intentionally preserved. The authored phrase already
+                // chose the approach note; Harmony may support it later.
+                n.velocity = juce::jlimit (35, 118,
+                    n.velocity + juce::roundToInt (intent.velocityBias * 70.0f));
                 n.length = juce::jmax (1, n.length);
                 break;
 
             case midiforge::MelodicProsody::Connect:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 8)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? 1 : -1);
+                n.length = juce::jmax (1, n.length);
                 break;
 
             case midiforge::MelodicProsody::Peak:
-                n.note = shiftScale (n.note, juce::jlimit (1, 2,
-                    1 + (composerState.registerLift > 4.0f ? 1 : 0)));
+                // Peak is expressed through articulation, not forced register.
                 n.velocity = juce::jlimit (40, 122,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmax (1, n.length - 1);
                 break;
 
             case midiforge::MelodicProsody::Release:
-                if (i > 0)
-                {
-                    const int previous = section.notes[melody[i - 1]].note;
-                    if (std::abs (n.note - previous) >= 2)
-                        n.note = shiftScale (n.note, n.note > previous ? -1 : 1);
-                    else if (n.note > previous)
-                        n.note = shiftScale (n.note, -1);
-                }
                 n.velocity = juce::jlimit (35, 118,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmin (6, n.length + 1);
                 break;
         }
 
-        if (intent.sustainBias > 0.04f && (intent.role == midiforge::MelodicProsody::Anchor
-                                         || intent.role == midiforge::MelodicProsody::Release))
+        if (intent.sustainBias > 0.04f
+            && (intent.role == midiforge::MelodicProsody::Anchor
+                || intent.role == midiforge::MelodicProsody::Release))
             n.length = juce::jmin (6, n.length + 1);
     }
 
-    cleanMelodyLine (section.notes);
+    // No pitch rewrite here. Keep the authored contour intact.
     removeDuplicateNotes (section.notes);
+    cleanMelodyLine (section.notes);
 }
 
 float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) const
