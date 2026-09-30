@@ -865,8 +865,9 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
         + 0.12f * accentFit);
 }
 
-void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section) const
+void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint32_t identity) const
 {
+    juce::ignoreUnused (identity);
     // 0.81 Melody Core: harmony is a preference + repair layer, not a
     // second composer. Strong/long notes receive a gentle pull only when a
     // nearby chord tone already exists; expressive color tones survive.
