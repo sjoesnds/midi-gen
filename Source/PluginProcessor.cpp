@@ -9774,7 +9774,7 @@ if(variations.empty())return {};
 return variations[(size_t)selectedVariation];
 }
 void MidiForgeAudioProcessor::emitNote(const NoteEvent& e,juce::MidiBuffer& midi,
-int sampleOffset,int velocityBias)
+int sampleOffset,int velocityBias,int stepStartOffset)
 {
 if(e.step<0)return;
 if(e.channel==5){ const int drow=drumRowForNote(e.note); if(drow>=0 && (realtimeDrumMuteMask.load()&(1<<drow))!=0) return; }
@@ -9785,7 +9785,7 @@ const double stepSamples = sampleRate * 60.0 / juce::jmax (20.0, currentBpm.load
 const juce::int64 onGlobal  = samplePosition + sampleOffset;
 const int endStep = e.step + juce::jmax (1, e.length);
 const double endSwing = (endStep & 1) != 0 ? (double) realtimeSwing.load() * stepSamples * 0.5 : 0.0;   // same rule as the note-on offset in processBlock
-const juce::int64 offGlobal = juce::jmax (onGlobal + 1, (onGlobal - sampleOffset) + (juce::int64) (juce::jmax (1, e.length) * stepSamples + endSwing));
+const juce::int64 offGlobal = juce::jmax (onGlobal + 1, (samplePosition + stepStartOffset) + (juce::int64) (juce::jmax (1, e.length) * stepSamples + endSwing));
 // A still-pending note-off of the same pitch that would land AFTER this new note-on would cut the new note: pull it forward.
 for (auto& p : pendingEvents)
     if (! p.on && p.channel == midiCh && p.note == e.note && p.globalSample >= onGlobal)
@@ -9867,16 +9867,32 @@ return exported;
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer& midi)
 {
 audio.clear();
-juce::MidiBuffer out;
+auto& out = outScratch;
+out.clear();
 for(const auto m:midi)out.addEvent(m.getMessage(),m.samplePosition);
 if(auto* ph=getPlayHead()){
 if(auto pos=ph->getPosition()){
-currentBpm.store (pos->getBpm().orFallback (120.0));
+const double bpmNow = pos->getBpm().orFallback (120.0);
+currentBpm.store (bpmNow);
 const double ppq=pos->getPpqPosition().orFallback(0.0);
-const int globalStep=(int)std::floor(ppq*4.0);
-if (globalStep != lastGlobalStep.load())
+if (! pos->getIsPlaying())
+{
+    // Stopped: emit nothing, and forget the last step so the downbeat sounds again when playback restarts.
+    lastGlobalStep.store (-1);
+}
+else
+{
+// Sample-accurate steps: find the first 16th-note boundary at or after this block's start and, when it falls inside
+// the block, place the notes at that exact sample. (Before, a step was only noticed by the first block that STARTED
+// inside it, so every note was late by up to one full buffer and jittered with the buffer size.)
+const double samplesPerPpq = sampleRate * 60.0 / juce::jmax (20.0, bpmNow);
+const int blockLen = audio.getNumSamples();
+const int globalStep = (int) std::ceil (ppq * 4.0 - 1e-6);
+const double toBoundary = juce::jmax (0.0, ((double) globalStep * 0.25 - ppq) * samplesPerPpq);
+if (toBoundary < (double) blockLen && globalStep != lastGlobalStep.load())
 {
 lastGlobalStep.store (globalStep);
+const int stepStartOffset = (int) toBoundary;
 int local = 0;
 std::array<NoteEvent, 256> dueNotes {};
 int dueCount = 0;
@@ -9895,15 +9911,16 @@ int dueCount = 0;
 if (dueCount > 0)
 {
     uiCurrentStep.store (local);
-    int offset = 0;
+    int offset = stepStartOffset;
     if ((local % 2) == 1)
-        offset = (int) (realtimeSwing.load() * sampleRate * 60.0
-                        / juce::jmax (20.0, currentBpm.load()) / 8.0);
+        offset += (int) (realtimeSwing.load() * sampleRate * 60.0
+                        / juce::jmax (20.0, bpmNow) / 8.0);
     const int velBias = realtimeHumanizeEnabled.load()
         ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * realtimeHumanize.load())
         : 0;
     for (int n = 0; n < dueCount; ++n)
-        emitNote (dueNotes[(size_t) n], out, offset, velBias);
+        emitNote (dueNotes[(size_t) n], out, offset, velBias, stepStartOffset);
+}
 }
 }
 }

@@ -393,6 +393,7 @@ juce::int64 samplePosition = 0;
 // block (illegal for VST3), so it waits here; a stale note-off can never cut a retriggered note.
 struct PendingMidi { juce::int64 globalSample; int channel; int note; int velocity; bool on; };
 std::vector<PendingMidi> pendingEvents;
+juce::MidiBuffer outScratch;   // 0.79.x: reused every block instead of allocating a MidiBuffer in the audio thread
 // 0.45.1: swing in MIDI ticks for exported / dragged files (same rule as the live output: odd 16ths move by swing/2 of a step)
 double swingTicks (int step, double ticksPerStep) const { return (step & 1) != 0 ? (double) swing * ticksPerStep * 0.5 : 0.0; }
 double swungEndTick (int step, int len, double ticksPerStep) const { return (double) (step + len) * ticksPerStep + swingTicks (step + len, ticksPerStep); }
@@ -475,6 +476,6 @@ void startGeneration (int selectionAfter);
 void regenerateBlocking (int selectionAfter);
 void refreshHostBpm();
 Section mergedSelectedSong() const;
-void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias);
+void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias, int stepStartOffset);
 JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessor)
 };

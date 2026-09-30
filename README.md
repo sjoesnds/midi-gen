@@ -6,6 +6,12 @@
 
 
 
+### Unreleased (next version)
+- **Live playback timing fixed.** A step was only noticed by the first audio block that *started* inside it, so every live note was late by up to one full buffer (measured: up to ~500 samples at 512, ~900 at 1024) and its jitter changed with the buffer size. The step boundary is now located inside the block and notes are placed on that exact sample (measured error <= 1 sample). Drag and export were never affected.
+- The stopped transport no longer emits notes, and pressing play again at the same position plays the downbeat.
+- `processBlock` reuses one MIDI buffer instead of creating a new one every block.
+- QA: new live-timing section with a fake play head (grid accuracy at 512/1024 samples and odd BPM, first downbeat, stopped transport, restart).
+
 ### Feedback Log — 0.79.0
 - Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.
 - Each row records engine version, verdict, variation slot, **transform**, **source archetype**, genre, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.

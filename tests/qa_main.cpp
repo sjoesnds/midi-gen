@@ -16,6 +16,7 @@
 #include <array>
 #include <cmath>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -1657,6 +1658,77 @@ int main()
         report ("feedback log: rows carry transform and archetype names", like.size() > 5 && like[4] != "?" && like[5] != "?",
                like.size() > 5 ? (like[4] + " / " + like[5]).toStdString() : std::string ("no row"));
         logFile.deleteFile();
+    }
+
+    // ------------------------------------------------------------------ 11. live playback timing
+    {
+        struct FakeHost : juce::AudioPlayHead
+        {
+            double ppq = 0.0, bpm = 120.0; bool playing = true;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo p; p.setPpqPosition (ppq); p.setBpm (bpm); p.setIsPlaying (playing); return p;
+            }
+        };
+        auto runTiming = [&] (int blockSize, double bpm, double startPpq, bool swing0, double& worstErr, int& onsets, int& firstStepSeen)
+        {
+            MidiForgeAudioProcessor a;
+            if (swing0) a.setSwing (0.0f);
+            a.setHumanizeEnabled (false);
+            FakeHost host; host.bpm = bpm; host.ppq = startPpq;
+            const double sr = 44100.0;
+            a.setPlayHead (&host);
+            a.prepareToPlay (sr, blockSize);
+            const double samplesPerPpq = sr * 60.0 / bpm;
+            const double stepSamples = samplesPerPpq / 4.0;
+            juce::AudioBuffer<float> audio (2, blockSize);
+            worstErr = 0.0; onsets = 0; firstStepSeen = -1;
+            const int blocks = (int) std::ceil (4.0 * 16 * stepSamples / blockSize) + 4;   // ~4 bars
+            for (int b = 0; b < blocks; ++b)
+            {
+                host.ppq = startPpq + (double) b * blockSize / samplesPerPpq;
+                juce::MidiBuffer midi;
+                a.processBlock (audio, midi);
+                for (const auto m : midi)
+                {
+                    if (! m.getMessage().isNoteOn()) continue;
+                    const double absSample = (double) b * blockSize + m.samplePosition;
+                    const double absPpq = startPpq + absSample / samplesPerPpq;
+                    const double stepPos = absPpq * 4.0;
+                    if (firstStepSeen < 0) firstStepSeen = (int) std::lround (stepPos);
+                    const double err = std::abs (stepPos - std::round (stepPos)) * stepSamples;   // distance to the nearest 16th, in samples
+                    worstErr = juce::jmax (worstErr, err);
+                    ++onsets;
+                }
+            }
+        };
+        double worst = 0; int onsets = 0, first = 0;
+        runTiming (512, 120.0, 0.0, true, worst, onsets, first);
+        report ("live timing: notes land on the 16th grid inside the block (512 samples, 120 BPM)", onsets > 0 && worst <= 2.0,
+               fmt ("%.0f onsets, worst error %.1f samples", (double) onsets, worst));
+        runTiming (1024, 133.0, 0.37, true, worst, onsets, first);
+        report ("live timing: also with 1024-sample blocks, odd BPM and an off-grid start", onsets > 0 && worst <= 2.0,
+               fmt ("%.0f onsets, worst error %.1f samples", (double) onsets, worst));
+        runTiming (512, 120.0, 0.0, true, worst, onsets, first);
+        report ("live timing: the first downbeat of playback is not skipped", first == 0, fmt ("first onset at step %.0f", (double) first));
+        {
+            MidiForgeAudioProcessor a; a.setSwing (0.0f); a.setHumanizeEnabled (false);
+            FakeHost host; host.bpm = 120.0; host.ppq = 0.0; host.playing = false;
+            a.setPlayHead (&host); a.prepareToPlay (44100.0, 512);
+            juce::AudioBuffer<float> audio (2, 512);
+            int stoppedOnsets = 0;
+            for (int b = 0; b < 200; ++b)
+            {
+                host.ppq = 0.02 * b;   // a scrubbing/stopped host moving through steps
+                juce::MidiBuffer midi; a.processBlock (audio, midi);
+                for (const auto m : midi) if (m.getMessage().isNoteOn()) ++stoppedOnsets;
+            }
+            report ("live timing: a stopped transport emits no notes", stoppedOnsets == 0, fmt ("%.0f note-ons while stopped", (double) stoppedOnsets));
+            host.playing = true; host.ppq = 0.0;
+            juce::MidiBuffer midi; a.processBlock (audio, midi);
+            int downbeat = 0; for (const auto m : midi) if (m.getMessage().isNoteOn()) ++downbeat;
+            report ("live timing: pressing play again at the same position plays the downbeat", downbeat > 0, fmt ("%.0f note-ons in the first block", (double) downbeat));
+        }
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
