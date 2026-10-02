@@ -70,11 +70,27 @@ namespace
         }
     }
 }
+static juce::File& settingsDirectoryOverride()
+{
+    static juce::File dir;
+    return dir;
+}
+
+void MidiForgeAudioProcessor::setSettingsDirectoryOverride (const juce::File& dir)
+{
+    settingsDirectoryOverride() = dir;
+}
+
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    preferencesFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                        .getChildFile ("MidiForge").getChildFile ("taste.json");
+    {
+        const juce::File overrideDir = settingsDirectoryOverride();
+        const juce::File base = overrideDir != juce::File()
+            ? overrideDir
+            : juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("MidiForge");
+        preferencesFile = base.getChildFile ("taste.json");
+    }
     feedbackFile = preferencesFile.getSiblingFile ("feedback.csv");
     loadPreferences();
     realtimeSwing.store (swing);
@@ -453,6 +469,32 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
     const int maxLeap = simple
         ? 7
         : juce::jlimit (8, 11, 8 + juce::roundToInt (2.0f * complexity));
+
+    // Register placement. The composer plans the line inside registerLane(2) (about 62-86), but this lane is tonic-relative
+    // (about 44-68 in a typical key). Clamping every note into it piled 35-45% of the notes onto the single highest scale
+    // tone under the ceiling (measured: the top pitch was also the most-used pitch in ~75% of loops) and caused long
+    // same-pitch runs. Move the whole melody by whole octaves into the lane first, so the contour survives and only a
+    // genuinely too-wide line is clamped.
+    if (! melody.empty())
+    {
+        int bestShift = 0;
+        float bestCost = 1.0e9f;
+        for (int k = -4; k <= 4; ++k)
+        {
+            float cost = 0.0f;
+            for (const auto index : melody)
+            {
+                const int p = section.notes[index].note + 12 * k;
+                if (p < laneLo) cost += (float) (laneLo - p);
+                if (p > laneHi) cost += (float) (p - laneHi);
+            }
+            cost += 0.01f * (float) std::abs (12 * k);   // prefer the smaller move on a tie
+            if (cost < bestCost) { bestCost = cost; bestShift = 12 * k; }
+        }
+        if (bestShift != 0)
+            for (const auto index : melody)
+                section.notes[index].note = juce::jlimit (0, 127, section.notes[index].note + bestShift);
+    }
 
     int previous = -1;
     for (const auto index : melody)

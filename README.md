@@ -6,6 +6,15 @@
 
 
 
+### Unreleased (next version)
+- **Melodies are more varied in pitch.** The melody foundation clamped every note into a tonic-relative lane that sat below the lane the composer plans in, so notes above the ceiling all collapsed onto the single highest scale tone. Measured over many loops, seeds, genres and keys: 33-47% of all melody notes sat on one pitch, that pitch was also the highest note in 70-80% of loops, and 24-42% of consecutive notes were repeats. The whole line is now first moved by whole octaves into the lane, so the planned contour survives, and only a genuinely too-wide line is clamped. Result: the most-used pitch drops to ~29%, the ceiling pitch is the favourite in ~17% of loops and repeats fall to ~14%. Rhythm and the rest of the pipeline are unchanged.
+- QA: new "melody variety" checks (no dominant pitch, ceiling pitch not the favourite, moderate repeats).
+- QA: the long-form "keeps a recognizable contour" check no longer counts two flat steps as matching shape. That metric rewarded the collapsed melodies (44% flat steps before the fix, 16% after) and made the old result look better than it was; on moving steps only, contour retention was 56% before and 82% after. Threshold is now 75% on the stricter metric.
+
+- QA is now hermetic: `MidiForgeAudioProcessor::setSettingsDirectoryOverride()` points `taste.json` / `feedback.csv` at a temporary folder for the whole run. Before, every local QA run read the Taste model that earlier runs had saved to the real settings folder, so identical code gave different numbers on different runs (CI always starts clean, so it was never affected).
+- QA: the A' / B / A'' / "semantic development" motif-structure checks now judge the share of loops that have melody material in every bar (44% / 53% / 44% / 36%) instead of absolute counts out of 45, so they no longer depend on how many loops happen to be sparse.
+- **Needs CI confirmation:** this branch has not been run on the CI toolchain yet. If any Quality check turns red here and is green on `main`, the octave shift is the cause.
+
 ### SIMILAR / More Like This — 0.80.0
 - New **SIMILAR** button (bottom row, left of UNDO). Select a loop you like and press it: the bank is rebuilt as the **untouched source loop in slot 1** plus **seven close relatives in slots 2-8, ordered from nearest to boldest**.
 - Relatives come from the existing MUTATE engine (motif, rhythm, cadence and groove edits at seven strengths), so layer locks are respected. Each candidate must (a) change at least ~8% of the notes, (b) score within a tolerance of the source in the Forge judge, and (c) differ from the relatives already picked; the spread requirement only relaxes step by step if seven cannot be found.

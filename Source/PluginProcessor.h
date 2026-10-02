@@ -68,6 +68,8 @@ void waitForGeneration();
 // 0.79 feedback log: one CSV row per LIKE / DISLIKE / export / drag, so the real like-rate of every archetype, transform,
 // genre and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
 void setFeedbackLogFile (const juce::File& f) { feedbackFile = f; }
+// Tests point this at a temporary folder BEFORE creating any processor, so taste.json / feedback.csv of the real user are never read or written.
+static void setSettingsDirectoryOverride (const juce::File& dir);
 juce::File getFeedbackLogFile() const { return feedbackFile; }
 void logFeedback (int variationIndex, const char* verdict) const;
 void setAsyncGeneration (bool on) { asyncGeneration.store (on); }   // QA hook; headless builds default to synchronous
