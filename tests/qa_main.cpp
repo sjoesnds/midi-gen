@@ -1577,19 +1577,35 @@ int main()
         MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
         a.setDrumMuteMask (0x0A); a.setDrumPitchMode (1);
         juce::MemoryBlock mb; a.getStateInformation (mb);
+
+        bool versionedHeader = false;
+        {
+            juce::MemoryInputStream in (mb.getData(), mb.getSize(), false);
+            versionedHeader = in.getNumBytesRemaining() >= 8
+                           && in.readInt() == 0x4D464752
+                           && in.readInt() == 2;
+        }
+        report ("state uses a versioned header", versionedHeader,
+                versionedHeader ? "magic + version 2" : "missing/invalid header");
+
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
         report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
                && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
-        MidiForgeAudioProcessor c1; c1.setStateInformation (mb.getData(), (int) mb.getSize() - 8);    // project saved by 0.44
+
+        // Strip the V2 envelope to construct a real legacy positional state.
+        juce::MemoryBlock legacy;
+        legacy.append (static_cast<const char*> (mb.getData()) + 8, mb.getSize() - 8);
+
+        MidiForgeAudioProcessor c1; c1.setStateInformation (legacy.getData(), (int) legacy.getSize() - 8);
         report ("0.44 project (no drum mute / pitch fields) loads", c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "defaults applied");
-        MidiForgeAudioProcessor c0; c0.setStateInformation (mb.getData(), (int) mb.getSize() - 16);   // project saved by 0.42 / 0.43
+        MidiForgeAudioProcessor c0; c0.setStateInformation (legacy.getData(), (int) legacy.getSize() - 16);
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
-        MidiForgeAudioProcessor c; c.setStateInformation (mb.getData(), (int) mb.getSize() - 24);    // project saved by 0.40 / 0.41
+        MidiForgeAudioProcessor c; c.setStateInformation (legacy.getData(), (int) legacy.getSize() - 24);
         report ("old project (no articulation fields) loads", c.getSoundTarget() == 7 && c.getArticulation() == 0, "defaults applied");
-        MidiForgeAudioProcessor d; d.setStateInformation (mb.getData(), (int) mb.getSize() - 35);    // project saved by 0.38 / 0.39 (28 + the 7 trailing flag bytes added later)
+        MidiForgeAudioProcessor d; d.setStateInformation (legacy.getData(), (int) legacy.getSize() - 35);
         report ("older project (no sound field) loads", d.getSoundTarget() == 0, "defaults applied");
-        MidiForgeAudioProcessor dirty; dirty.setSoundTarget (5); dirty.setDrumsEnabled (true); dirty.setStateInformation (mb.getData(), (int) mb.getSize() - 35);
+        MidiForgeAudioProcessor dirty; dirty.setSoundTarget (5); dirty.setDrumsEnabled (true); dirty.setStateInformation (legacy.getData(), (int) legacy.getSize() - 35);
         report ("legacy project does not inherit previous processor state", dirty.getSoundTarget() == 0 && ! dirty.isDrumsEnabled(), "defaults applied");
     }
     {
