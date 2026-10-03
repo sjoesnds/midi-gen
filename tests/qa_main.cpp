@@ -259,7 +259,7 @@ int main()
 
         std::set<int> roots, scales, progressions, genres, moods, melodyTypes, sounds;
         std::set<int> articulations, chordStyles, sectionModes, barsSeen, octaves, arpRates;
-        int chordsOn = 0, bassOn = 0, arpOn = 0, drumsOn = 0, humanizeOn = 0, soundCloudOn = 0;
+        int chordsOn = 0, bassOn = 0, melodyOn = 0, arpOn = 0, drumsOn = 0, humanizeOn = 0, soundCloudOn = 0;
         int changedChordDensity = 0, changedMelodyDensity = 0, changedComplexity = 0;
 
         float prevChordDensity = -1.0f;
@@ -286,6 +286,7 @@ int main()
 
             chordsOn += p.isChordsEnabled() ? 1 : 0;
             bassOn += p.isBassEnabled() ? 1 : 0;
+            melodyOn += p.isMelodyEnabled() ? 1 : 0;
             arpOn += p.isArpEnabled() ? 1 : 0;
             drumsOn += p.isDrumsEnabled() ? 1 : 0;
             humanizeOn += p.isHumanizeEnabled() ? 1 : 0;
