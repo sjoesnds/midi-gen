@@ -9429,7 +9429,7 @@ void MidiForgeAudioProcessor::magicRandomize()
 
     // Keep lower registers common, but let MAGIC actually reach octave 6 too.
     static constexpr int octaveChoices[] = { 2, 3, 3, 4, 4, 5, 6 };
-    octave = octaveChoices[pick ((int) std::size (octaveChoices)) - 1];
+    octave = octaveChoices[pick ((int) (sizeof (octaveChoices) / sizeof (octaveChoices[0]))) - 1];
 
     // Feel / performance.
     swing = rf (0.0f, 0.75f);
