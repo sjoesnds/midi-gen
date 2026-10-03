@@ -2353,13 +2353,27 @@ void MidiForgeAudioProcessor::applyPhraseMemory4 (Section& section, uint32_t ide
                 if (i == 0)
                     strength *= 0.42f; // do not erase local harmonic anchors
                 if (mode == 2)
-                    strength *= 0.88f;
+                    strength = juce::jlimit (0.68f, 0.92f, strength + 0.18f);
                 if (mode == 3 && i + 1 == cur.size())
                     strength *= 0.60f;
 
+                // Contrast is not merely "different". It is an intentional
+                // reversal of the reference contour with an asymmetric offset,
+                // so the middle phrase reads as an answer rather than another
+                // copy wearing a different register.
+                int contrastOffset = 0;
+                if (mode == 2 && cur.size() >= 3)
+                {
+                    const float t = (float) i / (float) juce::jmax<size_t> (1, cur.size() - 1);
+                    contrastOffset = (t < 0.45f) ? 2 : (t > 0.70f ? -2 : 3);
+                    if (((phraseSeed >> ((i % 4) * 5)) & 1u) != 0u)
+                        contrastOffset = -contrastOffset;
+                }
+
                 const int desired = currentAnchor
                                   + juce::roundToInt (targetRelative)
-                                  + variation;
+                                  + variation
+                                  + contrastOffset;
 
                 n.note = juce::jlimit (34, 108,
                     snapToScale (juce::roundToInt (
@@ -2370,7 +2384,7 @@ void MidiForgeAudioProcessor::applyPhraseMemory4 (Section& section, uint32_t ide
                 // centre; the return phrase deliberately avoids keeping that lift.
                 if (mode == 2 && i == cur.size() / 2)
                     n.note = juce::jlimit (34, 108,
-                        snapToScale (n.note + 3));
+                        snapToScale (n.note + 4));
                 else if (mode == 0 && i == cur.size() / 2 && phrase > 1)
                     n.note = juce::jlimit (34, 108,
                         snapToScale (n.note - 1));
