@@ -9443,8 +9443,10 @@ void MidiForgeAudioProcessor::magicRandomize()
     // biased toward useful configurations rather than pure 50/50 chaos.
     chordsEnabled = rb (0.90f);
     bassEnabled = rb (0.86f);
-    melodyEnabled = true; // MAGIC always leaves a melodic idea to judge.
+    melodyEnabled = rb (0.94f);
     arpEnabled = rb (0.42f);
+    if (!chordsEnabled && !bassEnabled && !melodyEnabled && !arpEnabled)
+        melodyEnabled = true; // Never let a MAGIC roll produce a completely empty arrangement.
     hookMode = rb (0.64f);
     leadStyleSoundCloud = rb (0.14f);
     drumsEnabled = rb (0.38f);
