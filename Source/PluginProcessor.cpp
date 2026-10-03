@@ -117,7 +117,7 @@ pendingEvents.reserve (4096);
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
-void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,6,v);regenerate();}
+void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
 void MidiForgeAudioProcessor::setSoundTarget(int v){soundTarget=juce::jlimit(0,7,v);regenerate();}
@@ -218,14 +218,21 @@ void MidiForgeAudioProcessor::setArpEnabled(bool v){arpEnabled=v;}
 void MidiForgeAudioProcessor::setHookMode(bool v){hookMode=v;regenerate();}
 std::vector<int> MidiForgeAudioProcessor::scaleSemitones() const
 {
-switch(scale){
-case Major:return{0,2,4,5,7,9,11};
-case Minor:return{0,2,3,5,7,8,10};
-case Dorian:return{0,2,3,5,7,9,10};
-case Phrygian:return{0,1,3,5,7,8,10};
-case HarmonicMinor:return{0,2,3,5,7,8,11};
-case MelodicMinor:return{0,2,3,5,7,9,11};
-default:return{0,2,4,7,9};
+switch(scale)
+{
+case Major:         return {0,2,4,5,7,9,11};
+case Minor:         return {0,2,3,5,7,8,10};
+case Dorian:        return {0,2,3,5,7,9,10};
+case Phrygian:      return {0,1,3,5,7,8,10};
+case Lydian:        return {0,2,4,6,7,9,11};
+case Mixolydian:    return {0,2,4,5,7,9,10};
+case Locrian:       return {0,1,3,5,6,8,10};
+case HarmonicMinor: return {0,2,3,5,7,8,11};
+case MelodicMinor:  return {0,2,3,5,7,9,11};
+case HarmonicMajor: return {0,2,4,5,7,8,11};
+case Pentatonic:    return {0,2,4,7,9};
+case Blues:         return {0,3,5,6,7,10};
+default:            return {0,2,4,5,7,9,11};
 }
 }
 std::vector<int> MidiForgeAudioProcessor::progressionDegrees() const
@@ -2416,7 +2423,7 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
     static constexpr const char* transforms[9] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK", "SIMILAR" };
     static constexpr const char* genres[16] = { "Universal", "Trap", "House", "Techno", "BoomBap", "Ambient", "Cinematic", "RnB",
                                                 "Pop", "Drill", "DnB", "Jersey", "Afro", "Hyperpop", "Experimental", "Lofi" };
-    static constexpr const char* scales[7] = { "Major", "Minor", "Dorian", "Phrygian", "HarmonicMinor", "MelodicMinor", "Pentatonic" };
+    static constexpr const char* scales[12] = { "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Locrian", "HarmonicMinor", "MelodicMinor", "HarmonicMajor", "Pentatonic", "Blues" };
     static constexpr const char* sounds[8] = { "Piano", "Pluck", "SynthLead", "Bell", "Pad", "Brass", "808", "Guitar" };
     static constexpr const char* moods[9] = { "Neutral", "Dark", "Melancholic", "Euphoric", "Aggressive", "Dreamy", "Nostalgic", "Mysterious", "Energetic" };
     static constexpr const char* melodyTypes[8] = { "Hook", "VocalLike", "Riff", "Ostinato", "Arp", "Counter", "SparseLead", "Phrase" };
@@ -2447,7 +2454,7 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
     row.add (nameOf (melodyTypes, 8, melodyType));
     row.add (nameOf (sounds, 8, soundTarget));
     row.add (juce::String (era));
-    row.add (nameOf (scales, 7, scale));
+    row.add (nameOf (scales, 12, scale));
     row.add (juce::String (progression));
     row.add (juce::String (loopBars));
     row.add (juce::String (currentBpm.load(), 1));
@@ -9344,10 +9351,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
 void MidiForgeAudioProcessor::magicRandomize()
 {
-    if (isGenerating()) return;   // 0.78: the worker is reading the controls
-    // MAGIC 2.0: first create one coherent musical DNA, then derive the
-    // existing controls from it. This keeps the search space expressive
-    // without introducing a second parallel generation engine.
+    if (isGenerating())
+        return; // UI handles a pending click; never mutate live controls during generation.
+
     auto magicHash32 = [](uint32_t x)
     {
         x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
@@ -9355,89 +9361,135 @@ void MidiForgeAudioProcessor::magicRandomize()
     };
 
     const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
-    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
-    juce::Random r((juce::int64) magicDnaSeed);
-    auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
-    auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
+    magicDnaSeed = magicHash32 (generationSeed ^ timeSeed ^ 0x51A7D00Du);
+    juce::Random r ((juce::int64) magicDnaSeed);
 
-    // DNA axes. Related axes are intentionally sampled together rather than
-    // treating every parameter as an independent dice roll.
-    dnaMelody  = rf(.15f, .90f);
-    dnaRhythm  = juce::jlimit(.0f,1.0f, dnaMelody * .35f + rf(.15f,.85f) * .65f);
-    dnaHarmony = rf(.20f, .90f);
-    dnaMotif   = juce::jlimit(.0f,1.0f, .35f + dnaMelody * .45f + rf(-.12f,.18f));
-    dnaRegister= rf(.20f, .85f);
-    dnaGroove  = juce::jlimit(.0f,1.0f, .25f + dnaRhythm * .55f + rf(-.12f,.20f));
-    dnaEnergy  = juce::jlimit(.0f,1.0f, .20f + rf(.0f,.70f));
-    dnaSurprise= juce::jlimit(.0f,1.0f, .12f + rf(.0f,.58f));
+    auto pick = [&] (int n) { return r.nextInt (juce::jmax (1, n)); };
+    auto rf = [&] (float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
+    auto rb = [&] (float probability) { return r.nextFloat() < probability; };
 
-    // Keep layer locks meaningful: a locked layer keeps its character controls.
+    // Coherent latent DNA: controls are randomized independently enough to explore,
+    // but their final values still stay musically plausible.
+    dnaMelody   = rf (0.08f, 0.95f);
+    dnaRhythm   = rf (0.05f, 0.95f);
+    dnaHarmony  = rf (0.05f, 0.95f);
+    dnaMotif    = rf (0.05f, 0.98f);
+    dnaRegister = rf (0.05f, 0.95f);
+    dnaGroove   = rf (0.05f, 0.95f);
+    dnaEnergy   = rf (0.05f, 0.95f);
+    dnaSurprise = rf (0.05f, 0.95f);
+
+    // Layer locks remain explicit user overrides: a locked layer keeps its
+    // musical controls, while every unlocked musical parameter gets rerolled.
     if (!lockChordsLayer)
     {
-        rootPc = pick(12);
-        scale = pick(7);
-        progression = pick(7);
-        chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
-        chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
-        inversions = r.nextFloat() > .28f;
-        voicingWidth = juce::jlimit(.20f,.85f,.25f + dnaHarmony*.55f);
+        rootPc = pick (12);
+        scale = pick (12);
+        progression = pick (7);
+        chordDensity = rf (0.25f, 1.0f);
+        chordExtensions = rb (0.58f);
+        inversions = rb (0.52f);
+        voicingWidth = rf (0.15f, 0.95f);
+        chordStyle = pick (3);
     }
 
     if (!lockBassLayer)
     {
-        bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
+        bassDensity = rf (0.15f, 1.0f);
     }
 
     if (!lockMelodyLayer)
     {
-        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
-        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
-        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
-        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
-        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
-        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
-        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
+        melodyDensity = rf (0.12f, 0.95f);
+        melodyLength = rf (0.08f, 0.92f);
+        pauseChance = rf (0.02f, 0.48f);
+        leapChance = rf (0.02f, 0.55f);
+        ghostChance = rf (0.0f, 0.28f);
+        motifStrength = rf (0.30f, 0.98f);
+        variationAmount = rf (0.10f, 0.92f);
     }
 
     if (!lockArpLayer)
     {
-        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
-        static constexpr int arpChoices[] = {1,2,4,8};
-        arpRate = arpChoices[pick(4)];
+        arpDensity = rf (0.02f, 0.70f);
+        static constexpr int arpChoices[] = { 1, 2, 4, 8 };
+        arpRate = arpChoices[pick (4) - 1];
     }
 
-    // Global musical identity. These affect all layers coherently.
-    genre = pick(16);
-    mood = pick(9);
-    melodyType = pick(8);
-    rhythm = pick(4);
-    static constexpr int barChoices[] = {1,2,4,8,16};
-    bars = barChoices[pick(5)];
-    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
-    era = pick(6);
+    // Global source identity.
+    genre = pick (16);
+    mood = pick (9);
+    melodyType = pick (8);
+    era = pick (6);
+    rhythm = pick (4);
+    progression = pick (7);
+    sectionMode = pick (3);
 
-    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
-    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
-    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
-    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
-    energy = dnaEnergy;
+    static constexpr int barChoices[] = { 1, 2, 4, 8, 16 };
+    bars = barChoices[pick (5) - 1];
 
-    // Rhythm DNA and genre still get a chance to create distinct identities.
-    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
-    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
-    hookMode = dnaMotif > .46f;
-    chordsEnabled = true;
-    bassEnabled = r.nextFloat() > .06f;
-    melodyEnabled = true;
-    arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
-    leadStyleSoundCloud = false;
+    // Keep lower registers common, but let MAGIC actually reach octave 6 too.
+    static constexpr int octaveChoices[] = { 2, 3, 3, 4, 4, 5, 6 };
+    octave = octaveChoices[pick ((int) std::size (octaveChoices)) - 1];
 
-    // Seed controls the candidate search; DNA seed remains stable for
-    // REROLL, so REROLL explores the same musical universe.
-    seed = static_cast<int>(magicDnaSeed);
+    // Feel / performance.
+    swing = rf (0.0f, 0.75f);
+    humanize = rf (0.0f, 1.0f);
+    humanizeEnabled = rb (0.24f);
+    complexity = rf (0.08f, 1.0f);
+    fillAmount = rf (0.0f, 0.65f);
+    energy = rf (0.05f, 0.95f);
+
+    // Every structural toggle is part of MAGIC too. These are intentionally
+    // biased toward useful configurations rather than pure 50/50 chaos.
+    chordsEnabled = rb (0.90f);
+    bassEnabled = rb (0.86f);
+    melodyEnabled = true; // MAGIC always leaves a melodic idea to judge.
+    arpEnabled = rb (0.42f);
+    hookMode = rb (0.64f);
+    leadStyleSoundCloud = rb (0.14f);
+    drumsEnabled = rb (0.38f);
+
+    if (drumsEnabled)
+    {
+        drumPitchMode = pick (2) - 1;
+        // Mostly sparse mutes; a zero mask is common so MAGIC doesn't silence
+        // the whole drum kit too often.
+        drumMuteMask = (r.nextFloat() < 0.58f) ? 0 : pick (256) - 1;
+    }
+    else
+    {
+        drumMuteMask = 0;
+        drumPitchMode = 0;
+    }
+
+    // Extra musical behavior knobs that were previously sticky across MAGIC.
+    articulation = pick (3) - 1;
+    if (soundTarget == 6 && articulation == 0)
+        articulation = rb (0.6f) ? 1 : 0;
+
+    soundTarget = pick (8) - 1;
+
+    // Re-roll host-independent musical state explicitly rather than leaving the
+    // previous preset's hidden values behind.
+    chordStyle = pick (3) - 1;
+    autoNextOnDislike = rb (0.82f);
+
+    // Re-derive performance values from DNA only where it helps coherence.
+    // The actual controls above remain the source of truth for this MAGIC roll.
+    dnaGroove = juce::jlimit (0.0f, 1.0f,
+                              0.55f * dnaGroove + 0.45f * swing / 0.75f);
+    dnaEnergy = juce::jlimit (0.0f, 1.0f,
+                              0.60f * dnaEnergy + 0.40f * energy);
+    dnaSurprise = juce::jlimit (0.0f, 1.0f,
+                                0.70f * dnaSurprise + 0.30f * complexity);
+
+    // Seed is part of MAGIC's identity: every press creates a genuinely new
+    // candidate bank, while REROLL remains the operation for same-DNA search.
+    seed = static_cast<int> (magicDnaSeed);
+
     regenerate();
 }
-
 void MidiForgeAudioProcessor::rerollSameDNA()
 {
     if (isGenerating()) return;
