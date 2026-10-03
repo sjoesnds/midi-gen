@@ -33,9 +33,11 @@ jobs:
         run: cmake --build build-qa --config Release --parallel
 
       - name: Run quality checks
+        env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
         run: |
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          echo "Running $QA"
+          echo "Running $QA with melody pipeline trace"
           "$QA" | tee qa-report.txt
 
       - uses: actions/upload-artifact@v4
@@ -73,6 +75,7 @@ jobs:
 
       - name: Run sanitized quality checks
         env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:detect_stack_use_after_return=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
