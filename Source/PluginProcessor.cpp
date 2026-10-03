@@ -12,6 +12,7 @@
 #include <cmath>
 #include <numeric>
 #include <unordered_set>
+#include <cstdlib>
 
 namespace
 {
@@ -8574,6 +8575,87 @@ void MidiForgeAudioProcessor::buildVariationBank()
     };
     const bool sparseTypeAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     const auto judgeProf = soundProfileFor(soundTarget);
+
+#ifdef MIDIFORGE_HEADLESS
+    struct MelodyPipelineStageStats
+    {
+        const char* name = "";
+        int minPitch = 127;
+        int maxPitch = 0;
+        int maxLeap = 0;
+        int invalidPitches = 0;
+        int outsideContract = 0;
+        int melodyNotes = 0;
+    };
+
+    static bool pipelineTraceDone = false;
+    const bool traceRequested = std::getenv ("MIDIFORGE_PIPELINE_TRACE") != nullptr;
+    const bool traceThisGeneration = traceRequested
+        && ! pipelineTraceDone
+        && soundTarget == 0
+        && bars == 4
+        && melodyType == 0
+        && std::abs (complexity - 0.68f) < 0.001f
+        && std::abs (energy - 0.72f) < 0.001f;
+
+    std::array<MelodyPipelineStageStats, 9> pipelineTrace {};
+    if (traceThisGeneration)
+    {
+        static constexpr const char* names[9] =
+        {
+            "flatten", "archetype", "rhythm", "expression", "memory",
+            "prosody", "harmony", "groove", "foundation+pleasantness"
+        };
+        for (size_t i = 0; i < pipelineTrace.size(); ++i)
+            pipelineTrace[i].name = names[i];
+    }
+
+    auto traceMelodyStage = [&] (size_t stage, const Section& section)
+    {
+        if (! traceThisGeneration || stage >= pipelineTrace.size())
+            return;
+
+        auto& stats = pipelineTrace[stage];
+        int previous = -1;
+        int laneLo = 40, laneHi = 96, contractLeap = 9;
+        melodyRegisterContract (laneLo, laneHi, contractLeap);
+
+        std::vector<const NoteEvent*> melody;
+        for (const auto& n : section.notes)
+            if (n.channel == 3)
+                melody.push_back (&n);
+
+        std::stable_sort (melody.begin(), melody.end(),
+            [] (const NoteEvent* a, const NoteEvent* b)
+            {
+                if (a->step != b->step) return a->step < b->step;
+                return a->note < b->note;
+            });
+
+        stats.melodyNotes += (int) melody.size();
+        for (const auto* n : melody)
+        {
+            if (n->note < 0 || n->note > 127)
+            {
+                ++stats.invalidPitches;
+                continue;
+            }
+
+            stats.minPitch = juce::jmin (stats.minPitch, n->note);
+            stats.maxPitch = juce::jmax (stats.maxPitch, n->note);
+
+            if (n->note < laneLo || n->note > laneHi)
+                ++stats.outsideContract;
+
+            if (previous >= 0)
+                stats.maxLeap = juce::jmax (stats.maxLeap, std::abs (n->note - previous));
+            previous = n->note;
+        }
+    };
+#else
+    const bool traceThisGeneration = false;
+#endif
+
     std::vector<Candidate> candidates;
     std::vector<taste::Vec> tasteFeatures;
     constexpr int candidateCount = 1000;
@@ -8643,15 +8725,32 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         const int archetype = c % 8;
         Section flat=flatten(song,c,local,mLo,mHi);
+        traceMelodyStage (0, flat);
+
         applyMagicArchetype (flat, archetype, identity);
+        traceMelodyStage (1, flat);
+
         applyRhythmGrammar (flat, identity);
+        traceMelodyStage (2, flat);
+
         applyMelodyExpression (flat, identity);
+        traceMelodyStage (3, flat);
+
         applyPhraseMemory4 (flat, identity);
+        traceMelodyStage (4, flat);
+
         applyMelodicProsody (flat, identity);
+        traceMelodyStage (5, flat);
+
         applyHarmonicIntelligence (flat, identity);
+        traceMelodyStage (6, flat);
+
         applyGrooveEngine (flat, identity);
+        traceMelodyStage (7, flat);
+
         applyMelodyFoundation (flat, identity);
         applyMelodyPleasantness (flat, identity);
+        traceMelodyStage (8, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
         const float motifMemory = motifMemoryScore(flat);
@@ -9774,6 +9873,32 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const juce::ScopedLock sl(variationsLock);
         variations=std::move(result);
     }
+
+#ifdef MIDIFORGE_HEADLESS
+    if (traceThisGeneration)
+    {
+        std::printf ("[PIPELINE TRACE] Piano register regression seed=%d\\n", seed);
+        int traceLo = 40, traceHi = 96, traceLeap = 9;
+        melodyRegisterContract (traceLo, traceHi, traceLeap);
+        std::printf ("  contract: %d..%d, max leap %d\\n", traceLo, traceHi, traceLeap);
+
+        for (const auto& stats : pipelineTrace)
+        {
+            std::printf (
+                "  %-22s notes=%d min=%d max=%d maxLeap=%d outside=%d invalid=%d%s\\n",
+                stats.name,
+                stats.melodyNotes,
+                stats.melodyNotes > 0 ? stats.minPitch : -1,
+                stats.melodyNotes > 0 ? stats.maxPitch : -1,
+                stats.maxLeap,
+                stats.outsideContract,
+                stats.invalidPitches,
+                stats.invalidPitches > 0 ? "  <-- invalid pitch observed" : "");
+        }
+        pipelineTraceDone = true;
+    }
+#endif
+
     likeCounts.fill(0);
     dislikeCounts.fill(0);
 }
