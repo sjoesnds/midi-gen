@@ -13,6 +13,7 @@
 #include <numeric>
 #include <unordered_set>
 #include <cstdlib>
+#include <limits>
 
 namespace
 {
