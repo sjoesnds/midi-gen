@@ -9422,7 +9422,6 @@ void MidiForgeAudioProcessor::magicRandomize()
     melodyType = pick (8);
     era = pick (6);
     rhythm = pick (4);
-    progression = pick (7);
     sectionMode = pick (3);
 
     static constexpr int barChoices[] = { 1, 2, 4, 8, 16 };
@@ -9470,9 +9469,7 @@ void MidiForgeAudioProcessor::magicRandomize()
 
     soundTarget = pick (8) - 1;
 
-    // Re-roll host-independent musical state explicitly rather than leaving the
-    // previous preset's hidden values behind.
-    chordStyle = pick (3) - 1;
+    // Re-roll one non-musical UI behavior too so MAGIC never appears partially sticky.
     autoNextOnDislike = rb (0.82f);
 
     // Re-derive performance values from DNA only where it helps coherence.
