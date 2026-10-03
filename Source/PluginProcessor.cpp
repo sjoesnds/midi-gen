@@ -869,7 +869,7 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
 
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
-    const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 32u;
+    const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 58u;
     const int maxLeap = simple ? juce::jmin (7, contractLeap) : contractLeap;
     const auto scale = scaleSemitones();
 
@@ -3485,7 +3485,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     registerLane(2, melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
-    const bool simpleCandidate = (hash32 (identitySeed ^ 0xA11CE55u) % 100u) < 50u;
+    // 0.81 Simple Melody Class: roughly half the search space is intentionally
+    // composed with a compact 2-4 note vocabulary. This is different from merely
+    // lowering density: the pitch contour, rhythm size and leap language also
+    // become simpler, so the final bank can contain genuinely memorable melodies.
+    const bool simpleCandidate = (hash32 (identitySeed ^ 0xA11CE55u) % 100u) < 58u;
 
     // 0.61 Tempo Feel Engine: BPM changes the *time feel* of the same musical
     // language instead of simply deleting notes at faster tempos. The old engine
@@ -4043,6 +4047,56 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             chosen.erase (chosen.begin() + chosen.size() / 2);
     }
 
+    // A true simple candidate is deliberately capped at four onsets. Prefer the
+    // downbeat, the middle of the cell and the tail, then fill the remaining slot
+    // from the deterministic rhythmic ranking. This preserves phrase shape instead
+    // of simply taking the first four generated notes.
+    if (simpleCandidate && chosen.size() > 4)
+    {
+        std::vector<int> compact;
+        compact.reserve (4);
+
+        const auto keep = [&] (int position)
+        {
+            if (std::find (chosen.begin(), chosen.end(), position) == chosen.end())
+                return;
+            if (std::find (compact.begin(), compact.end(), position) == compact.end()
+                && compact.size() < 4)
+                compact.push_back (position);
+        };
+
+        keep (0);
+        keep (8);
+        keep (positions.empty() ? 15 : positions.back());
+
+        while (compact.size() < 4)
+        {
+            int best = -1;
+            uint32_t bestRank = std::numeric_limits<uint32_t>::max();
+            for (const int position : chosen)
+            {
+                if (std::find (compact.begin(), compact.end(), position) != compact.end())
+                    continue;
+
+                const uint32_t rank = hash32 (
+                    identitySeed ^ (uint32_t) (position * 113 + 0x51ED270Bu));
+                if (rank < bestRank)
+                {
+                    bestRank = rank;
+                    best = position;
+                }
+            }
+
+            if (best < 0)
+                break;
+
+            compact.push_back (best);
+        }
+
+        chosen = std::move (compact);
+        std::sort (chosen.begin(), chosen.end());
+    }
+
     // Harmonic context is used as gravity, not as a command to resolve every bar.
     const auto prog = progressionDegrees();
     const int degree = prog[(size_t)(barOffset % (int)prog.size())];
@@ -4273,6 +4327,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             // The old generator collapsed almost everything into small scalar moves.
             const uint32_t ih = hash32(identitySeed ^ (uint32_t)(i * 197 + 13));
             const float roll = (float)(ih % 1000u) / 1000.0f;
+            if (simpleCandidate && i > 0)
+            {
+                // Simple class: mostly step/third motion. Do not let a complex motif
+                // leak a large interval back into an otherwise compact phrase.
+                const int direction = delta < 0 ? -1 : 1;
+                const int simpleLimit = (roll < 0.72f) ? 2 : 3;
+                delta = direction * juce::jmin (std::abs (delta), simpleLimit);
+            }
             if (wideIntervalLanguage && i > 0 && (roll < 0.42f * poolTension || intervalLanguage == 3))
             {
                 const int direction = (ih & 1u) ? 1 : -1;
