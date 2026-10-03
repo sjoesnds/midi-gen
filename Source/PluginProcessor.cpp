@@ -26,6 +26,11 @@ namespace
         x ^= x >> 16;
         return x;
     }
+
+    // Project-state envelope. Legacy states had no header and started directly
+    // with rootPc, so a non-matching first word is treated as the legacy format.
+    static constexpr int kStateMagic = 0x4D464752; // "MFGR"
+    static constexpr int kStateVersion = 2;
 }
 namespace
 {
@@ -10571,6 +10576,11 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
 waitForGeneration();   // 0.78: never save controls the worker is temporarily adjusting
 juce::MemoryOutputStream o(dest,false);
+
+// 0.82 state envelope: every new project state is self-identifying and versioned.
+o.writeInt(kStateMagic);
+o.writeInt(kStateVersion);
+
 o.writeInt(rootPc);o.writeInt(genre);o.writeInt(scale);o.writeInt(progression);
 o.writeInt(rhythm);o.writeInt(bars);o.writeInt(seed);o.writeInt(octave);o.writeInt(sectionMode);
 o.writeFloat(chordDensity);o.writeFloat(bassDensity);o.writeFloat(melodyDensity);o.writeFloat(arpDensity);
@@ -10597,6 +10607,29 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 if(!data||size<=0)return;
 waitForGeneration();   // 0.78
 juce::MemoryInputStream i(data,(size_t)size,false);
+
+// V2+ states begin with an explicit magic/version envelope. Older projects are
+// still accepted by rewinding and using the historical positional parser.
+if (i.getNumBytesRemaining() < 4)
+    return;
+
+const int firstWord = i.readInt();
+const bool versioned = firstWord == kStateMagic;
+
+if (versioned)
+{
+    if (i.getNumBytesRemaining() < 4)
+        return;
+
+    const int stateVersion = i.readInt();
+    if (stateVersion <= 0 || stateVersion > kStateVersion)
+        return;
+}
+else
+{
+    i.setPosition (0);
+}
+
 rootPc=i.readInt();genre=i.readInt();scale=i.readInt();progression=i.readInt();
 rhythm=i.readInt();bars=i.readInt();seed=i.readInt();octave=i.readInt();sectionMode=i.readInt();
 chordDensity=i.readFloat();bassDensity=i.readFloat();melodyDensity=i.readFloat();arpDensity=i.readFloat();
@@ -10606,6 +10639,7 @@ arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inve
 motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
 chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
 int savedSelection=i.readInt();
+
 // Reset every optional field to its historical default before reading appended
 // bytes. A legacy preset can legitimately end before these fields; loading it
 // into an already-used processor must not leak the previous UI state.
@@ -10641,7 +10675,8 @@ if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
 // Older states stop before this byte, so legacy presets remain Humanize OFF.
 humanizeEnabled = false;
 if (i.getNumBytesRemaining() >= 1) humanizeEnabled = i.readBool();
-regenerateBlocking (savedSelection);
+
+regenerateBlocking (juce::jlimit (0, 7, savedSelection));
 }
 // --- MIDI export --------------------------------------------------------
 std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const
