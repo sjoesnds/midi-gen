@@ -440,6 +440,9 @@ int degreeToPitch(int degree, int baseOctave) const;
 int snapToScale(int midi) const;
 // 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).
 void registerLane (int part, int& lo, int& hi) const;
+// Unified melodic register contract used by all final melodic safety stages.
+// Returns the playable MIDI range and the maximum preferred leap for the active sound profile.
+void melodyRegisterContract (int& lo, int& hi, int& maxLeap) const;
 bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
 float rhythmGrammarScore (const Section& section) const;
