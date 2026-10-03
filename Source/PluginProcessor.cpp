@@ -4758,6 +4758,121 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmax(len, juce::jmin(prof.minLen, gap));
             len = juce::jlimit(1, juce::jmax(1, 16 - x), len);
         }
+        // 0.82 Rhythm x Pitch Semantics:
+        // The onset position now has a pitch function. Strong beats prefer stable
+        // chord tones, weak short events prefer connective/color tones, and long
+        // events prefer notes that can comfortably carry the harmony. This makes
+        // the rhythm and pitch languages cooperate instead of being judged as two
+        // unrelated streams.
+        {
+            const bool strongBeat = (x % 4) == 0;
+            const bool backBeat = (x % 8) == 4;
+            const int nextX = (i + 1 < chosen.size()) ? chosen[i + 1] : 16;
+            const int gap = juce::jmax (1, nextX - x);
+            const bool longEvent = len >= juce::jmax (3, juce::jmin (6, gap));
+            const uint32_t semanticHash = hash32 (
+                identitySeed ^ (uint32_t) (x * 193 + (int) i * 37 + 0x52A11CEu));
+            const float semanticRoll =
+                (float) (semanticHash % 1000u) / 1000.0f;
+
+            auto nearestChordTone = [&] (int target) -> int
+            {
+                int best = target;
+                int bestDistance = 1000;
+                for (const int chordDegree : { degree, degree + 2, degree + 4 })
+                {
+                    const int base = pitchForDegree (chordDegree, octave);
+                    for (int k = -2; k <= 2; ++k)
+                    {
+                        const int candidate = base + k * 12;
+                        if (candidate < melLo || candidate > melHi)
+                            continue;
+                        if (! snapToScale (candidate) == candidate)
+                            continue;
+                        const int distance = std::abs (candidate - target);
+                        if (distance < bestDistance)
+                        {
+                            bestDistance = distance;
+                            best = candidate;
+                        }
+                    }
+                }
+                return juce::jlimit (melLo, melHi, snapToScale (best));
+            };
+
+            if ((strongBeat || longEvent) && semanticRoll < (strongBeat ? 0.72f : 0.58f))
+            {
+                const int anchor = nearestChordTone (note);
+                const float blend = strongBeat ? 0.72f : 0.48f;
+                note = juce::jlimit (
+                    melLo, melHi,
+                    snapToScale (juce::roundToInt (
+                        (1.0f - blend) * (float) note + blend * (float) anchor)));
+            }
+            else if (! strongBeat && ! backBeat && gap <= 3 && ! generated.empty())
+            {
+                // Short weak events behave as connective tissue: move one scale
+                // degree toward the next planned pitch, but avoid turning it into
+                // a literal chord arpeggio.
+                const int nextPlanned = (i + 1 < dPlan.size())
+                    ? foldIntoLane (pitchForDegree (dPlan[i + 1], octave), melLo, melHi)
+                    : note;
+                const int direction = nextPlanned >= generated.back() ? 1 : -1;
+
+                std::vector<int> candidates;
+                const auto scale = scaleSemitones();
+                for (int p = 0; p < 12; ++p)
+                {
+                    const int candidate = note + direction * p;
+                    if (candidate < melLo || candidate > melHi)
+                        continue;
+                    if (snapToScale (candidate) != candidate)
+                        continue;
+                    if (chordTone (candidate))
+                        continue;
+                    candidates.push_back (candidate);
+                }
+
+                if (! candidates.empty() && semanticRoll < 0.72f)
+                {
+                    int best = candidates.front();
+                    int bestDistance = std::abs (best - nextPlanned);
+                    for (const int candidate : candidates)
+                    {
+                        const int distance = std::abs (candidate - nextPlanned);
+                        if (distance < bestDistance)
+                        {
+                            best = candidate;
+                            bestDistance = distance;
+                        }
+                    }
+                    note = juce::jlimit (melLo, melHi,
+                        snapToScale (juce::roundToInt (
+                            0.62f * (float) note + 0.38f * (float) best)));
+                }
+            }
+
+            // Semantic movement still obeys the sound-profile leap contract.
+            if (! generated.empty())
+            {
+                const int priorNote = generated.back();
+                const int semanticLeap = std::abs (note - priorNote);
+                const int semanticMaxLeap = juce::jmin (
+                    9,
+                    prof.maxLeap > 0 ? juce::jmax (5, prof.maxLeap) : 7);
+                if (semanticLeap > semanticMaxLeap)
+                {
+                    note = juce::jlimit (
+                        melLo, melHi,
+                        snapToScale (priorNote
+                            + (note >= priorNote ? semanticMaxLeap : -semanticMaxLeap)));
+                }
+            }
+
+            generated.back() = note;
+            previous = note;
+        }
+
         s.notes.push_back({ barOffset * 16 + x, len, note, velocity, 3, false });
     }
 
