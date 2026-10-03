@@ -44,7 +44,7 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
         activeDragFile = juce::File();
         return;
     }
-    owner.processor.noteKeptVariation();
+    // Dragging a MIDI file is an output action only; it never trains Taste ML.
 
     // The actual button is the OLE source. Using the editor itself can make the
     // VST3 wrapper become the source window inside FL Studio.
@@ -276,7 +276,6 @@ const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
 const bool ok = safeThis->processor.exportMidi(result);
-if (ok) safeThis->processor.noteKeptVariation();
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
