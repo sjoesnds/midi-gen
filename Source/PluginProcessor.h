@@ -22,7 +22,7 @@ enum Genre {
     Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic,
     RnB, GenrePop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental, Lofi
 };
-enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
+enum ScaleType { Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, HarmonicMinor, MelodicMinor, HarmonicMajor, Pentatonic, Blues };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
 enum SectionMode { Loop, SongMode, SongExtended };
