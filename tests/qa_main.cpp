@@ -327,12 +327,13 @@ int main()
         report ("MAGIC rerolls boolean/feature controls",
                 chordsOn > 0 && chordsOn < 96
                     && bassOn > 0 && bassOn < 96
+                    && melodyOn > 0 && melodyOn < 96
                     && arpOn > 0 && arpOn < 96
                     && drumsOn > 0 && drumsOn < 96
                     && humanizeOn > 0 && humanizeOn < 96
                     && soundCloudOn > 0 && soundCloudOn < 96,
-                fmt ("chords %d/%d bass %d/%d arp %d/%d drums %d/%d",
-                     chordsOn, 96, bassOn, 96, arpOn, 96, drumsOn, 96));
+                fmt ("chords %d/%d bass %d/%d melody %d/%d arp %d/%d drums %d/%d",
+                     chordsOn, 96, bassOn, 96, melodyOn, 96, arpOn, 96, drumsOn, 96));
         report ("MAGIC rerolls continuous controls",
                 changedChordDensity >= 80 && changedMelodyDensity >= 80 && changedComplexity >= 80,
                 fmt ("density changes %d/%d, melody changes %d/%d, complexity changes %d/%d",
