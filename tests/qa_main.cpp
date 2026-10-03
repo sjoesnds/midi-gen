@@ -785,6 +785,7 @@ int main()
         int globalMax = 0;
         int wideLoops = 0;
         int checked = 0;
+        int invalidPitches = 0;
 
         for (int seed = 13000; seed < 13120; ++seed)
         {
@@ -794,11 +795,21 @@ int main()
                 continue;
 
             int lo = 127, hi = 0;
+            bool valid = true;
             for (const auto& n : notes)
             {
+                if (n.note < 0 || n.note > 127)
+                {
+                    valid = false;
+                    ++invalidPitches;
+                    continue;
+                }
                 lo = std::min (lo, n.note);
                 hi = std::max (hi, n.note);
             }
+
+            if (! valid)
+                continue;
 
             globalMin = std::min (globalMin, lo);
             globalMax = std::max (globalMax, hi);
@@ -806,10 +817,14 @@ int main()
             ++checked;
         }
 
+        report ("Piano register test contains only valid MIDI pitches",
+                invalidPitches == 0,
+                fmt ("%.0f invalid pitches outside 0..127", (double) invalidPitches));
+
         report ("Piano melody actually explores the expanded register",
                 checked >= 100 && globalMin <= 56 && globalMax >= 92 && (double) wideLoops / checked >= 0.12,
-                fmt ("min=%d max=%d, %.1f%% of loops span >=30 st",
-                     globalMin, globalMax, checked > 0 ? 100.0 * (double) wideLoops / checked : 0.0));
+                fmt ("min=%d max=%d, %.1f%% of valid loops span >=30 st",
+                     globalMin, globalMax, checked > 0 ? 100.0 * (double) wideLoops /  checked : 0.0));
     }
 
 
