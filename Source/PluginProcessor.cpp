@@ -8654,6 +8654,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     };
 #else
     const bool traceThisGeneration = false;
+    const auto traceMelodyStage = [] (size_t, const Section&) {};
 #endif
 
     std::vector<Candidate> candidates;
