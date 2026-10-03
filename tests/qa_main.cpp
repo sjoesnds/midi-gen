@@ -823,8 +823,9 @@ int main()
 
         report ("Piano melody actually explores the expanded register",
                 checked >= 100 && globalMin <= 56 && globalMax >= 92 && (double) wideLoops / checked >= 0.12,
-                fmt ("min=%d max=%d, %.1f%% of valid loops span >=30 st",
-                     globalMin, globalMax, checked > 0 ? 100.0 * (double) wideLoops /  checked : 0.0));
+                fmt ("min=%.0f max=%.0f, %.1f%% of valid loops span >=30 st",
+                     (double) globalMin, (double) globalMax,
+                     checked > 0 ? 100.0 * (double) wideLoops / checked : 0.0));
     }
 
 
@@ -1844,26 +1845,34 @@ int main()
         }
     }
 
-    // ------------------------------------------------------------------ 12. implicit taste signal (drag / export)
+    // ------------------------------------------------------------------ 12. drag / export must not train Taste ML
     {
         MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
         a.resetTaste();
         const float c0 = a.getTasteSamples();
-        const bool first = a.noteKeptVariation();
+        const bool kept = a.noteKeptVariation();
         const float c1 = a.getTasteSamples();
-        report ("kept loop: the first drag / export adds a taste sample", first && std::abs ((c1 - c0) - 0.5f) < 0.01f, fmt ("taste samples %.2f -> %.2f (weight 0.5)", (double) c0, (double) c1));
-        report ("kept loop: the same loop is counted only once", ! a.noteKeptVariation() && a.getTasteSamples() == c1, "second call ignored");
+
+        report ("drag / export has no implicit Taste learning",
+                ! kept && std::abs (c1 - c0) < 0.001f,
+                fmt ("taste samples %.2f -> %.2f", (double) c0, (double) c1));
+
         a.chooseVariation (3);
-        report ("kept loop: another variation counts separately", a.noteKeptVariation(), "slot 4");
+        report ("drag / export stays non-learning on another variation",
+                ! a.noteKeptVariation() && std::abs (a.getTasteSamples() - c1) < 0.001f,
+                "slot 4 unchanged");
+
         a.chooseVariation (4);
         a.likeVariation (4);
-        report ("kept loop: an explicitly rated loop is not counted again", ! a.noteKeptVariation(), "liked slot skipped");
-        a.regenerate();
-        a.chooseVariation (0);
-        report ("kept loop: a fresh bank is counted again", a.noteKeptVariation(), "new generation");
-        a.setTasteEnabled (false);
-        a.chooseVariation (1);
-        report ("kept loop: nothing is learned while Taste is off", ! a.noteKeptVariation(), "taste disabled");
+        report ("explicit LIKE still trains Taste independently",
+                a.getTasteSamples() > c1,
+                fmt ("taste samples %.2f", (double) a.getTasteSamples()));
+
+        const float rated = a.getTasteSamples();
+        a.chooseVariation (5);
+        report ("drag / export after explicit rating still does not add a hidden sample",
+                ! a.noteKeptVariation() && std::abs (a.getTasteSamples() - rated) < 0.001f,
+                "explicit feedback only");
     }
 
     // ------------------------------------------------------------------ 13. SIMILAR / more like this (0.80)
