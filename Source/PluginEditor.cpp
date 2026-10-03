@@ -244,7 +244,16 @@ generate.setButtonText("MAGIC");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
-generate.onClick=[this]{ processor.magicRandomize(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
+generate.onClick=[this]{
+    if (processor.isGenerating())
+        magicPending = true;
+    else
+    {
+        processor.magicRandomize();
+        busyOverlay.sync();
+        pianoRoll.resetEditHistory();
+    }
+};
 newSeed.onClick=[this]{ processor.rerollSameDNA(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
 applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 exportMidi.onClick=[this]{
@@ -548,6 +557,14 @@ if (generationDone != lastGenerationDone)
     repaint();
 }
 
+if (magicPending && ! processor.isGenerating())
+{
+    magicPending = false;
+    processor.magicRandomize();
+    busyOverlay.sync();
+    pianoRoll.resetEditHistory();
+}
+
 const double bpm = processor.getHostBpm();
 const juce::String bpmText = "DAW BPM " + juce::String (juce::roundToInt (bpm));
 if (tempoLabel.getText() != bpmText)
@@ -556,12 +573,56 @@ if (tempoLabel.getText() != bpmText)
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
 variationBox.setSelectedId (id, juce::dontSendNotification);
+
+// MAGIC changes the source/harmony controls and several musical sliders in the processor.
+// Keep the editor as a faithful view of the actual generation state.
+if (root.getSelectedId() != processor.getRoot()+1) root.setSelectedId (processor.getRoot()+1, juce::dontSendNotification);
+if (genre.getSelectedId() != processor.getGenre()+1) genre.setSelectedId (processor.getGenre()+1, juce::dontSendNotification);
+if (scale.getSelectedId() != processor.getScale()+1) scale.setSelectedId (processor.getScale()+1, juce::dontSendNotification);
+if (progression.getSelectedId() != processor.getProgression()+1) progression.setSelectedId (processor.getProgression()+1, juce::dontSendNotification);
+if (rhythm.getSelectedId() != processor.getRhythm()+1) rhythm.setSelectedId (processor.getRhythm()+1, juce::dontSendNotification);
+const int barsId = processor.getBars() == 1 ? 1 : processor.getBars() == 2 ? 2 : processor.getBars() == 4 ? 3 : processor.getBars() == 8 ? 4 : 5;
+if (bars.getSelectedId() != barsId) bars.setSelectedId (barsId, juce::dontSendNotification);
+if (octave.getSelectedId() != processor.getOctave()-1) octave.setSelectedId(processor.getOctave()-1, juce::dontSendNotification);
+if (arpRate.getSelectedId() != processor.getArpRate()) arpRate.setSelectedId(processor.getArpRate(), juce::dontSendNotification);
+
 if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
 if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
+
+auto syncSlider = [] (juce::Slider& slider, double value)
+{
+    if (std::abs (slider.getValue() - value) > 0.0005)
+        slider.setValue (value, juce::dontSendNotification);
+};
+syncSlider (chordDensity, processor.getChordDensity());
+syncSlider (bassDensity, processor.getBassDensity());
+syncSlider (melodyDensity, processor.getMelodyDensity());
+syncSlider (arpDensity, processor.getArpDensity());
+syncSlider (motifStrength, processor.getMotifStrength());
+syncSlider (variationAmount, processor.getVariationAmount());
+syncSlider (fillAmount, processor.getFillAmount());
+syncSlider (energy, processor.getEnergy());
+syncSlider (melodyLength, processor.getMelodyLength());
+syncSlider (pauseChance, processor.getPauseChance());
+syncSlider (leapChance, processor.getLeapChance());
+syncSlider (ghostChance, processor.getGhostChance());
+syncSlider (swing, processor.getSwing());
+syncSlider (humanize, processor.getHumanize());
+syncSlider (complexity, processor.getComplexity());
+
+if (chords.getToggleState() != processor.isChordsEnabled()) chords.setToggleState(processor.isChordsEnabled(), juce::dontSendNotification);
+if (bass.getToggleState() != processor.isBassEnabled()) bass.setToggleState(processor.isBassEnabled(), juce::dontSendNotification);
+if (melody.getToggleState() != processor.isMelodyEnabled()) melody.setToggleState(processor.isMelodyEnabled(), juce::dontSendNotification);
+if (arp.getToggleState() != processor.isArpEnabled()) arp.setToggleState(processor.isArpEnabled(), juce::dontSendNotification);
+if (extensions.getToggleState() != processor.getChordExtensions()) extensions.setToggleState(processor.getChordExtensions(), juce::dontSendNotification);
+if (inversions.getToggleState() != processor.getInversions()) inversions.setToggleState(processor.getInversions(), juce::dontSendNotification);
+if (hookModeButton.getToggleState() != processor.getHookMode()) hookModeButton.setToggleState(processor.getHookMode(), juce::dontSendNotification);
+if (soundCloudButton.getToggleState() != processor.getLeadStyleSoundCloud()) soundCloudButton.setToggleState(processor.getLeadStyleSoundCloud(), juce::dontSendNotification);
+
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
 if (humanizeModeButton.getToggleState() != processor.isHumanizeEnabled()) humanizeModeButton.setToggleState(processor.isHumanizeEnabled(), juce::dontSendNotification);
 refreshTaste();
