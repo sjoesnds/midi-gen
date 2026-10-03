@@ -247,6 +247,36 @@ int main()
     MidiForgeAudioProcessor p;
     p.resetTaste();
 
+    // ------------------------------------------------------------------ MAGIC source/harmony diversity
+    // ROOT/SCALE are part of MAGIC's musical identity and must actually re-roll,
+    // not remain stuck on the current state. Locks are explicitly disabled so
+    // this test exercises the documented unlocked MAGIC behavior.
+    {
+        p.setLockChords (false);
+        std::set<int> roots;
+        std::set<int> scales;
+        std::set<int> progressions;
+        std::set<std::string> pairs;
+
+        for (int i = 0; i < 64; ++i)
+        {
+            p.magicRandomize();
+            roots.insert (p.getRoot());
+            scales.insert (p.getScale());
+            progressions.insert (p.getProgression());
+            pairs.insert (std::to_string (p.getRoot()) + ":" + std::to_string (p.getScale()));
+        }
+
+        report ("MAGIC randomizes root", roots.size() >= 8,
+                fmt ("%.0f unique roots / 12", (double) roots.size()));
+        report ("MAGIC randomizes scale", scales.size() >= 5,
+                fmt ("%.0f unique scales / 7", (double) scales.size()));
+        report ("MAGIC produces root+scale variety", pairs.size() >= 20,
+                fmt ("%.0f unique root/scale pairs", (double) pairs.size()));
+        report ("MAGIC randomizes progression", progressions.size() >= 5,
+                fmt ("%.0f unique progressions / 7", (double) progressions.size()));
+    }
+
     // ------------------------------------------------------------------ 0. Creative Range
     {
         const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
