@@ -4787,7 +4787,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                         const int candidate = base + k * 12;
                         if (candidate < melLo || candidate > melHi)
                             continue;
-                        if (! snapToScale (candidate) == candidate)
+                        if (snapToScale (candidate) != candidate)
                             continue;
                         const int distance = std::abs (candidate - target);
                         if (distance < bestDistance)
