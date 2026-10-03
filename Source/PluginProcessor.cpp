@@ -2781,23 +2781,10 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
 
 bool MidiForgeAudioProcessor::noteKeptVariation()
 {
-    if (! tasteEnabled) return false;
-    int vi = 0;
-    {
-        const juce::ScopedLock sl (variationsLock);
-        if (variations.empty()) return false;
-        vi = juce::jlimit (0, juce::jmin (7, (int) variations.size() - 1), selectedVariation);
-    }
-    const uint32_t nonce = generationNonce.load();
-    if (keptNonce != nonce) { keptNonce = nonce; keptMask = 0; }   // a fresh bank: forget what was already counted
-    if ((keptMask & (1u << vi)) != 0) return false;                  // this loop already counted once
-    keptMask |= (1u << vi);
-    if (likeCounts[(size_t) vi] > 0 || dislikeCounts[(size_t) vi] > 0) return false;   // an explicit rating outranks the implicit one
-    trainTaste (vi, 1.0f, 0.5f);   // the drag / export itself is already a row in feedback.csv
-    savePreferences();
-    return true;
+    // Implicit drag/export learning was removed. Explicit LIKE / DISLIKE remains
+    // the only way user feedback trains Taste ML.
+    return false;
 }
-
 void MidiForgeAudioProcessor::resetTaste()
 {
     tasteModel.reset();
@@ -2914,6 +2901,7 @@ void MidiForgeAudioProcessor::savePreferences()
         lf.add((double)likedFeatures[(size_t)i]); df.add((double)dislikedFeatures[(size_t)i]);
     }
     o->setProperty("likes", lk); o->setProperty("dislikes", dk);
+    o->setProperty("tasteMLVersion", 1);
     o->setProperty("tasteML", tasteModel.toVar());
     o->setProperty("likedFeatures", lf); o->setProperty("dislikedFeatures", df);
     preferencesFile.getParentDirectory().createDirectory();
@@ -2929,7 +2917,11 @@ void MidiForgeAudioProcessor::loadPreferences()
         likedN = (int)o->getProperty("likedN"); disN = (int)o->getProperty("disN");
         likedD = (float)o->getProperty("likedD"); likedE = (float)o->getProperty("likedE"); likedC = (float)o->getProperty("likedC");
         disD = (float)o->getProperty("disD"); disE = (float)o->getProperty("disE"); disC = (float)o->getProperty("disC");
-        tasteModel.fromVar(o->getProperty("tasteML"));
+        const int tasteVersion = (int) o->getProperty ("tasteMLVersion");
+        if (tasteVersion >= 1)
+            tasteModel.fromVar (o->getProperty ("tasteML"));
+        else
+            tasteModel.reset();
         likedFeatureN = (int)o->getProperty("likedFeatureN");
         dislikedFeatureN = (int)o->getProperty("dislikedFeatureN");
         if (auto* la = o->getProperty("likes").getArray())
