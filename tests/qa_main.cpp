@@ -247,6 +247,72 @@ int main()
     MidiForgeAudioProcessor p;
     p.resetTaste();
 
+
+    // ------------------------------------------------------------------ Melodic pleasantness safety
+    // The final melody pass is intentionally conservative: generated lead notes stay
+    // in the selected scale, avoid oversized default leaps, and break pathological
+    // same-note runs without flattening the whole phrase.
+    {
+        int badScaleNotes = 0;
+        int badLeaps = 0;
+        int badRepeatRuns = 0;
+        int checkedMelodyNotes = 0;
+
+        for (int pass = 0; pass < 48; ++pass)
+        {
+            p.magicRandomize();
+            auto notes = p.getVisibleNotes();
+            std::sort (notes.begin(), notes.end(), [] (const auto& a, const auto& b)
+            {
+                if (a.channel != b.channel) return a.channel < b.channel;
+                return a.step < b.step;
+            });
+
+            int previous = -1;
+            int sameRun = 1;
+            bool hadMelody = false;
+            for (const auto& n : notes)
+            {
+                if (n.channel != 3)
+                    continue;
+
+                ++checkedMelodyNotes;
+                hadMelody = true;
+
+                if (p.snapPitchToScale (n.note) != n.note)
+                    ++badScaleNotes;
+
+                if (previous >= 0 && std::abs (n.note - previous) > 9)
+                    ++badLeaps;
+
+                if (previous >= 0 && n.note == previous)
+                    ++sameRun;
+                else
+                    sameRun = 1;
+
+                if (sameRun >= 3)
+                    ++badRepeatRuns;
+
+                previous = n.note;
+            }
+
+            if (!hadMelody)
+                ++badRepeatRuns;
+        }
+
+        report ("Melody remains scale-safe",
+                checkedMelodyNotes > 0 && badScaleNotes == 0,
+                fmt ("%d checked notes, %d out of scale", checkedMelodyNotes, badScaleNotes));
+
+        report ("Melody avoids oversized default leaps",
+                badLeaps == 0,
+                fmt ("%d leaps > 9 semitones", badLeaps));
+
+        report ("Melody avoids pathological note runs",
+                badRepeatRuns == 0,
+                fmt ("%d runs of 3+ identical notes", badRepeatRuns));
+    }
+
     // ------------------------------------------------------------------ 0. Creative Range
     {
         const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
