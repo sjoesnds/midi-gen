@@ -444,6 +444,8 @@ bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
 float rhythmGrammarScore (const Section& section) const;
 void applyMelodyFoundation (Section& section, uint32_t identity) const;
+void applyMelodyPleasantness (Section& section, uint32_t identity) const;
+float melodyPleasantnessScore (const Section& section) const;
 void applyMelodyExpression (Section& section, uint32_t identity) const;
 float melodyExpressionScore (const Section& section) const;
 void applyHarmonicIntelligence (Section& section, uint32_t identity) const;
