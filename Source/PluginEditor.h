@@ -58,6 +58,9 @@ juce::int64 regenerationDueMs = 0;
 uint32_t scheduledGenerationNonce = 0;
 bool regenerationPending = false;
 bool preserveSelectionOnRegenerate = false;
+// Queue one MAGIC request while the background generator is busy.
+// The processor already coalesces normal regeneration requests; this flag keeps MAGIC clicks from being lost.
+bool magicPending = false;
  juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
