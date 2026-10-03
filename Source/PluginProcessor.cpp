@@ -358,6 +358,46 @@ void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
         }
     }
 }
+
+void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& maxLeap) const
+{
+    const auto profile = soundProfileFor (soundTarget);
+
+    if (profile.soloLine)
+    {
+        lo = 28;
+        hi = 50;
+        maxLeap = 7;
+        return;
+    }
+
+    // Keep the existing sound/intent lane as the source, then impose one
+    // predictable practical span on every final melodic safety stage.
+    int rawLo = 48, rawHi = 96;
+    registerLane (2, rawLo, rawHi);
+
+    constexpr int maxPracticalSpan = 44;
+    if (rawHi - rawLo > maxPracticalSpan)
+    {
+        const int centre = (rawLo + rawHi) / 2;
+        lo = centre - maxPracticalSpan / 2;
+        hi = centre + maxPracticalSpan / 2;
+    }
+    else
+    {
+        lo = rawLo;
+        hi = rawHi;
+    }
+
+    lo = juce::jlimit (0, 127, lo);
+    hi = juce::jlimit (lo + 1, 127, hi);
+    hi = juce::jmin (hi, profile.laneCap);
+
+    // The contract is intentionally stricter than the legacy profile maximums:
+    // wide expressive jumps are allowed to exist upstream, but the final line
+    // remains readable and safe once it reaches the accepted candidate.
+    maxLeap = juce::jlimit (4, 9, profile.maxLeap > 0 ? profile.maxLeap : 9);
+}
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
 const auto s=scaleSemitones(); int count=(int)s.size();
@@ -576,11 +616,11 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
 
     const auto profile = soundProfileFor (soundTarget);
     const auto scale = scaleSemitones();
-    int laneLo = 48, laneHi = 96;
-    registerLane (2, laneLo, laneHi);
+    int laneLo = 40, laneHi = 96, contractLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, contractLeap);
 
     const bool conservative = (hash32 (identity ^ 0xB41A5AFEu) % 100u) < 72u;
-    const int maxLeap = conservative ? 7 : 9;
+    const int maxLeap = conservative ? juce::jmin (7, contractLeap) : contractLeap;
 
     auto pitchClass = [] (int n)
     {
@@ -821,18 +861,10 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
             return section.notes[a].note < section.notes[b].note;
         });
 
-    const auto profile = soundProfileFor (soundTarget);
+    int laneLo = 40, laneHi = 96, contractLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, contractLeap);
     const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 32u;
-
-    // Keep the line around the tonic-relative centre instead of allowing the
-    // creative-range engine to roam through a 4+ octave melody lane.
-    int centre = degreeToPitch (0, octave) + 7
-               + juce::roundToInt (0.35f * (float) profile.laneShift);
-    if (soundTarget == 3) centre += 3;
-    if (soundTarget == 4) centre -= 3;
-
-    const int laneLo = juce::jlimit (40, 84, centre - 10);
-    const int laneHi = juce::jlimit (laneLo + 14, 104, centre + 14);
+    const int maxLeap = simple ? juce::jmin (7, contractLeap) : contractLeap;
     const auto scale = scaleSemitones();
 
     auto pitchClass = [] (int n)
@@ -891,11 +923,6 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
         out.erase (std::unique (out.begin(), out.end()), out.end());
         return out;
     };
-
-    // Simple phrases get a deliberately tighter interval envelope.
-    const int maxLeap = simple
-        ? 7
-        : juce::jlimit (8, 11, 8 + juce::roundToInt (2.0f * complexity));
 
     // Register placement. The composer plans the line inside registerLane(2) (about 62-86), but this lane is tonic-relative
     // (about 44-68 in a typical key). Clamping every note into it piled 35-45% of the notes onto the single highest scale
@@ -4982,8 +5009,8 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
     const int baseStart = phraseStartBar * 16;
     const int anchorPitch = base.front().note;
 
-    int melodyLo = 34, melodyHi = 108;
-    registerLane (2, melodyLo, melodyHi);
+    int melodyLo = 40, melodyHi = 96, contractLeap = 9;
+    melodyRegisterContract (melodyLo, melodyHi, contractLeap);
 
     auto safePitch = [&] (int pitch)
     {
@@ -5357,11 +5384,11 @@ void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t ident
     const size_t lastIndex = tail.back();
     const size_t previousIndex = tail.size() >= 2 ? tail[tail.size() - 2] : tail.back();
 
+    int contractLo = 40, contractHi = 96, contractLeap = 9;
+    melodyRegisterContract (contractLo, contractHi, contractLeap);
     auto safeMelodyPitch = [&] (int pitch)
     {
-        int lo = 34, hi = 108;
-        registerLane (2, lo, hi);
-        return juce::jlimit (lo, hi, snapToScale (pitch));
+        return juce::jlimit (contractLo, contractHi, snapToScale (pitch));
     };
 
     const int firstPitch = section.notes[head.front()].note;
@@ -8224,13 +8251,14 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
         const auto profile = soundProfileFor (soundTarget);
         const bool solo808 = profile.soloLine;
 
+        int melodyLo = 28, melodyHi = 50, melodyMaxLeap = 7;
+        melodyRegisterContract (melodyLo, melodyHi, melodyMaxLeap);
+
         for (auto& n : sec.notes)
         {
             if (n.channel == 3)
             {
-                const int laneLo = solo808 ? 28 : 34;
-                const int laneHi = solo808 ? 50 : 108;
-                n.note = foldIntoLane (snapToScale (n.note), laneLo, laneHi);
+                n.note = foldIntoLane (snapToScale (n.note), melodyLo, melodyHi);
                 n.velocity = juce::jlimit (30, 122, n.velocity);
             }
             else
@@ -8382,56 +8410,35 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
             }
         }
 
-        // Register guard: only ordinary melodic profiles get this repair. Riff,
-        // Experimental and the dedicated 808 voice retain their wider language.
-        if (!solo808 && melodyType != RiffMelody && genre != Experimental && genre != Cinematic)
+        // Final shared melodic register contract. This runs after all
+        // structural repairs so later candidate transforms cannot leave the
+        // accepted melody outside the same bounds used by earlier safety stages.
         {
             std::vector<size_t> melody;
             for (size_t i = 0; i < sec.notes.size(); ++i)
                 if (sec.notes[i].channel == 3)
                     melody.push_back (i);
+
             std::stable_sort (melody.begin(), melody.end(),
-                [&] (size_t a, size_t b) { return sec.notes[a].step < sec.notes[b].step; });
-
-            auto countOctaveLeaps = [&]()
-            {
-                int count = 0;
-                for (size_t k = 1; k < melody.size(); ++k)
-                    if (std::abs (sec.notes[melody[k]].note - sec.notes[melody[k - 1]].note) >= 12)
-                        ++count;
-                return count;
-            };
-
-            const int allowed = (int) std::floor (0.115f * (float) juce::jmax<int> (0, (int) melody.size() - 1));
-            int octaveLeaps = countOctaveLeaps();
-            if (octaveLeaps > allowed && melody.size() >= 3)
-            {
-                for (size_t k = 1; k < melody.size() && octaveLeaps > allowed; ++k)
+                [&] (size_t a, size_t b)
                 {
-                    auto& cur = sec.notes[melody[k]];
-                    const auto& prev = sec.notes[melody[k - 1]];
-                    if (std::abs (cur.note - prev.note) < 12)
-                        continue;
+                    if (sec.notes[a].step != sec.notes[b].step)
+                        return sec.notes[a].step < sec.notes[b].step;
+                    return sec.notes[a].note < sec.notes[b].note;
+                });
 
-                    int best = cur.note;
-                    int bestDistance = std::abs (best - prev.note);
-                    for (int delta : { -12, 12 })
-                    {
-                        const int candidate = cur.note + delta;
-                        if (candidate < 34 || candidate > 108) continue;
-                        const int distance = std::abs (candidate - prev.note);
-                        if (distance < bestDistance && snapToScale (candidate) == candidate)
-                        {
-                            best = candidate;
-                            bestDistance = distance;
-                        }
-                    }
-                    if (best != cur.note)
-                    {
-                        cur.note = best;
-                        --octaveLeaps;
-                    }
+            int previous = -1;
+            for (const auto index : melody)
+            {
+                auto& n = sec.notes[index];
+                n.note = foldIntoLane (snapToScale (n.note), melodyLo, melodyHi);
+                if (previous >= 0)
+                {
+                    const int boundedLo = juce::jmax (melodyLo, previous - melodyMaxLeap);
+                    const int boundedHi = juce::jmin (melodyHi, previous + melodyMaxLeap);
+                    n.note = juce::jlimit (boundedLo, boundedHi, snapToScale (n.note));
                 }
+                previous = n.note;
             }
         }
 
