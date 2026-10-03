@@ -192,8 +192,8 @@ bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
-// Implicit taste signal: dragging / exporting a loop to the DAW is a weak positive sample (weight 0.5). Counted once per
-// loop, only if the loop was not rated explicitly, and only while Taste learning is on. Returns true if a sample was added.
+// Compatibility hook for drag/export code. It intentionally does not train Taste ML:
+// explicit LIKE / DISLIKE are the only feedback signals.
 bool noteKeptVariation();
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
