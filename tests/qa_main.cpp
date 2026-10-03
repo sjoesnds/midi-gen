@@ -955,6 +955,68 @@ int main()
     }
 
 
+    // ------------------------------------------------------------------ 2c. Rhythm x Pitch Semantics
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setComplexity (0.64f, false);
+        p.setEnergy (0.70f, false);
+
+        int strongTotal = 0, strongChord = 0;
+        int weakShortTotal = 0, weakShortColor = 0;
+
+        for (int seed = 15000; seed < 15080; ++seed)
+        {
+            p.setSeed (seed);
+            const auto notes = p.getVisibleNotes();
+
+            std::array<std::set<int>, 4> chordPcs;
+            for (const auto& n : notes)
+                if (n.channel == 1 && n.step / 16 >= 0 && n.step / 16 < 4)
+                    chordPcs[(size_t) (n.step / 16)].insert ((n.note % 12 + 12) % 12);
+
+            for (const auto& n : notes)
+            {
+                if (n.channel != 3)
+                    continue;
+
+                const int bar = n.step / 16;
+                if (bar < 0 || bar >= 4)
+                    continue;
+
+                const int pc = (n.note % 12 + 12) % 12;
+                const bool chordTone = chordPcs[(size_t) bar].count (pc) > 0;
+
+                if ((n.step % 4) == 0)
+                {
+                    ++strongTotal;
+                    if (chordTone) ++strongChord;
+                }
+                else if (n.length <= 3)
+                {
+                    ++weakShortTotal;
+                    if (! chordTone) ++weakShortColor;
+                }
+            }
+        }
+
+        const double strongChordRate = strongTotal > 0
+            ? (double) strongChord / strongTotal : 0.0;
+        const double weakColorRate = weakShortTotal > 0
+            ? (double) weakShortColor / weakShortTotal : 0.0;
+
+        report ("Rhythm x Pitch: strong beats carry harmonic anchors",
+                strongTotal >= 250 && strongChordRate >= 0.45,
+                fmt ("strong-beat chord-tone rate %.2f", strongChordRate));
+
+        report ("Rhythm x Pitch: weak short notes preserve color",
+                weakShortTotal >= 180 && weakColorRate >= 0.20,
+                fmt ("weak-short non-chord rate %.2f", weakColorRate));
+    }
+
+
     // ------------------------------------------------------------------ 2c. Expressive Melody Engine
     {
         p.setPlayHead (nullptr);
