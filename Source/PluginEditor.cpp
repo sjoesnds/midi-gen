@@ -86,7 +86,7 @@ root.setSelectedId(p.getRoot()+1); root.onChange=[this]{processor.setRoot(root.g
 genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic",
                     "R&B","Pop","Drill","DnB","Jersey","Afro","Hyperpop","Experimental","Lo-Fi"},1);
 genre.setSelectedId(p.getGenre()+1); genre.onChange=[this]{processor.setGenre(genre.getSelectedId()-1);}; addAndMakeVisible(genre);
-scale.addItemList({"Major","Minor","Dorian","Phrygian","Lydian","Mixolydian","Locrian","Harmonic Minor","Melodic Minor","Harmonic Major","Pentatonic","Blues"},1);
+scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic","Lydian","Mixolydian","Locrian","Harmonic Major","Blues"},1);
 scale.setSelectedId(p.getScale()+1); scale.onChange=[this]{processor.setScale(scale.getSelectedId()-1);}; addAndMakeVisible(scale);
 progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like","Looping"},1);
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
