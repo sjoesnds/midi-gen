@@ -1017,6 +1017,118 @@ int main()
     }
 
 
+    // ------------------------------------------------------------------ 2d. Native Archetype Diversity
+    {
+        p.setPlayHead (nullptr);
+        p.setSoundTarget (0);
+        p.setBars (4);
+        p.setMelodyType (0);
+        p.setRhythm (0);
+        p.setComplexity (0.64f, false);
+        p.setEnergy (0.70f, false);
+
+        struct Fingerprint
+        {
+            double density = 0.0;
+            double offbeat = 0.0;
+            double span = 0.0;
+            double meanLength = 0.0;
+            double repetition = 0.0;
+        };
+
+        auto fingerprint = [] (const std::vector<Note>& notes)
+        {
+            Fingerprint f;
+            std::vector<Note> melody;
+            for (const auto& n : notes)
+                if (n.channel == 3)
+                    melody.push_back (n);
+
+            std::sort (melody.begin(), melody.end(),
+                [] (const Note& a, const Note& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+
+            if (melody.empty())
+                return f;
+
+            int minPitch = 127, maxPitch = 0, offbeats = 0, repeated = 0;
+            double lengthSum = 0.0;
+            for (size_t i = 0; i < melody.size(); ++i)
+            {
+                minPitch = std::min (minPitch, melody[i].note);
+                maxPitch = std::max (maxPitch, melody[i].note);
+                if ((melody[i].step % 4) != 0) ++offbeats;
+                lengthSum += melody[i].length;
+                if (i > 0 && melody[i].note == melody[i - 1].note)
+                    ++repeated;
+            }
+
+            f.density = juce::jlimit (0.0, 1.0, (double) melody.size() / 16.0);
+            f.offbeat = (double) offbeats / (double) melody.size();
+            f.span = juce::jlimit (0.0, 1.0, (double) (maxPitch - minPitch) / 36.0);
+            f.meanLength = juce::jlimit (0.0, 1.0, lengthSum / (double) melody.size() / 8.0);
+            f.repetition = melody.size() > 1
+                ? (double) repeated / (double) (melody.size() - 1) : 0.0;
+            return f;
+        };
+
+        auto distance = [] (const Fingerprint& a, const Fingerprint& b)
+        {
+            return 0.24 * std::abs (a.density - b.density)
+                 + 0.22 * std::abs (a.offbeat - b.offbeat)
+                 + 0.20 * std::abs (a.span - b.span)
+                 + 0.18 * std::abs (a.meanLength - b.meanLength)
+                 + 0.16 * std::abs (a.repetition - b.repetition);
+        };
+
+        double distanceSum = 0.0;
+        int pairCount = 0;
+        int diverseBanks = 0;
+
+        for (int seed = 16000; seed < 16024; ++seed)
+        {
+            p.setSeed (seed);
+            p.magicRandomize ();
+
+            if (p.getVariationCount () != 8)
+                continue;
+
+            std::vector<Fingerprint> bank;
+            bank.reserve (8);
+            for (int v = 0; v < 8; ++v)
+            {
+                p.chooseVariation (v);
+                bank.push_back (fingerprint (p.getVisibleNotes()));
+            }
+
+            double bankSum = 0.0;
+            int bankPairs = 0;
+            for (int a = 0; a < (int) bank.size(); ++a)
+                for (int b = a + 1; b < (int) bank.size(); ++b)
+                {
+                    const double d = distance (bank[(size_t) a], bank[(size_t) b]);
+                    distanceSum += d;
+                    ++pairCount;
+                    bankSum += d;
+                    ++bankPairs;
+                }
+
+            if (bankPairs > 0 && bankSum / (double) bankPairs >= 0.055)
+                ++diverseBanks;
+        }
+
+        const double meanDistance = pairCount > 0
+            ? distanceSum / (double) pairCount : 0.0;
+
+        report ("MAGIC archetypes create distinct musical behavior",
+                pairCount >= 400 && diverseBanks >= 18 && meanDistance >= 0.055,
+                fmt ("mean bank fingerprint distance %.3f, %d/24 banks above floor",
+                     meanDistance, diverseBanks));
+    }
+
     // ------------------------------------------------------------------ 2c. Expressive Melody Engine
     {
         p.setPlayHead (nullptr);
