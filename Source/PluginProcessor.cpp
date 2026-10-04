@@ -3504,7 +3504,29 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // composed with a compact 2-4 note vocabulary. This is different from merely
     // lowering density: the pitch contour, rhythm size and leap language also
     // become simpler, so the final bank can contain genuinely memorable melodies.
-    const bool simpleCandidate = (hash32 (identitySeed ^ 0xA11CE55u) % 100u) < 58u;
+    // Native archetype: build the melody for the same archetype that this
+    // MAGIC candidate will later be judged/selected under. variationSalt is c+1
+    // during candidate search, while 0 remains a safe default for normal calls.
+    const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
+
+    // Simple is now an archetype-sensitive composition choice instead of one
+    // global coin flip. MINIMAL strongly prefers compact cells; WEIRD/WILDCARD
+    // leave more room for angular phrases; the other archetypes stay balanced.
+    float simpleProbability = 0.58f;
+    switch (nativeArchetype)
+    {
+        case 0: simpleProbability = 0.56f; break; // HOOK
+        case 1: simpleProbability = 0.48f; break; // GROOVE
+        case 2: simpleProbability = 0.50f; break; // HARMONY
+        case 3: simpleProbability = 0.64f; break; // MOTIF
+        case 4: simpleProbability = 0.90f; break; // MINIMAL
+        case 5: simpleProbability = 0.34f; break; // WEIRD
+        case 6: simpleProbability = 0.52f; break; // EMOTIONAL
+        default: simpleProbability = 0.44f; break; // WILDCARD
+    }
+    const bool simpleCandidate =
+        (hash32 (identitySeed ^ 0xA11CE55u) % 1000u)
+        < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f);
 
     // 0.61 Tempo Feel Engine: BPM changes the *time feel* of the same musical
     // language instead of simply deleting notes at faster tempos. The old engine
@@ -3914,6 +3936,83 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                                           + juce::roundToInt (fastTempo * 5.0f)
                                           - juce::roundToInt (slowTempo * 2.0f)) % eligibleN + eligibleN) % eligibleN)];
 
+    // 0.82 Native Archetypes: rhythm is selected for the archetype's behavior,
+    // not only for genre/tempo. This keeps the eight MAGIC families audibly
+    // distinct before later polish passes touch the MIDI.
+    auto archetypeRhythmAffinity = [&] (int patternIndex) -> float
+    {
+        int hits = 0, offbeats = 0, oddSixteenths = 0, downbeats = 0, lateHits = 0;
+        int previousStep = -1, gaps = 0, gapSum = 0;
+
+        for (int k = 0; k < 10; ++k)
+        {
+            const int x = rhythms[patternIndex][k];
+            if (x < 0) break;
+            ++hits;
+            if ((x % 4) != 0) ++offbeats;
+            if ((x & 1) != 0) ++oddSixteenths;
+            if ((x % 8) == 0) ++downbeats;
+            if (x >= 9) ++lateHits;
+            if (previousStep >= 0) { ++gaps; gapSum += x - previousStep; }
+            previousStep = x;
+        }
+
+        const float hitScore = juce::jlimit (0.0f, 1.0f, 1.0f - std::abs ((float) hits - 4.0f) / 4.0f);
+        const float offbeatRatio = hits > 0 ? (float) offbeats / (float) hits : 0.0f;
+        const float oddRatio = hits > 0 ? (float) oddSixteenths / (float) hits : 0.0f;
+        const float downbeatRatio = hits > 0 ? (float) downbeats / (float) hits : 0.0f;
+        const float lateRatio = hits > 0 ? (float) lateHits / (float) hits : 0.0f;
+        const float gapVariety = gaps > 0
+            ? juce::jlimit (0.0f, 1.0f, std::abs ((float) gapSum / (float) gaps - 4.0f) / 4.0f)
+            : 0.0f;
+
+        switch (nativeArchetype)
+        {
+            case 0: // HOOK: memorable, grounded opening and mid-bar answer.
+                return 0.34f * hitScore + 0.30f * downbeatRatio
+                     + 0.18f * (1.0f - oddRatio) + 0.18f * (1.0f - lateRatio * 0.5f);
+            case 1: // GROOVE: offbeat pocket without becoming pure 16th noise.
+                return 0.28f * hitScore + 0.34f * offbeatRatio
+                     + 0.20f * oddRatio + 0.18f * (1.0f - downbeatRatio * 0.5f);
+            case 2: // HARMONY: clear structural anchors around chord changes.
+                return 0.30f * hitScore + 0.42f * downbeatRatio
+                     + 0.16f * (1.0f - oddRatio) + 0.12f * (1.0f - lateRatio);
+            case 3: // MOTIF: repeatable cell size and moderate symmetry.
+                return 0.42f * hitScore + 0.24f * (1.0f - oddRatio)
+                     + 0.18f * downbeatRatio + 0.16f * (1.0f - lateRatio);
+            case 4: // MINIMAL: three or fewer strong events with breathing room.
+                return 0.58f * juce::jlimit (0.0f, 1.0f, 1.0f - std::abs ((float) hits - 3.0f) / 3.0f)
+                     + 0.24f * (1.0f - oddRatio) + 0.18f * downbeatRatio;
+            case 5: // WEIRD: asymmetric / late / off-grid language.
+                return 0.24f * hitScore + 0.28f * oddRatio
+                     + 0.22f * lateRatio + 0.18f * offbeatRatio + 0.08f * gapVariety;
+            case 6: // EMOTIONAL: spacious, readable pulse with a destination.
+                return 0.34f * hitScore + 0.30f * downbeatRatio
+                     + 0.22f * lateRatio + 0.14f * (1.0f - oddRatio);
+            default: // WILDCARD: keep the generic generator's stochastic choice.
+                return 0.20f * hitScore + 0.26f * offbeatRatio
+                     + 0.20f * oddRatio + 0.18f * lateRatio + 0.16f * gapVariety;
+        }
+    };
+
+    if (eligibleN > 1 && nativeArchetype != 7)
+    {
+        float bestAffinity = -1000.0f;
+        int bestPattern = rhythmType;
+        for (int t : eligible)
+        {
+            const float hashJitter =
+                0.07f * ((float) (hash32 (identitySeed ^ (uint32_t) (t * 97 + 11)) % 1000u) / 1000.0f);
+            const float score = archetypeRhythmAffinity (t) + hashJitter;
+            if (score > bestAffinity)
+            {
+                bestAffinity = score;
+                bestPattern = t;
+            }
+        }
+        rhythmType = bestPattern;
+    }
+
     std::vector<int> positions;
     for (int i = 0; i < 10; ++i)
     {
@@ -4215,9 +4314,59 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // though the chord (and so the transposition) changes from bar to bar - that is
     // what keeps a hook recognisable - while removing the random octave jumps that
     // made lines angular (about half of all intervals used to be >= a minor sixth).
+    auto archetypeProgression = progressionDegrees ();
+    const int archetypeDegree = !archetypeProgression.empty ()
+        ? archetypeProgression[(size_t) (barOffset % (int) archetypeProgression.size())]
+        : 0;
+
     auto planDegree = [&](size_t i) -> int
     {
         int d = motifDegree((int)i);
+
+        // Native archetype pitch grammar. The later archetype pass still acts
+        // as a safety/polish stage, but the line already speaks the intended
+        // musical language before that pass.
+        switch (nativeArchetype)
+        {
+            case 0: // HOOK: keep a recognizable motif spine.
+                d = juce::roundToInt (0.74f * (float) d + 0.26f * (float) motifDegree ((int) i));
+                break;
+            case 1: // GROOVE: smaller scalar motion; rhythm carries more identity.
+                if (i > 0 && (chosen[i] % 4) != 0)
+                    d += ((i & 1u) != 0u) ? -1 : 1;
+                break;
+            case 2: // HARMONY: structural beats lean toward the active chord degree.
+                if ((chosen[i] % 4) == 0)
+                    d = juce::roundToInt (0.58f * (float) d + 0.42f * (float) archetypeDegree);
+                break;
+            case 3: // MOTIF: tighter identity than the generic contour pool.
+                d = juce::roundToInt (0.60f * (float) d + 0.40f * (float) motifDegree ((int) i));
+                if (i >= 2 && (i % 3) == 2)
+                    d = juce::roundToInt (0.78f * (float) d + 0.22f * (float) motifDegree ((int) (i - 2)));
+                break;
+            case 4: // MINIMAL: anchor-heavy and compact.
+                if ((chosen[i] % 4) == 0)
+                    d = juce::roundToInt (0.80f * (float) d + 0.20f * (float) archetypeDegree);
+                if (i > 0)
+                    d = juce::roundToInt (0.82f * (float) d + 0.18f * (float) motifDegree ((int) i));
+                break;
+            case 5: // WEIRD: occasional deliberate degree jumps, but still musical.
+                if (! simpleCandidate && ((int) i % 3) == 1)
+                {
+                    const int jump = (hash32 (identitySeed ^ (uint32_t) (i * 131 + 0x0E17u)) & 1u) ? 3 : -3;
+                    d += jump;
+                }
+                break;
+            case 6: // EMOTIONAL: explicit rise -> peak -> release destination.
+            {
+                const float pos = (float) i / (float) juce::jmax<size_t> (1, chosen.size() - 1);
+                const float arc = 1.0f - std::abs (2.0f * pos - 1.0f);
+                d += juce::roundToInt (arc * 1.7f);
+                break;
+            }
+            default: // WILDCARD: leave the broad motif/creative systems in charge.
+                break;
+        }
 
         // Each 4-bar cell has a role: A, A', B, A''.  B is the main contrast.
         if (cycle == 2)
