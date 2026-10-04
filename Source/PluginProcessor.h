@@ -330,6 +330,7 @@ struct ComposerJudgeInputs
 };
 float composerJudgeScore (const Section& section, uint32_t identity,
                           const ComposerJudgeInputs& inputs) const;
+void enforceFinalMelodyContract (Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
