@@ -6246,7 +6246,8 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
         const int ad1 = std::abs (d1);
 
         float score = 0.0f;
-        if (ad0 >= 8 && ! ((d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0)) || ad1 > 5)
+        const bool recovered = (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0);
+        if (ad0 >= 8 && (! recovered || ad1 > 5))
             score += 1.0f;
         if (ad0 >= 10)
             score += 0.75f;
@@ -10250,7 +10251,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
         applyMelodyFoundation (flat, identity);
         applyMelodyPleasantness (flat, identity);
         repairLocalMelodyQuality (flat, identity);
-        applyMelodyFoundation (flat, identity);
         traceMelodyStage (8, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
