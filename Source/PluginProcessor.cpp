@@ -4320,6 +4320,28 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 : ((melodyType == HookMelody || melodyType == VocalLikeMelody || nativeArchetype == 3)
                     ? 0.34f : 0.24f);
 
+    // 0.83.1 Catchy Simple Hooks: simple candidates use a small asymmetric
+    // call/answer vocabulary instead of merely deleting notes from the
+    // complex generator. Each template has a clear home pitch plus one
+    // memorable departure, then a return/answer.
+    static constexpr int simpleHookShapes[8][4] =
+    {
+        { 0,  2,  0, -1 }, // rise / home / answer
+        { 0,  3,  1,  0 }, // small lift / return
+        { 0, -2,  0,  3 }, // dip / rebound
+        { 2,  0,  2, -1 }, // repeated call / answer
+        { 0,  4,  2,  0 }, // wider call / settle
+        { 0,  1,  3,  1 }, // step / peak / return
+        { 3,  1,  0,  2 }, // delayed answer
+        { 0,  2, -1,  2 }  // off-centre hook
+    };
+    const int simpleHookShape =
+        (int) (hash32 (identitySeed ^ 0xCATCH001u) % 8u);
+    const int simpleHookLength =
+        2 + (int) (hash32 (identitySeed ^ 0xCATCH002u) % 3u);
+    const float simpleHookBlend =
+        simpleCandidate ? 0.74f : 0.0f;
+
     auto motifDegree = [&](int index) -> int
     {
         int pos = (index + motifRotation) % 5;
@@ -4518,6 +4540,27 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         d = juce::roundToInt (
             (1.0f - roleMotifStrength) * (float) d
             + roleMotifStrength * (float) motifAnchor);
+
+        // Simple hook language: keep one compact pitch idea recognizable
+        // across the chosen onsets. The last onset acts as the answer so the
+        // phrase closes like a tiny written musical thought.
+        if (simpleCandidate)
+        {
+            const int slot = juce::jmin (simpleHookLength - 1,
+                (int) (i % (size_t) simpleHookLength));
+            int hookTarget = motifDegree (0) + simpleHookShapes[simpleHookShape][slot];
+
+            if (i + 1 == chosen.size() && simpleHookLength >= 3)
+            {
+                const int answer =
+                    simpleHookShapes[simpleHookShape][simpleHookLength - 1];
+                hookTarget = motifDegree (0) + answer;
+            }
+
+            d = juce::roundToInt (
+                (1.0f - simpleHookBlend) * (float) d
+                + simpleHookBlend * (float) hookTarget);
+        }
 
         return d;
     };
