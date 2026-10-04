@@ -8,6 +8,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Never build a stale commit when a newer push arrives.
+# This prevents rapid development pushes from creating an endless QA queue.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
