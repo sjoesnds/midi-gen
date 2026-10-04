@@ -4235,6 +4235,53 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         std::sort (chosen.begin(), chosen.end());
     }
 
+    // 0.83.2 SoundCloud Chant: explicit 2-4 onset phrase language.
+    if (soundCloud && !chosen.empty())
+    {
+        const int targetHits = 2 + (int) (hash32 (identitySeed ^ 0x53434C44u) % 3u);
+        std::vector<int> chant;
+        chant.reserve ((size_t) targetHits);
+
+        const auto keep = [&] (int position)
+        {
+            if (std::find (chosen.begin(), chosen.end(), position) == chosen.end())
+                return;
+            if (std::find (chant.begin(), chant.end(), position) == chant.end()
+                && (int) chant.size() < targetHits)
+                chant.push_back (position);
+        };
+
+        keep (0);
+        if ((int) chosen.size() > 2)
+            keep (8);
+        keep (chosen.back());
+
+        while ((int) chant.size() < targetHits)
+        {
+            int best = -1;
+            uint32_t bestRank = std::numeric_limits<uint32_t>::max();
+            for (const int position : chosen)
+            {
+                if (std::find (chant.begin(), chant.end(), position) != chant.end())
+                    continue;
+
+                const uint32_t rank = hash32 (
+                    identitySeed ^ (uint32_t) (position * 149 + 0x5343484Eu));
+                if (rank < bestRank)
+                {
+                    bestRank = rank;
+                    best = position;
+                }
+            }
+            if (best < 0)
+                break;
+            chant.push_back (best);
+        }
+
+        chosen = std::move (chant);
+        std::sort (chosen.begin(), chosen.end());
+    }
+
     // Harmonic context is used as gravity, not as a command to resolve every bar.
     const auto prog = progressionDegrees();
     const int degree = prog[(size_t)(barOffset % (int)prog.size())];
@@ -4395,6 +4442,57 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     {
         const int motifIndex = (int) (i % (size_t) motifCoreLength);
         int d = motifDegree(motifIndex);
+
+        if (soundCloud)
+        {
+            // Compact 2-4 note chant vocabulary. Offsets are scale degrees,
+            // so the selected scale remains authoritative.
+            static constexpr int chantShapes[8][4] =
+            {
+                { 0,  0,  1,  0 },
+                { 0,  2,  0,  1 },
+                { 0, -1,  0,  1 },
+                { 0,  3,  1,  0 },
+                { 0,  0, -1,  0 },
+                { 0,  2,  1,  2 },
+                { 1,  0,  1,  0 },
+                { 0,  1,  3,  1 }
+            };
+            const int chantShape =
+                (int) (hash32 (identitySeed ^ 0x53434C31u) % 8u);
+            const int chantLength =
+                2 + (int) (hash32 (identitySeed ^ 0x53434C32u) % 3u);
+            const int chantSlot = juce::jmin (chantLength - 1,
+                (int) (i % (size_t) chantLength));
+
+            d = motifDegree (0) + chantShapes[chantShape][chantSlot];
+
+            // About 88% of notes are pulled toward the nearest active chord tone.
+            const uint32_t pullHash = hash32 (
+                identitySeed ^ (uint32_t) (i * 173 + 0x53435054u));
+            if ((pullHash % 100u) < 88u)
+            {
+                int bestDegree = d;
+                int bestDistance = std::numeric_limits<int>::max();
+
+                for (int delta = -6; delta <= 6; ++delta)
+                {
+                    const int candidateDegree = d + delta;
+                    const int candidatePitch = pitchForDegree (candidateDegree, octave);
+                    if (! chordTone (candidatePitch))
+                        continue;
+
+                    const int distance = std::abs (delta);
+                    if (distance < bestDistance)
+                    {
+                        bestDistance = distance;
+                        bestDegree = candidateDegree;
+                    }
+                }
+
+                d = bestDegree;
+            }
+        }
 
         // Native archetype pitch grammar. The later archetype pass still acts
         // as a safety/polish stage, but the line already speaks the intended
@@ -4868,7 +4966,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // unless it is a deliberate leap, move the note to the octave nearest the
         // previous note.  Pitch class - and so the harmony - is untouched.
         if ((barOffset > 0 || !generated.empty()) && std::abs(note - previous) >= 8
-            && (float)(hash32(identitySeed ^ (uint32_t)(i * 197 + 13)) % 1000u) / 1000.0f >= poolLeapChance)
+            && (float)(hash32(identitySeed ^ (uint32_t)(i * 197 + 13)) % 1000u) / 1000.0f
+                >= (soundCloud ? juce::jmin (poolLeapChance, 0.14f) : poolLeapChance))
         {
             int bestNote = note;
             for (int k = -3; k <= 3; ++k)
@@ -4917,7 +5016,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             (cycle == 3 && i == chosen.size() - 1 && (h % 100u < 45u)))
             len = juce::jmin(4, len + 1);
         if (soundCloud)
-            len = (h % 100u < 60u) ? 2 : 1;
+        {
+            const roll = h % 100u;
+            len = roll < 12u ? 1 : (roll < 72u ? 2 : 3);
+        }
 
         // The macro plan also controls articulation direction:
         // peaks speak tighter while releases/returns get more air.
@@ -10442,7 +10544,14 @@ void MidiForgeAudioProcessor::magicRandomize()
     bassEnabled = r.nextFloat() > .06f;
     melodyEnabled = true;
     arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
-    leadStyleSoundCloud = false;
+    if (!lockMelodyLayer)
+    {
+        // SoundCloud is intentionally a minority MAGIC language:
+        // sparse chant cells, repeated home notes and strong harmonic pull.
+        const float soundCloudChance = juce::jlimit (0.10f, 0.28f,
+            0.10f + dnaSpace * 0.14f + (dnaMotif < 0.42f ? 0.04f : 0.0f));
+        leadStyleSoundCloud = r.nextFloat() < soundCloudChance;
+    }
 
     // Seed controls the candidate search; DNA seed remains stable for
     // REROLL, so REROLL explores the same musical universe.
