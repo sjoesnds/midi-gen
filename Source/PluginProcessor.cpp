@@ -366,6 +366,53 @@ void MidiForgeAudioProcessor::registerLane (int part, int& lo, int& hi) const
     }
 }
 
+void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
+{
+    const auto profile = soundProfileFor (soundTarget);
+
+    if (profile.soloLine)
+    {
+        lo = 28;
+        hi = 50;
+        return;
+    }
+
+    int baseLo = 48, baseHi = 96;
+    registerLane (2, baseLo, baseHi);
+
+    // 0.82.3: the Melody Core was hard-pinned to roughly C4..D5 (62..86),
+    // so later safety stages inherited a narrow source phrase and could not
+    // recover register variety. The lane is now role-aware.
+    int targetSpan = 30;
+    switch (melodyType)
+    {
+        case HookMelody:        targetSpan = 30; break;
+        case VocalLikeMelody:  targetSpan = 34; break;
+        case RiffMelody:       targetSpan = 40; break;
+        case OstinatoMelody:   targetSpan = 24; break;
+        case ArpMelody:        targetSpan = 32; break;
+        case CounterMelody:    targetSpan = 40; break;
+        case SparseLeadMelody: targetSpan = 28; break;
+        case PhraseMelody:     targetSpan = 36; break;
+    }
+
+    targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 6.0f);
+    if (genre == Experimental || genre == Cinematic)
+        targetSpan += 3;
+    targetSpan = juce::jlimit (22, 44, targetSpan);
+
+    const int centre = (baseLo + baseHi) / 2;
+    const int half = targetSpan / 2;
+    lo = centre - half;
+    hi = lo + targetSpan;
+
+    lo = juce::jmax (lo, baseLo);
+    hi = juce::jmin (hi, baseHi);
+    hi = juce::jmin (hi, profile.laneCap);
+    lo = juce::jmax (0, lo);
+    hi = juce::jmin (127, juce::jmax (lo + 1, hi));
+}
+
 void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& maxLeap) const
 {
     const auto profile = soundProfileFor (soundTarget);
@@ -378,31 +425,15 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
         return;
     }
 
-    // Keep the existing sound/intent lane as the source, then impose one
-    // predictable practical span on every final melodic safety stage.
-    int rawLo = 48, rawHi = 96;
-    registerLane (2, rawLo, rawHi);
+    melodyCoreLane (lo, hi);
 
     constexpr int maxPracticalSpan = 44;
-    if (rawHi - rawLo > maxPracticalSpan)
-    {
-        const int centre = (rawLo + rawHi) / 2;
-        lo = centre - maxPracticalSpan / 2;
-        hi = centre + maxPracticalSpan / 2;
-    }
-    else
-    {
-        lo = rawLo;
-        hi = rawHi;
-    }
+    if (hi - lo > maxPracticalSpan)
+        hi = lo + maxPracticalSpan;
 
     lo = juce::jlimit (0, 127, lo);
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
-
-    // The contract is intentionally stricter than the legacy profile maximums:
-    // wide expressive jumps are allowed to exist upstream, but the final line
-    // remains readable and safe once it reaches the accepted candidate.
     maxLeap = juce::jlimit (4, 9, profile.maxLeap > 0 ? profile.maxLeap : 9);
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
@@ -1324,7 +1355,7 @@ void MidiForgeAudioProcessor::applyMelodyExpression (Section& section, uint32_t 
     auto lanePitch = [&] (int pitch) -> int
     {
         int lo = 62, hi = 86;
-        registerLane (2, lo, hi);
+        melodyCoreLane (lo, hi);
         return juce::jlimit (lo, hi, snapToScale (pitch));
     };
 
@@ -3667,7 +3698,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         0.82f * dnaMotif + 0.18f * composerState.motifStrength);
 
     int melLo = 62, melHi = 86;
-    registerLane(2, melLo, melHi);
+    melodyCoreLane (melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
     // 0.81 Simple Melody Class: roughly half the search space is intentionally
@@ -5312,7 +5343,7 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
     const auto snapInMelodyLane = [&](int pitch) -> int
     {
         int lo = 62, hi = 86;
-        registerLane (2, lo, hi);
+        melodyCoreLane (lo, hi);
         pitch = juce::jlimit (lo, hi, pitch);
         return juce::jlimit (lo, hi, snapToScale (pitch));
     };
@@ -5369,7 +5400,7 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
         {
             const int degree = prog[(size_t) (barOffset % (int) prog.size())];
             int lo = 62, hi = 86;
-            registerLane (2, lo, hi);
+            melodyCoreLane (lo, hi);
 
             auto inLane = [&](int p)
             {
