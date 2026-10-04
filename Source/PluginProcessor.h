@@ -13,7 +13,10 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-inline constexpr const char* kMidiForgeEngineVersion = "0.82.0";
+#ifndef MIDIFORGE_ENGINE_VERSION
+#define MIDIFORGE_ENGINE_VERSION "0.82.0"
+#endif
+inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
