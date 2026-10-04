@@ -769,17 +769,46 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
             juce::jmin (laneHi, prev.note + maxLeap));
     }
 
-    // 4) Structural anchors and the final note prefer chord/root/third tones.
+    // 4) Structural anchors prefer harmony, but not mechanically on every strong beat.
+    // A controlled share of scale-tones on structural points keeps the melody from
+    // collapsing into a chord-tone arpeggio.
+    const auto harmonicAnchorChance = [&] (int local, bool finalNote)
+    {
+        float chance = 0.48f;
+        switch (melodyType)
+        {
+            case HookMelody:        chance = 0.60f; break;
+            case VocalLikeMelody:  chance = 0.54f; break;
+            case RiffMelody:       chance = 0.40f; break;
+            case OstinatoMelody:   chance = 0.82f; break;
+            case ArpMelody:        chance = 0.68f; break;
+            case CounterMelody:    chance = 0.31f; break;
+            case SparseLeadMelody: chance = 0.37f; break;
+            case PhraseMelody:     chance = 0.47f; break;
+        }
+        if (local == 0) chance += 0.08f;
+        else if (local == 8) chance -= 0.08f;
+        if (finalNote) chance += 0.12f;
+        return juce::jlimit (0.12f, 0.90f, chance);
+    };
+
     const auto finalChord = chordPcsForBar (juce::jmax (0, section.bars - 1));
     const auto prog = progressionDegrees();
-    for (const auto index : melody)
+    for (size_t k = 0; k < melody.size(); ++k)
     {
-        auto& n = section.notes[index];
+        auto& n = section.notes[melody[k]];
         const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
         const int local = n.step % 16;
-        const bool finalNote = index == melody.back();
+        const bool finalNote = (k + 1 == melody.size());
         const bool anchor = local == 0 || (local == 8 && n.length >= 2) || finalNote;
         if (! anchor)
+            continue;
+
+        const float chance = harmonicAnchorChance (local, finalNote);
+        const uint32_t roll = hash32 (identity
+            ^ (uint32_t) (k + 1) * 0x9e3779b9u
+            ^ 0xA11C0DE1u) % 1000u;
+        if ((float) roll >= chance * 1000.0f)
             continue;
 
         auto chordPcs = chordPcsForBar (bar);
@@ -974,8 +1003,28 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
         previous = n.note;
     }
 
-    // Important beats belong to the active chord. Passing tones remain legal
-    // scale tones between anchors, so the line does not become an arpeggio.
+    // Important beats usually belong to the active chord, but the ratio is
+    // role-aware so hooks/riffs/counter-lines keep some non-chord scale color.
+    const auto foundationAnchorChance = [&] (int local, bool finalEvent)
+    {
+        float chance = 0.36f;
+        switch (melodyType)
+        {
+            case HookMelody:        chance = 0.43f; break;
+            case VocalLikeMelody:  chance = 0.38f; break;
+            case RiffMelody:       chance = 0.29f; break;
+            case OstinatoMelody:   chance = 0.65f; break;
+            case ArpMelody:        chance = 0.52f; break;
+            case CounterMelody:    chance = 0.22f; break;
+            case SparseLeadMelody: chance = 0.25f; break;
+            case PhraseMelody:     chance = 0.34f; break;
+        }
+        if (local == 0) chance += 0.06f;
+        else if (local == 8) chance -= 0.06f;
+        if (finalEvent) chance += 0.10f;
+        return juce::jlimit (0.10f, 0.82f, chance);
+    };
+
     for (size_t k = 0; k < melody.size(); ++k)
     {
         auto& n = section.notes[melody[k]];
@@ -990,6 +1039,13 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
                          || (local == 8 && n.length >= 3)
                          || (finalEvent && bar == section.bars - 1);
         if (! anchor)
+            continue;
+
+        const float chance = foundationAnchorChance (local, finalEvent);
+        const uint32_t roll = hash32 (identity
+            ^ (uint32_t) (k + 1) * 0x85ebca6bu
+            ^ 0xF0A7DA11u) % 1000u;
+        if ((float) roll >= chance * 1000.0f)
             continue;
 
         if (std::find (chordPcs.begin(), chordPcs.end(), pitchClass (n.note)) != chordPcs.end())
