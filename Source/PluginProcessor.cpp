@@ -690,18 +690,6 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
         return best;
     };
 
-    auto chordPcsForBar = [&] (int bar)
-    {
-        std::vector<int> pcs;
-        for (const auto& n : section.notes)
-            if (n.channel == 1 && n.step / 16 == bar)
-                pcs.push_back (pitchClass (n.note));
-
-        std::sort (pcs.begin(), pcs.end());
-        pcs.erase (std::unique (pcs.begin(), pcs.end()), pcs.end());
-        return pcs;
-    };
-
     // 1) Hard scale safety and moderate register.
     for (const auto index : melody)
     {
@@ -724,31 +712,12 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
 
         if (sameRun >= 3)
         {
-            const auto chordPcs = chordPcsForBar (juce::jlimit (
-                0, juce::jmax (0, section.bars - 1), cur.step / 16));
-            int target = cur.note + (((hash32 (identity ^ (uint32_t) k * 0x9e3779b9u) & 1u) != 0u) ? 2 : -2);
-
-            if (! chordPcs.empty())
-            {
-                int best = target;
-                int bestDistance = 1000;
-                for (const int pc : chordPcs)
-                {
-                    for (int oct = 3; oct <= 8; ++oct)
-                    {
-                        const int candidate = oct * 12 + pc;
-                        if (candidate < laneLo || candidate > laneHi)
-                            continue;
-                        const int d = std::abs (candidate - target);
-                        if (d < bestDistance && std::abs (candidate - prev.note) <= maxLeap)
-                        {
-                            bestDistance = d;
-                            best = candidate;
-                        }
-                    }
-                }
-                target = best;
-            }
+            // Break the repetition by contour, not by harmony. Harmonic
+            // Intelligence owns chord gravity; this safety pass should only
+            // create a small, scale-safe change that keeps the line alive.
+            const int direction =
+                ((hash32 (identity ^ (uint32_t) k * 0x9e3779b9u) & 1u) != 0u) ? 2 : -2;
+            const int target = cur.note + direction;
 
             cur.note = nearestScale (target,
                 juce::jmax (laneLo, prev.note - maxLeap),
@@ -766,33 +735,10 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
         if (std::abs (delta) <= maxLeap)
             continue;
 
-        const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), cur.step / 16);
-        const auto chordPcs = chordPcsForBar (bar);
-        const bool strongBeat = (cur.step % 16) == 0 || (cur.step % 16) == 8;
-
-        int target = prev.note + juce::jlimit (-maxLeap, maxLeap, delta);
-        if (strongBeat && ! chordPcs.empty())
-        {
-            int best = target;
-            int bestDistance = 1000;
-            for (const int pc : chordPcs)
-            {
-                for (int oct = 3; oct <= 8; ++oct)
-                {
-                    const int candidate = oct * 12 + pc;
-                    if (candidate < laneLo || candidate > laneHi)
-                        continue;
-                    const int distance = std::abs (candidate - cur.note);
-                    if (distance < bestDistance
-                        && std::abs (candidate - prev.note) <= maxLeap)
-                    {
-                        bestDistance = distance;
-                        best = candidate;
-                    }
-                }
-            }
-            target = best;
-        }
+        // Large leaps are corrected by interval/register safety only.
+        // Do not snap the note to a chord tone here: that turns expressive
+        // contour corrections into another hidden arpeggio generator.
+        const int target = prev.note + juce::jlimit (-maxLeap, maxLeap, delta);
 
         cur.note = nearestScale (target,
             juce::jmax (laneLo, prev.note - maxLeap),
