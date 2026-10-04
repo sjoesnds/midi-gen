@@ -343,6 +343,80 @@ int main()
                 fmt ("%.0f runs of 3+ identical notes", badRepeatRuns));
     }
 
+    // ------------------------------------------------------------------ 0.85 Musical Judge Calibration
+    // Regression checks for register position and complexity-class selection.
+    {
+        auto samplePopulation = [&] (float complexityValue, uint32_t seedBase)
+        {
+            double simpleShare = 0.0;
+            double meanPitch = 0.0;
+            int populatedBars = 0;
+            int simpleBars = 0;
+            int pitchSamples = 0;
+
+            p.setBars (4);
+            p.setSoundTarget (0);
+            p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+            p.setComplexity (complexityValue, false);
+
+            for (int seed = 0; seed < 32; ++seed)
+            {
+                p.setSeed ((int) (seedBase + (uint32_t) seed));
+                p.regenerate ();
+
+                std::array<int, 4> counts {};
+                std::vector<int> melody;
+                for (const auto& n : p.getVisibleNotes ())
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    melody.push_back (n.note);
+                    const int bar = n.step / 16;
+                    if (bar >= 0 && bar < 4)
+                        ++counts[(size_t) bar];
+                }
+
+                for (const int count : counts)
+                {
+                    if (count > 0)
+                    {
+                        ++populatedBars;
+                        if (count >= 2 && count <= 4)
+                            ++simpleBars;
+                    }
+                }
+
+                if (! melody.empty ())
+                {
+                    double total = 0.0;
+                    for (const int note : melody)
+                        total += note;
+                    meanPitch += total / (double) melody.size ();
+                    ++pitchSamples;
+                }
+            }
+
+            simpleShare = populatedBars > 0
+                ? (double) simpleBars / (double) populatedBars : 0.0;
+            const double averagePitch = pitchSamples > 0
+                ? meanPitch / (double) pitchSamples : 0.0;
+            return std::pair<double, double> { simpleShare, averagePitch };
+        };
+
+        const auto low = samplePopulation (0.15f, 7100u);
+        const auto high = samplePopulation (0.85f, 8100u);
+
+        report ("0.85 complexity control changes simple-phrase share",
+                low.first > high.first + 0.06,
+                fmt ("low complexity %.0f%% simple bars vs high %.0f%%",
+                     100.0 * low.first, 100.0 * high.first));
+
+        report ("0.85 default melody register stays grounded",
+                high.second < 75.5,
+                fmt ("high-complexity sample mean pitch %.1f", high.second));
+    }
+
     // ------------------------------------------------------------------ 0. Creative Range
     {
         const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
@@ -488,6 +562,7 @@ int main()
         p.setSoundTarget (0);
         p.setDrumsEnabled (false);
         int structured = 0, aPrimeGood = 0, bContrastGood = 0, returnGood = 0, validLoops = 0;
+        int balancedContrastGood = 0;
         for (int loop = 0; loop < 45; ++loop)
         {
             p.magicRandomize();
@@ -505,8 +580,49 @@ int main()
             const double contrast = 1.0 - similarity (bar0, bar2);
             const double ret = similarity (bar0, bar3);
 
+            // 0.85 Phrase Contrast 2.0: B should not win merely by becoming
+            // maximally different. Check for a useful mix of rhythmic,
+            // directional and register contrast while retaining the motif.
+            const size_t bn = std::min (bar0.size(), bar2.size());
+            int rhythmMatches = 0;
+            int directionMatches = 0;
+            for (size_t i = 0; i < bn; ++i)
+            {
+                if (std::abs ((bar0[i].step % 16) - (bar2[i].step % 16)) <= 1)
+                    ++rhythmMatches;
+                if (i > 0)
+                {
+                    const int da = bar0[i].note - bar0[i - 1].note;
+                    const int db = bar2[i].note - bar2[i - 1].note;
+                    if (da != 0 && db != 0 && ((da > 0) == (db > 0)))
+                        ++directionMatches;
+                }
+            }
+
+            double registerContrast = 0.0;
+            if (!bar0.empty() && !bar2.empty())
+            {
+                double mean0 = 0.0, mean2 = 0.0;
+                for (const auto& n : bar0) mean0 += n.note;
+                for (const auto& n : bar2) mean2 += n.note;
+                mean0 /= (double) bar0.size();
+                mean2 /= (double) bar2.size();
+                registerContrast = std::min (1.0, std::abs (mean2 - mean0) / 10.0);
+            }
+
+            const double rhythmSimilarity =
+                (double) rhythmMatches / (double) std::max<size_t> (1, bn);
+            const double directionSimilarity =
+                (double) directionMatches / (double) std::max<size_t> (1, bn > 0 ? bn - 1 : 1);
+            const double balancedContrast =
+                0.40 * (1.0 - rhythmSimilarity)
+                + 0.35 * (1.0 - directionSimilarity)
+                + 0.25 * registerContrast;
+
             if (ap >= 0.42) ++aPrimeGood;
             if (contrast >= 0.10) ++bContrastGood;
+            if (balancedContrast >= 0.22 && balancedContrast <= 0.86)
+                ++balancedContrastGood;
             if (ret >= 0.42) ++returnGood;
             if (ap >= 0.42 && contrast >= 0.10 && ret >= 0.42)
                 ++structured;
@@ -522,6 +638,9 @@ int main()
         report ("B introduces controlled contrast",
                 validLoops >= 12 && (double) bContrastGood >= 0.53 * nv,
                 fmt ("%.0f / %.0f loops with material", (double) bContrastGood, (double) validLoops));
+        report ("B uses balanced rather than maximal contrast",
+                validLoops >= 12 && (double) balancedContrastGood >= 0.50 * nv,
+                fmt ("%.0f / %.0f loops in the useful contrast band", (double) balancedContrastGood, (double) validLoops));
         report ("A'' returns to the original identity",
                 validLoops >= 12 && (double) returnGood >= 0.44 * nv,
                 fmt ("%.0f / %.0f loops with material", (double) returnGood, (double) validLoops));
@@ -531,6 +650,78 @@ int main()
     }
 
 
+
+    // ------------------------------------------------------------------ 0.85.1 Closure Judge 2.0
+    {
+        p.setBars (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setComplexity (0.55f, false);
+
+        int validLoops = 0;
+        int usefulSeams = 0;
+        int truncatedEnds = 0;
+        int missingFinalBar = 0;
+
+        for (int seed = 1; seed <= 48; ++seed)
+        {
+            p.setSeed (12000 + seed);
+            p.regenerate ();
+
+            std::vector<MidiForgeAudioProcessor::VisibleNote> melody;
+            for (const auto& n : p.getVisibleNotes ())
+                if (n.channel == 3)
+                    melody.push_back (n);
+
+            std::sort (melody.begin(), melody.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+
+            if (melody.size () < 3)
+                continue;
+
+            ++validLoops;
+
+            int finalCount = 0;
+            for (const auto& n : melody)
+                if (n.step / 16 == 3)
+                    ++finalCount;
+
+            if (finalCount == 0)
+            {
+                ++missingFinalBar;
+                continue;
+            }
+
+            const auto& first = melody.front ();
+            const auto& last = melody.back ();
+            const int seam = std::abs (last.note - first.note);
+
+            if (seam <= 10)
+                ++usefulSeams;
+
+            const int end = last.step + last.length;
+            const int tailGap = std::max (0, 64 - end);
+            if (last.length == 1 && tailGap >= 5)
+                ++truncatedEnds;
+        }
+
+        const double n = (double) std::max (1, validLoops);
+        report ("0.85.1 Closure keeps a real final-bar gesture",
+                validLoops >= 24 && (double) missingFinalBar <= 0.20 * n,
+                fmt ("%.0f / %.0f loops lacked final-bar melody material", (double) missingFinalBar, (double) validLoops));
+
+        report ("0.85.1 Closure avoids extreme seam jumps",
+                validLoops >= 24 && (double) usefulSeams >= 0.78 * n,
+                fmt ("%.0f / %.0f loops had seam <= 10 semitones", (double) usefulSeams, (double) validLoops));
+
+        report ("0.85.1 Closure avoids obviously truncated endings",
+                validLoops >= 24 && (double) truncatedEnds <= 0.24 * n,
+                fmt ("%.0f / %.0f loops had a 1-step ending with >=5-step tail gap", (double) truncatedEnds, (double) validLoops));
+    }
 
     // ------------------------------------------------------------------ 0d. Runtime regression: sparse Motif Semantics indexing
     // A sparse bar can contain only one or two melody notes. The old code used
@@ -2170,6 +2361,107 @@ int main()
         report ("melody variety: no single pitch dominates", loops >= 4 && topShare < 0.32, fmt ("most-used pitch %.0f%% of notes (was ~45%%)", 100.0 * topShare));
         report ("melody variety: the ceiling pitch is not the favourite", highestIsTop < 0.45, fmt ("highest = most-used in %.0f%% of loops (was ~75%%)", 100.0 * highestIsTop));
         report ("melody variety: moderate same-pitch repeats", repeatShare < 0.27, fmt ("%.0f%% of intervals are repeats (was ~35-40%%)", 100.0 * repeatShare));
+    }
+
+
+    // ------------------------------------------------------------------ 15. local melody quality 2.0 (0.85.2)
+    {
+        int loops = 0;
+        int loopsWithSevereSpot = 0;
+        int totalSevereSpots = 0;
+        int totalLongScalarRuns = 0;
+        int totalLongSameRuns = 0;
+
+        for (int sd = 0; sd < 64; ++sd)
+        {
+            MidiForgeAudioProcessor a;
+            a.setFeedbackLogFile (juce::File());
+            a.setSeed (13000 + sd * 37);
+            auto mel = a.getVisibleNotes();
+            std::vector<int> pitches;
+            for (const auto& n : mel)
+                if (n.channel == 3)
+                    pitches.push_back (n.note);
+
+            if (pitches.size() < 4)
+                continue;
+
+            std::stable_sort (mel.begin(), mel.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            pitches.clear();
+            for (const auto& n : mel)
+                if (n.channel == 3)
+                    pitches.push_back (n.note);
+            int severe = 0;
+            int scalarRun = 1, scalarRuns = 0;
+            int sameRun = 1, sameRuns = 0;
+
+            for (size_t i = 1; i < pitches.size(); ++i)
+            {
+                const int d = pitches[i] - pitches[i - 1];
+                const int ad = std::abs (d);
+
+                if (ad >= 10)
+                {
+                    bool recovered = false;
+                    if (i + 1 < pitches.size())
+                    {
+                        const int next = pitches[i + 1] - pitches[i];
+                        recovered = ((d > 0 && next < 0) || (d < 0 && next > 0))
+                            && std::abs (next) <= 5;
+                    }
+                    if (! recovered) ++severe;
+                }
+
+                if (i >= 2)
+                {
+                    const int prev = pitches[i - 1] - pitches[i - 2];
+                    if (std::abs (prev) <= 2 && std::abs (d) <= 2 && prev != 0 && d != 0
+                        && ((prev > 0) == (d > 0)))
+                        ++scalarRun;
+                    else
+                    {
+                        if (scalarRun >= 5) ++scalarRuns;
+                        scalarRun = 1;
+                    }
+
+                    if (std::abs (prev) <= 2 && std::abs (d) <= 2 && prev != 0 && d != 0
+                        && ((prev > 0) != (d > 0)))
+                        ++sameRun;
+                    else
+                    {
+                        if (sameRun >= 5) ++sameRuns;
+                        sameRun = 1;
+                    }
+                }
+            }
+
+            if (scalarRun >= 5) ++scalarRuns;
+            if (sameRun >= 5) ++sameRuns;
+
+            if (severe > 0) ++loopsWithSevereSpot;
+            totalSevereSpots += severe;
+            totalLongScalarRuns += scalarRuns;
+            totalLongSameRuns += sameRuns;
+            ++loops;
+        }
+
+        report ("local quality: severe unrecovered leaps stay rare",
+                loops >= 48 && totalSevereSpots <= 8,
+                fmt ("%.0f loops, %.0f severe spots", (double) loops, (double) totalSevereSpots));
+        report ("local quality: long scalar walks stay controlled",
+                loops >= 48 && totalLongScalarRuns <= 20,
+                fmt ("%.0f long scalar runs", (double) totalLongScalarRuns));
+        report ("local quality: mechanical tiny zig-zags stay controlled",
+                loops >= 48 && totalLongSameRuns <= 20,
+                fmt ("%.0f long zig-zag runs", (double) totalLongSameRuns));
+        report ("local quality: no seed batch is dominated by severe local failures",
+                loops >= 48 && loopsWithSevereSpot <= 12,
+                fmt ("%.0f / %.0f loops with severe spots", (double) loopsWithSevereSpot, (double) loops));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
