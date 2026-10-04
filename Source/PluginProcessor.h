@@ -312,6 +312,7 @@ void applyHumanPerformance (Section& section) const;
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
+float phraseContrastScore (const Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
 struct ComposerJudgeInputs
