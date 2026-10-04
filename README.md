@@ -2,11 +2,18 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.82.0**
+**Current version: 0.84.2**
 
 
 
-### Unreleased (next version)
+### 0.84.2 — Runtime stability
+- Removed the stale implicit Taste-training hook from drag/export paths; explicit LIKE / DISLIKE are the only learning signals, while drag/export remain telemetry.
+- Reworked live MIDI playback to use an immutable active-note snapshot, avoiding `activeNotesLock` on the audio thread.
+- `processBlock()` now handles every 16th-note boundary inside a large host audio block instead of skipping steps when buffers span multiple boundaries.
+- Hardened project-state loading with safe defaults, integer range validation and finite floating-point checks while preserving legacy-state compatibility.
+- Updated headless QA for explicit-feedback-only Taste behavior and fixed the stale numeric formatter in the QA output.
+
+### Historical release notes
 - **Melodies are more varied in pitch.** The melody foundation clamped every note into a tonic-relative lane that sat below the lane the composer plans in, so notes above the ceiling all collapsed onto the single highest scale tone. Measured over many loops, seeds, genres and keys: 33-47% of all melody notes sat on one pitch, that pitch was also the highest note in 70-80% of loops, and 24-42% of consecutive notes were repeats. The whole line is now first moved by whole octaves into the lane, so the planned contour survives, and only a genuinely too-wide line is clamped. Result: the most-used pitch drops to ~29%, the ceiling pitch is the favourite in ~17% of loops and repeats fall to ~14%. Rhythm and the rest of the pipeline are unchanged.
 - QA: new "melody variety" checks (no dominant pitch, ceiling pitch not the favourite, moderate repeats).
 - QA: the long-form "keeps a recognizable contour" check no longer counts two flat steps as matching shape. That metric rewarded the collapsed melodies (44% flat steps before the fix, 16% after) and made the old result look better than it was; on moving steps only, contour retention was 56% before and 82% after. Threshold is now 75% on the stricter metric.
