@@ -590,14 +590,24 @@ float MidiForgeAudioProcessor::melodyPleasantnessScore (const Section& section) 
     if (anchors > 0)
         anchorFit = (float) chordAnchors / (float) anchors;
 
-    // Keep the melodic voice in a comfortable lead register. This is a soft
-    // score because some sound profiles intentionally sit lower/higher.
+    // Keep the melodic voice in a comfortable profile-aware register.
+    // The old fixed 72 MIDI target made higher sound profiles and low-register
+    // profiles fight the same judge.
     float meanPitch = 0.0f;
     for (const auto* n : melody)
         meanPitch += (float) n->note;
     meanPitch /= (float) melody.size();
-    registerFit = 1.0f - juce::jlimit (0.0f, 1.0f,
-        std::abs (meanPitch - 72.0f) / 20.0f);
+
+    int laneLo = 48, laneHi = 90, ignoredLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, ignoredLeap);
+    const float preferredCenter = (float) laneLo
+        + 0.38f * (float) juce::jmax (1, laneHi - laneLo);
+    const float centreDelta = meanPitch - preferredCenter;
+    const float weightedDistance = centreDelta >= 0.0f
+        ? centreDelta * 1.35f
+        : -centreDelta * 0.85f;
+    registerFit = 1.0f - juce::jlimit (
+        0.0f, 1.0f, weightedDistance / 18.0f);
 
     if (! finalBarChord.empty())
     {
@@ -3513,19 +3523,24 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // composition class instead of a binary "simple vs everything else".
     // The middle class remains the default because most useful melodies live
     // there; Complex is a minority language, while archetypes bias the odds.
-    float simpleProbability = 0.34f;
-    float complexProbability = 0.20f;
+    float simpleProbability = 0.46f - 0.16f * juce::jlimit (0.0f, 1.0f, complexity);
+    float complexProbability = 0.10f + 0.17f * juce::jlimit (0.0f, 1.0f, complexity);
     switch (nativeArchetype)
     {
-        case 0: simpleProbability = 0.34f; complexProbability = 0.16f; break; // HOOK
-        case 1: simpleProbability = 0.30f; complexProbability = 0.20f; break; // GROOVE
-        case 2: simpleProbability = 0.32f; complexProbability = 0.18f; break; // HARMONY
-        case 3: simpleProbability = 0.40f; complexProbability = 0.16f; break; // MOTIF
-        case 4: simpleProbability = 0.58f; complexProbability = 0.08f; break; // MINIMAL
-        case 5: simpleProbability = 0.20f; complexProbability = 0.38f; break; // WEIRD
-        case 6: simpleProbability = 0.38f; complexProbability = 0.18f; break; // EMOTIONAL
-        default: simpleProbability = 0.28f; complexProbability = 0.26f; break; // WILDCARD
+        case 0: simpleProbability += 0.03f; complexProbability -= 0.02f; break; // HOOK
+        case 1: simpleProbability -= 0.01f; break; // GROOVE
+        case 2: simpleProbability += 0.01f; break; // HARMONY
+        case 3: simpleProbability += 0.05f; complexProbability -= 0.02f; break; // MOTIF
+        case 4: simpleProbability += 0.13f; complexProbability -= 0.06f; break; // MINIMAL
+        case 5: simpleProbability -= 0.10f; complexProbability += 0.10f; break; // WEIRD
+        case 6: simpleProbability += 0.04f; break; // EMOTIONAL
+        default: complexProbability += 0.03f; break; // WILDCARD
     }
+
+    simpleProbability = juce::jlimit (0.18f, 0.68f, simpleProbability);
+    complexProbability = juce::jlimit (0.08f, 0.38f, complexProbability);
+    if (simpleProbability + complexProbability > 0.90f)
+        complexProbability = juce::jmax (0.08f, 0.90f - simpleProbability);
 
     const uint32_t complexityRoll = hash32 (identitySeed ^ 0xA11CE55u) % 1000u;
     const int melodyComplexityClass =
@@ -5866,7 +5881,9 @@ float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
         melodyType, mood, genre, energy, complexity, identity);
 
     const float aPrime = similarity (a, ap);
-    const float contrast = 1.0f - similarity (a, b);
+    const float contrastSimilarity = similarity (a, b);
+    const float contrast = 1.0f - juce::jlimit (0.0f, 1.0f,
+        std::abs (contrastSimilarity - 0.52f) / 0.52f);
     const float returnFit = similarity (a, app);
 
     float endingFit = 0.5f;
@@ -5887,7 +5904,226 @@ float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
         + 0.28f * returnFit
         + 0.12f * endingFit);
 }
+float MidiForgeAudioProcessor::phraseContrastScore (const Section& section, uint32_t identity) const
+{
+    juce::ignoreUnused (identity);
 
+    if (section.bars < 4)
+        return 0.55f;
+
+    auto collect = [&] (int bar)
+    {
+        std::vector<const NoteEvent*> out;
+        for (const auto& n : section.notes)
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (&n);
+
+        std::stable_sort (out.begin(), out.end(),
+            [] (const NoteEvent* a, const NoteEvent* b)
+            {
+                if (a->step != b->step) return a->step < b->step;
+                return a->note < b->note;
+            });
+        return out;
+    };
+
+    const auto a = collect (0);
+    const auto b = collect (2);
+    if (a.size() < 2 || b.size() < 2)
+        return 0.38f;
+
+    const size_t n = juce::jmin (a.size(), b.size());
+    if (n < 2)
+        return 0.38f;
+
+    int rhythmMatches = 0;
+    int directionMatches = 0;
+    float contourDifference = 0.0f;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const int aStep = a[i]->step % 16;
+        const int bStep = b[i]->step % 16;
+        if (std::abs (aStep - bStep) <= 1)
+            ++rhythmMatches;
+
+        if (i > 0)
+        {
+            const int ad = a[i]->note - a[i - 1]->note;
+            const int bd = b[i]->note - b[i - 1]->note;
+            if (ad != 0 && bd != 0 && ((ad > 0) == (bd > 0)))
+                ++directionMatches;
+
+            contourDifference += (float) juce::jmin (12, std::abs (std::abs (ad) - std::abs (bd)));
+        }
+    }
+
+    const float rhythmSimilarity = (float) rhythmMatches / (float) n;
+    const float directionSimilarity = (float) directionMatches / (float) juce::jmax<size_t> (1, n - 1);
+    const float contourDelta = juce::jlimit (
+        0.0f, 1.0f,
+        (contourDifference / (float) juce::jmax<size_t> (1, n - 1)) / 7.0f);
+
+    float meanA = 0.0f, meanB = 0.0f;
+    for (auto* note : a) meanA += (float) note->note;
+    for (auto* note : b) meanB += (float) note->note;
+    meanA /= (float) a.size();
+    meanB /= (float) b.size();
+
+    const float registerContrast = juce::jlimit (
+        0.0f, 1.0f, std::abs (meanB - meanA) / 10.0f);
+
+    const bool directionContrast = directionSimilarity < 0.55f;
+    const bool usefulRegisterContrast = registerContrast >= 0.12f && registerContrast <= 0.80f;
+    const bool usefulRhythmicContrast = rhythmSimilarity <= 0.72f;
+
+    // We want B to remain recognisable while clearly changing its surface language.
+    // Too much similarity is stale; too little similarity loses the motif entirely.
+    const float identityBand = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (rhythmSimilarity - 0.48f) / 0.52f);
+
+    const float directionalBand = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (directionSimilarity - 0.42f) / 0.42f);
+
+    const float contourBand = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (contourDelta - 0.38f) / 0.62f);
+
+    const float registerBand = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (registerContrast - 0.35f) / 0.65f);
+
+    float score = 0.28f * identityBand
+                + 0.24f * directionalBand
+                + 0.24f * contourBand
+                + 0.24f * registerBand;
+
+    if (! directionContrast)
+        score *= 0.82f;
+
+    if (! usefulRegisterContrast)
+        score *= 0.84f;
+
+    if (! usefulRhythmicContrast)
+        score *= 0.86f;
+
+    return juce::jlimit (0.0f, 1.0f, score);
+}
+
+
+float MidiForgeAudioProcessor::closureJudgeScore (const Section& section, uint32_t identity) const
+{
+    if (section.bars < 2)
+        return 0.55f;
+
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    if (melody.size() < 3)
+        return 0.38f;
+
+    const NoteEvent* first = melody.front();
+    const NoteEvent* last = melody.back();
+
+    const NoteEvent* previous = last;
+    for (auto it = melody.rbegin(); it != melody.rend(); ++it)
+    {
+        if (*it != last && (*it)->step / 16 == section.bars - 1)
+        {
+            previous = *it;
+            break;
+        }
+    }
+
+    const auto plan = midiforge::LoopClosure::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    const int totalSteps = section.bars * 16;
+    const int finalBarStart = (section.bars - 1) * 16;
+    const int tailGap = juce::jmax (0, totalSteps - (last->step + last->length));
+
+    const float seam = 1.0f - juce::jlimit (
+        0.0f, 1.0f, (float) juce::jmax (0, std::abs (last->note - first->note) - 3) / 15.0f);
+
+    const float release = tailGap <= 0 ? 0.98f
+        : tailGap == 1 ? 0.92f
+        : tailGap <= 3 ? 0.76f
+        : tailGap <= 5 ? 0.54f
+        : 0.32f;
+
+    const float boundary = 1.0f - juce::jlimit (
+        0.0f, 1.0f, (float) std::abs (totalSteps - (last->step + last->length)) / 8.0f);
+
+    const int approach = last->note - previous->note;
+    const int opening = melody.size() > 1 ? melody[1]->note - first->note : 0;
+
+    float response = 0.50f;
+    if (approach == 0 || opening == 0)
+        response = 0.56f;
+    else
+    {
+        const bool opposite = (approach > 0) != (opening > 0);
+        const int magnitudeDelta = std::abs (std::abs (approach) - std::abs (opening));
+        response = opposite ? 0.88f : 0.66f;
+        response -= 0.05f * (float) juce::jmin (4, magnitudeDelta);
+    }
+
+    // The plan tells the judge whether an unresolved seam is expected.
+    if (plan.unresolvedBias > 0.52f)
+        response = 0.72f * response + 0.28f * (1.0f - boundary);
+    else if (plan.unresolvedBias < 0.20f)
+        response = 0.78f * response + 0.22f * boundary;
+
+    float harmonic = 0.55f;
+    const auto prog = progressionDegrees();
+    if (!prog.empty())
+    {
+        const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
+        const int targets[3] =
+        {
+            degreeToPitch (degree, octave),
+            degreeToPitch (degree + 2, octave),
+            degreeToPitch (degree + 4, octave)
+        };
+
+        int best = 1000;
+        for (const int target : targets)
+            best = juce::jmin (best, std::abs (last->note - target));
+
+        harmonic = 1.0f - juce::jlimit (
+            0.0f, 1.0f, (float) juce::jmax (0, best - 1) / 12.0f);
+    }
+
+    // Very short final notes are usually accidental truncations; very long
+    // endings are also a mismatch for styles that expect a pickup into the loop.
+    const int maxFinalLength = juce::jmax (1, totalSteps - finalBarStart);
+    const float releaseShape =
+        last->length >= 2 && last->length <= juce::jmin (8, maxFinalLength) ? 0.92f
+        : last->length == 1 ? 0.54f
+        : 0.76f;
+
+    const float finalBarIntent = last->step >= finalBarStart ? 1.0f : 0.45f;
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.26f * seam
+        + 0.21f * release
+        + 0.16f * boundary
+        + 0.15f * response
+        + 0.12f * harmonic
+        + 0.07f * releaseShape
+        + 0.03f * finalBarIntent);
+}
 
 void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t identity) const
 {
@@ -7052,16 +7288,115 @@ MidiForgeAudioProcessor::MelodyFeatures MidiForgeAudioProcessor::melodyFeatures 
             if (m.front()->note==m.back()->note && m.size()<5) f.seam*=0.65f;
         }
 
-        // Register and surprise: a little controlled contrast is useful, but
-        // huge random jumps should not dominate the loop.
+        // Register and surprise: keep range diversity separate from where the
+        // phrase actually lives. Previously registerScore was effectively only
+        // pitch-span, so a melody could spread across a wide range and still sit
+        // uncomfortably high without being penalised.
         if (!m.empty())
         {
-            float mean=0; for(auto* n:m) mean+=(float)n->note; mean/=(float)m.size();
-            float spread=0; for(auto* n:m) spread+=std::abs((float)n->note-mean);
-            f.registerScore=juce::jlimit(0.0f,1.0f,(spread/(float)m.size())/14.0f);
-            int unusual=0;
-            for(size_t i=1;i<m.size();++i) if(std::abs(m[i]->note-m[i-1]->note)>=8) ++unusual;
-            f.surprise=juce::jlimit(0.0f,1.0f,(float)unusual/(float)juce::jmax<size_t>(1,m.size()-1));
+            float mean = 0.0f;
+            for (auto* n : m) mean += (float) n->note;
+            mean /= (float) m.size();
+
+            float spread = 0.0f;
+            for (auto* n : m) spread += std::abs ((float) n->note - mean);
+            f.registerScore = juce::jlimit (
+                0.0f, 1.0f, (spread / (float) m.size()) / 14.0f);
+
+            int laneLo = 48, laneHi = 90, ignoredLeap = 9;
+            melodyRegisterContract (laneLo, laneHi, ignoredLeap);
+            const float laneSpan = (float) juce::jmax (1, laneHi - laneLo);
+
+            // Electronic lead melodies generally feel more grounded when their
+            // centre sits below the midpoint of the playable lane. Profiles that
+            // intentionally sit higher (e.g. Bell) inherit their own lane shift.
+            const float preferredCenter = (float) laneLo + 0.38f * laneSpan;
+            const float centreDelta = mean - preferredCenter;
+            const float weightedDistance = centreDelta >= 0.0f
+                ? centreDelta * 1.35f
+                : -centreDelta * 0.85f;
+            f.registerCenter = 1.0f
+                - juce::jlimit (0.0f, 1.0f, weightedDistance / 18.0f);
+
+            // Local weak-spot score: a melody should not be judged only by its
+            // averages. Penalise isolated awkward transitions, unrecovered large
+            // jumps and pathological same-note runs, while allowing intentional
+            // expressive leaps when they resolve.
+            float weakness = 0.0f;
+            int transitionCount = 0;
+            int sameRun = 1;
+            for (size_t i = 1; i < m.size(); ++i)
+            {
+                ++transitionCount;
+                const int d = m[i]->note - m[i - 1]->note;
+                const int ad = std::abs (d);
+                float local = 0.0f;
+
+                if (ad >= 10)
+                {
+                    bool recoveredLeap = false;
+                    if (i + 1 < m.size())
+                    {
+                        const int next = m[i + 1]->note - m[i]->note;
+                        recoveredLeap = ((d > 0 && next < 0) || (d < 0 && next > 0))
+                                     && std::abs (next) <= 5;
+                    }
+                    local = recoveredLeap ? 0.15f : 0.72f;
+                }
+                else if (ad >= 8)
+                {
+                    local = 0.12f;
+                    if (i + 1 < m.size())
+                    {
+                        const int next = m[i + 1]->note - m[i]->note;
+                        const bool recovered =
+                            ((d > 0 && next < 0) || (d < 0 && next > 0))
+                            && std::abs (next) <= 5;
+                        if (! recovered)
+                            local = 0.48f;
+                    }
+                }
+                else if (ad <= 3 && ad > 0 && i >= 2)
+                {
+                    const int prevDelta = m[i - 1]->note - m[i - 2]->note;
+                    if (prevDelta != 0 && ((prevDelta > 0) != (d > 0)))
+                        local = 0.24f;
+                }
+
+                if (m[i]->note == m[i - 1]->note)
+                {
+                    ++sameRun;
+                    if (sameRun >= 3)
+                        local = juce::jmax (local, 0.58f);
+                }
+                else
+                {
+                    sameRun = 1;
+                }
+
+                weakness += local;
+            }
+            f.weakSpot = 1.0f - juce::jlimit (
+                0.0f, 1.0f, weakness / (float) juce::jmax (1, transitionCount));
+
+            const float observedComplexity = juce::jlimit (
+                0.0f, 1.0f,
+                0.34f * f.density
+                + 0.22f * f.leap
+                + 0.18f * f.rhythmIdentity
+                + 0.26f * (1.0f - f.repetition));
+            const float simplicityTarget = juce::jlimit (
+                0.18f, 0.72f, 0.56f - 0.26f * juce::jlimit (0.0f, 1.0f, complexity));
+            f.simplicity = 1.0f - juce::jlimit (
+                0.0f, 1.0f, std::abs (observedComplexity - simplicityTarget) / 0.52f);
+
+            int unusual = 0;
+            for (size_t i = 1; i < m.size(); ++i)
+                if (std::abs (m[i]->note - m[i - 1]->note) >= 8)
+                    ++unusual;
+            f.surprise = juce::jlimit (
+                0.0f, 1.0f,
+                (float) unusual / (float) juce::jmax<size_t> (1, m.size() - 1));
         }
 
         // Reward intentional space and a memorable amount of repetition, but
@@ -9739,8 +10074,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f * composerGrammarQuality;
         quality += 0.07f * melodicProsodyQuality;
         quality += 0.08f * creativeRangeQuality;
-        quality += 0.05f*f.registerScore;
-        quality += 0.05f*f.surprise;
+        quality += 0.05f * f.registerScore;
+        quality += 0.07f * f.registerCenter;
+        quality += 0.05f * f.simplicity;
+        quality += 0.05f * f.surprise;
+        quality -= 0.12f * (1.0f - f.weakSpot);
 
         // 0.61 Tempo Feel Judge: score the generated loop in the same temporal
         // language that the generator used. The old judge rewarded progressively
@@ -9919,6 +10257,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.10f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-genreDensityTarget)));
         quality += 0.06f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.space-genreSpaceTarget)));
         quality += 0.04f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.registerScore-genreRegisterTarget)));
+        quality += 0.035f * f.registerCenter;
         quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.leap-genreLeapTarget)));
         quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.rhythmIdentity-genreRhythmTarget)));
         quality += 0.040f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.motifIdentity-genreMotifTarget)));
@@ -10363,7 +10702,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // already-generated candidate. It evaluates the composition as a whole
         // and never rewrites the MIDI.
         const float motifSemantics = motifSemanticsScore (flat, identity);
+        const float phraseContrast = phraseContrastScore (flat, identity);
         const float loopClosure = loopClosureScore (flat, identity);
+        const float closureJudge = closureJudgeScore (flat, identity);
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -10380,6 +10721,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
         };
         const float composerJudge = composerJudgeScore (flat, identity, composerJudgeInputs);
         quality += 0.15f * composerJudge;
+        quality += 0.10f * phraseContrast;
+        quality += 0.10f * closureJudge;
         const float pleasantness = melodyPleasantnessScore (flat);
         quality += 0.24f * pleasantness;
         if (pleasantness < 0.48f)

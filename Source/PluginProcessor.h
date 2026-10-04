@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.84.2"
+#define MIDIFORGE_ENGINE_VERSION "0.85.1"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -245,7 +245,8 @@ struct MelodyFeatures
 {
     float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
     float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, tensionArc=0,
-          stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f,
+          stepPenalty=0, registerScore=0, registerCenter=0.5f, weakSpot=0.5f,
+          simplicity=0.5f, surprise=0, context=0.5f, velocity=0.5f,
           noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
 };
 
@@ -311,8 +312,10 @@ void applyHumanPerformance (Section& section) const;
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
+float phraseContrastScore (const Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
+float closureJudgeScore (const Section& section, uint32_t identity) const;
 struct ComposerJudgeInputs
 {
     MelodyFeatures features {};
