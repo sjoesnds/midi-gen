@@ -20,7 +20,7 @@
 
 - QA is now hermetic: `MidiForgeAudioProcessor::setSettingsDirectoryOverride()` points `taste.json` / `feedback.csv` at a temporary folder for the whole run. Before, every local QA run read the Taste model that earlier runs had saved to the real settings folder, so identical code gave different numbers on different runs (CI always starts clean, so it was never affected).
 - QA: the A' / B / A'' / "semantic development" motif-structure checks now judge the share of loops that have melody material in every bar (44% / 53% / 44% / 36%) instead of absolute counts out of 45, so they no longer depend on how many loops happen to be sparse.
-- **Needs CI confirmation:** this branch has not been run on the CI toolchain yet. If any Quality check turns red here and is green on `main`, the octave shift is the cause.
+- The melody-variety/octave-placement changes from the earlier branch are now part of the historical 0.80-era notes below; CI coverage is handled by the current 0.84.2 stability branch.
 
 ### SIMILAR / More Like This — 0.80.0
 - New **SIMILAR** button (bottom row, left of UNDO). Select a loop you like and press it: the bank is rebuilt as the **untouched source loop in slot 1** plus **seven close relatives in slots 2-8, ordered from nearest to boldest**.
