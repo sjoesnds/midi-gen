@@ -248,6 +248,26 @@ int main()
     p.resetTaste();
 
 
+    // ------------------------------------------------------------------ MAGIC Scale Coverage
+    {
+        std::set<int> seenScales;
+        constexpr int scaleCount = 12;
+
+        // MAGIC should be able to reach every declared scale, not only the
+        // original first seven choices.
+        for (int pass = 0; pass < 180; ++pass)
+        {
+            p.magicRandomize();
+            seenScales.insert (p.getScale());
+        }
+
+        bool allScalesSeen = seenScales.size() == scaleCount;
+        report ("MAGIC can reach every declared scale",
+                allScalesSeen,
+                fmt ("seen %d/12 scales", (double) seenScales.size()));
+    }
+
+
     // ------------------------------------------------------------------ Melodic pleasantness safety
     // The final melody pass is intentionally conservative: generated lead notes stay
     // in the selected scale, avoid oversized default leaps, and break pathological
