@@ -824,8 +824,12 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
             const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
             const int root = pitchClass (degreeToPitch (degree, octave));
             const int third = pitchClass (degreeToPitch (degree + 2, octave));
-            targetPc = std::abs (pitchClass (n.note) - root) <= std::abs (pitchClass (n.note) - third)
-                ? root : third;
+            const int currentPc = pitchClass (n.note);
+            const int rootDistance = std::min (std::abs (currentPc - root),
+                                               12 - std::abs (currentPc - root));
+            const int thirdDistance = std::min (std::abs (currentPc - third),
+                                                12 - std::abs (currentPc - third));
+            targetPc = rootDistance <= thirdDistance ? root : third;
         }
 
         int best = n.note;
