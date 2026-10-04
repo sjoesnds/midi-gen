@@ -651,6 +651,78 @@ int main()
 
 
 
+    // ------------------------------------------------------------------ 0.85.1 Closure Judge 2.0
+    {
+        p.setBars (4);
+        p.setSoundTarget (0);
+        p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+        p.setComplexity (0.55f, false);
+
+        int validLoops = 0;
+        int usefulSeams = 0;
+        int truncatedEnds = 0;
+        int missingFinalBar = 0;
+
+        for (int seed = 1; seed <= 48; ++seed)
+        {
+            p.setSeed (12000 + seed);
+            p.regenerate ();
+
+            std::vector<MidiForgeAudioProcessor::VisibleNote> melody;
+            for (const auto& n : p.getVisibleNotes ())
+                if (n.channel == 3)
+                    melody.push_back (n);
+
+            std::sort (melody.begin(), melody.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+
+            if (melody.size () < 3)
+                continue;
+
+            ++validLoops;
+
+            int finalCount = 0;
+            for (const auto& n : melody)
+                if (n.step / 16 == 3)
+                    ++finalCount;
+
+            if (finalCount == 0)
+            {
+                ++missingFinalBar;
+                continue;
+            }
+
+            const auto& first = melody.front ();
+            const auto& last = melody.back ();
+            const int seam = std::abs (last.note - first.note);
+
+            if (seam <= 10)
+                ++usefulSeams;
+
+            const int end = last.step + last.length;
+            const int tailGap = std::max (0, 64 - end);
+            if (last.length == 1 && tailGap >= 5)
+                ++truncatedEnds;
+        }
+
+        const double n = (double) std::max (1, validLoops);
+        report ("0.85.1 Closure keeps a real final-bar gesture",
+                validLoops >= 24 && (double) missingFinalBar <= 0.20 * n,
+                fmt ("%.0f / %.0f loops lacked final-bar melody material", (double) missingFinalBar, (double) validLoops));
+
+        report ("0.85.1 Closure avoids extreme seam jumps",
+                validLoops >= 24 && (double) usefulSeams >= 0.78 * n,
+                fmt ("%.0f / %.0f loops had seam <= 10 semitones", (double) usefulSeams, (double) validLoops));
+
+        report ("0.85.1 Closure avoids obviously truncated endings",
+                validLoops >= 24 && (double) truncatedEnds <= 0.24 * n,
+                fmt ("%.0f / %.0f loops had a 1-step ending with >=5-step tail gap", (double) truncatedEnds, (double) validLoops));
+    }
+
     // ------------------------------------------------------------------ 0d. Runtime regression: sparse Motif Semantics indexing
     // A sparse bar can contain only one or two melody notes. The old code used
     // current.back() as a local vector position, which could turn a valid
