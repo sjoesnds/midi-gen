@@ -819,7 +819,6 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
         previous = n.note;
     }
 
-    juce::ignoreUnused (profile);
     cleanMelodyLine (section.notes);
 }
 
