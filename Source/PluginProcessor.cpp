@@ -6013,6 +6013,118 @@ float MidiForgeAudioProcessor::phraseContrastScore (const Section& section, uint
 }
 
 
+float MidiForgeAudioProcessor::closureJudgeScore (const Section& section, uint32_t identity) const
+{
+    if (section.bars < 2)
+        return 0.55f;
+
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    if (melody.size() < 3)
+        return 0.38f;
+
+    const NoteEvent* first = melody.front();
+    const NoteEvent* last = melody.back();
+
+    const NoteEvent* previous = last;
+    for (auto it = melody.rbegin(); it != melody.rend(); ++it)
+    {
+        if (*it != last && (*it)->step / 16 == section.bars - 1)
+        {
+            previous = *it;
+            break;
+        }
+    }
+
+    const auto plan = midiforge::LoopClosure::makePlan (
+        melodyType, mood, genre, energy, complexity, identity);
+
+    const int totalSteps = section.bars * 16;
+    const int finalBarStart = (section.bars - 1) * 16;
+    const int tailGap = juce::jmax (0, totalSteps - (last->step + last->length));
+
+    const float seam = 1.0f - juce::jlimit (
+        0.0f, 1.0f, (float) juce::jmax (0, std::abs (last->note - first->note) - 3) / 15.0f);
+
+    const float release = tailGap <= 0 ? 0.98f
+        : tailGap == 1 ? 0.92f
+        : tailGap <= 3 ? 0.76f
+        : tailGap <= 5 ? 0.54f
+        : 0.32f;
+
+    const float boundary = 1.0f - juce::jlimit (
+        0.0f, 1.0f, (float) std::abs (totalSteps - (last->step + last->length)) / 8.0f);
+
+    const int approach = last->note - previous->note;
+    const int opening = melody.size() > 1 ? melody[1]->note - first->note : 0;
+
+    float response = 0.50f;
+    if (approach == 0 || opening == 0)
+        response = 0.56f;
+    else
+    {
+        const bool opposite = (approach > 0) != (opening > 0);
+        const int magnitudeDelta = std::abs (std::abs (approach) - std::abs (opening));
+        response = opposite ? 0.88f : 0.66f;
+        response -= 0.05f * (float) juce::jmin (4, magnitudeDelta);
+    }
+
+    // The plan tells the judge whether an unresolved seam is expected.
+    if (plan.unresolvedBias > 0.52f)
+        response = 0.72f * response + 0.28f * (1.0f - boundary);
+    else if (plan.unresolvedBias < 0.20f)
+        response = 0.78f * response + 0.22f * boundary;
+
+    float harmonic = 0.55f;
+    const auto prog = progressionDegrees();
+    if (!prog.empty())
+    {
+        const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
+        const int targets[3] =
+        {
+            degreeToPitch (degree, octave),
+            degreeToPitch (degree + 2, octave),
+            degreeToPitch (degree + 4, octave)
+        };
+
+        int best = 1000;
+        for (const int target : targets)
+            best = juce::jmin (best, std::abs (last->note - target));
+
+        harmonic = 1.0f - juce::jlimit (
+            0.0f, 1.0f, (float) juce::jmax (0, best - 1) / 12.0f);
+    }
+
+    // Very short final notes are usually accidental truncations; very long
+    // endings are also a mismatch for styles that expect a pickup into the loop.
+    const int maxFinalLength = juce::jmax (1, totalSteps - finalBarStart);
+    const float releaseShape =
+        last->length >= 2 && last->length <= juce::jmin (8, maxFinalLength) ? 0.92f
+        : last->length == 1 ? 0.54f
+        : 0.76f;
+
+    const float finalBarIntent = last->step >= finalBarStart ? 1.0f : 0.45f;
+
+    return juce::jlimit (0.0f, 1.0f,
+        0.26f * seam
+        + 0.21f * release
+        + 0.16f * boundary
+        + 0.15f * response
+        + 0.12f * harmonic
+        + 0.07f * releaseShape
+        + 0.03f * finalBarIntent);
+}
+
 void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t identity) const
 {
     if (! melodyEnabled || soundProfileFor (soundTarget).soloLine
@@ -10592,6 +10704,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float motifSemantics = motifSemanticsScore (flat, identity);
         const float phraseContrast = phraseContrastScore (flat, identity);
         const float loopClosure = loopClosureScore (flat, identity);
+        const float closureJudge = closureJudgeScore (flat, identity);
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -10609,6 +10722,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float composerJudge = composerJudgeScore (flat, identity, composerJudgeInputs);
         quality += 0.15f * composerJudge;
         quality += 0.10f * phraseContrast;
+        quality += 0.10f * closureJudge;
         const float pleasantness = melodyPleasantnessScore (flat);
         quality += 0.24f * pleasantness;
         if (pleasantness < 0.48f)
