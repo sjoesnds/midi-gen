@@ -6013,6 +6013,168 @@ float MidiForgeAudioProcessor::phraseContrastScore (const Section& section, uint
 }
 
 
+
+float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, uint32_t identity) const
+{
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    if (melody.size() < 3)
+        return melody.empty() ? 0.35f : 0.62f;
+
+    const auto scale = scaleSemitones();
+    auto inScale = [&] (int pitch)
+    {
+        const int rel = ((pitch % 12) + 12) % 12;
+        const int rootRel = ((rootPc % 12) + 12) % 12;
+        const int degree = (rel - rootRel + 12) % 12;
+        return std::find (scale.begin(), scale.end(), degree) != scale.end();
+    };
+
+    std::vector<float> transitionQuality;
+    std::vector<float> windowQuality;
+    transitionQuality.reserve (melody.size() - 1);
+    windowQuality.reserve (melody.size() - 2);
+
+    int sameRun = 1;
+    int scalarRun = 1;
+    int zigzagRun = 1;
+    int previousDirection = 0;
+    int previousMagnitude = 0;
+
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        const int pitch = melody[i]->note;
+        float noteSafety = inScale (pitch) ? 1.0f : 0.05f;
+        if (i + 1 < melody.size())
+        {
+            const int d = melody[i + 1]->note - melody[i]->note;
+            const int ad = std::abs (d);
+            const int direction = d > 0 ? 1 : (d < 0 ? -1 : 0);
+
+            float q = 0.92f;
+            if (ad == 0)
+                q = 0.78f;
+            else if (ad <= 2)
+                q = 0.96f;
+            else if (ad <= 4)
+                q = 0.91f;
+            else if (ad <= 7)
+                q = 0.80f;
+            else if (ad <= 9)
+                q = 0.58f;
+            else
+                q = 0.24f;
+
+            if (ad >= 8 && i + 2 < melody.size())
+            {
+                const int next = melody[i + 2]->note - melody[i + 1]->note;
+                const bool recovered = ((d > 0 && next < 0) || (d < 0 && next > 0))
+                                     && std::abs (next) <= 5;
+                if (recovered)
+                    q += 0.18f;
+                else
+                    q -= 0.30f;
+            }
+            else if (ad >= 8)
+            {
+                q -= 0.16f;
+            }
+
+            if (direction != 0 && direction == previousDirection
+                && ad <= 3 && previousMagnitude == ad)
+                ++scalarRun;
+            else
+                scalarRun = 1;
+
+            if (direction != 0 && previousDirection != 0 && direction != previousDirection
+                && ad <= 3 && previousMagnitude <= 3)
+                ++zigzagRun;
+            else
+                zigzagRun = 1;
+
+            if (ad == 0)
+                ++sameRun;
+            else
+                sameRun = 1;
+
+            if (scalarRun >= 4)
+                q -= 0.16f;
+            if (scalarRun >= 6)
+                q -= 0.12f;
+            if (zigzagRun >= 4)
+                q -= 0.18f;
+            if (zigzagRun >= 6)
+                q -= 0.12f;
+            if (sameRun >= 4)
+                q -= 0.18f;
+            if (sameRun >= 6)
+                q -= 0.12f;
+
+            transitionQuality.push_back (juce::jlimit (0.0f, 1.0f, q * noteSafety));
+            previousDirection = direction;
+            previousMagnitude = ad;
+        }
+        else if (! transitionQuality.empty())
+        {
+            transitionQuality.back() = juce::jmin (
+                transitionQuality.back(),
+                juce::jlimit (0.0f, 1.0f,
+                    transitionQuality.back() * noteSafety));
+        }
+    }
+
+    // A single ugly three-note window must matter: use the weaker local score
+    // instead of allowing a good average to hide one isolated failure.
+    for (size_t i = 0; i + 2 < melody.size(); ++i)
+    {
+        const float a = transitionQuality[i];
+        const float b = transitionQuality[i + 1];
+        const int d0 = melody[i + 1]->note - melody[i]->note;
+        const int d1 = melody[i + 2]->note - melody[i + 1]->note;
+
+        float q = 0.58f * juce::jmin (a, b) + 0.42f * (0.5f * (a + b));
+
+        const int ad0 = std::abs (d0);
+        const int ad1 = std::abs (d1);
+        if (ad0 >= 8 && ad1 <= 5 && ((d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0)))
+            q += 0.08f; // expressive leap with a clear recovery is useful, not a flaw
+
+        if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0 && ((d0 > 0) != (d1 > 0)))
+            q -= 0.12f; // tiny up/down rocking is a common artificial pattern
+
+        windowQuality.push_back (juce::jlimit (0.0f, 1.0f, q));
+    }
+
+    float average = 0.0f;
+    for (const auto q : transitionQuality) average += q;
+    average /= (float) transitionQuality.size();
+
+    float lower = 0.50f;
+    if (! windowQuality.empty())
+    {
+        std::stable_sort (windowQuality.begin(), windowQuality.end());
+        const size_t idx = (size_t) std::floor (0.20 * (double) (windowQuality.size() - 1));
+        lower = windowQuality[idx];
+    }
+
+    const float localScore = juce::jlimit (
+        0.0f, 1.0f,
+        0.68f * average + 0.32f * lower);
+
+    const float jitter = (float) ((hash32 (identity ^ 0x7A15C2D1u) % 1000u)) / 100000.0f;
+    return juce::jlimit (0.0f, 1.0f, localScore + jitter);
+}
+
 float MidiForgeAudioProcessor::closureJudgeScore (const Section& section, uint32_t identity) const
 {
     if (section.bars < 2)
@@ -10705,6 +10867,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float phraseContrast = phraseContrastScore (flat, identity);
         const float loopClosure = loopClosureScore (flat, identity);
         const float closureJudge = closureJudgeScore (flat, identity);
+        const float localMelodyQuality = localMelodyQualityScore (flat, identity);
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -10723,6 +10886,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.15f * composerJudge;
         quality += 0.10f * phraseContrast;
         quality += 0.10f * closureJudge;
+        // 0.85.2 Local Melody Quality 2.0: do not let a strong global score
+        // hide one or two ugly micro-transitions.
+        quality += 0.16f * localMelodyQuality;
+        if (localMelodyQuality < 0.42f)
+            quality -= 0.24f * (0.42f - localMelodyQuality);
+        if (localMelodyQuality < 0.30f)
+            quality -= 0.10f * (0.30f - localMelodyQuality);
         const float pleasantness = melodyPleasantnessScore (flat);
         quality += 0.24f * pleasantness;
         if (pleasantness < 0.48f)
