@@ -266,7 +266,6 @@ const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
 const bool ok = safeThis->processor.exportMidi(result);
-if (ok) safeThis->processor.noteKeptVariation();
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
