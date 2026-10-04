@@ -6344,53 +6344,10 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
                               ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
                               ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
 
-    // 0.65 Contextual Development: the grammar is selected from the phrase
-    // state instead of a flat random 1-in-8 roll. This keeps the eight
-    // development languages available, but asks the phrase what it currently
-    // needs: more identity, more motion, more contrast, or a stronger return.
-    const auto phraseState = melodyFeatures (section, h);
-    std::array<float, 8> strategyWeight {};
-    strategyWeight[RepeatAlter] = 0.60f
-        + 1.10f * (1.0f - phraseState.motifIdentity)
-        + 0.45f * (1.0f - phraseState.phraseMemory);
-    strategyWeight[RhythmicReduction] = 0.52f
-        + 2.00f * juce::jmax (0.0f, phraseState.density - 0.62f)
-        + 0.45f * juce::jmax (0.0f, 0.42f - phraseState.space);
-    strategyWeight[RhythmicExpansion] = 0.50f
-        + 2.10f * juce::jmax (0.0f, 0.38f - phraseState.density)
-        + 1.10f * juce::jmax (0.0f, 0.24f - phraseState.rhythmIdentity);
-    strategyWeight[IntervalExpansion] = 0.48f
-        + 1.70f * juce::jmax (0.0f, 0.16f - phraseState.leap)
-        + 0.70f * juce::jmax (0.0f, 0.20f - phraseState.surprise);
-    strategyWeight[Inversion] = 0.44f
-        + 0.90f * juce::jmax (0.0f, 0.32f - phraseState.contour)
-        + 0.35f * juce::jmax (0.0f, 0.34f - phraseState.variety);
-    strategyWeight[Fragmentation] = 0.46f
-        + 1.15f * juce::jmax (0.0f, 0.46f - phraseState.repetition)
-        + 0.65f * juce::jmax (0.0f, phraseState.density - 0.58f);
-    strategyWeight[CallResponse] = 0.54f
-        + 1.20f * juce::jmax (0.0f, 0.56f - phraseState.phraseArc)
-        + 1.05f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
-    strategyWeight[Return] = 0.50f
-        + 0.95f * juce::jmax (0.0f, 0.48f - phraseState.loopQuality)
-        + 0.90f * juce::jmax (0.0f, 0.48f - phraseState.tensionArc)
-        + 0.45f * juce::jmax (0.0f, phraseState.seam - 0.82f);
-
-    int selectedStrategy = 0;
-    float bestStrategyScore = -1.0e9f;
-    for (int strategyIndex = 0; strategyIndex < 8; ++strategyIndex)
-    {
-        const float jitter = 0.035f * (float)
-            ((mix32 (h ^ (uint32_t) (strategyIndex * 0x45d9f3bu)) % 1000u) / 1000.0f);
-        const float score = strategyWeight[(size_t) strategyIndex] + jitter;
-        if (score > bestStrategyScore)
-        {
-            bestStrategyScore = score;
-            selectedStrategy = strategyIndex;
-        }
-    }
-    const auto strategy = (DevelopmentStrategy) selectedStrategy;
-
+    // 0.84 Contextual Phrase Intelligence: score the ACTUAL four-bar cell,
+    // not the whole section. A short loop may be coherent while one phrase is
+    // over-dense, too flat, too repetitive, or missing a real return. The
+    // development grammar should react to that local state.
     auto collectBar = [&] (int bar)
     {
         std::vector<size_t> out;
@@ -6410,6 +6367,194 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
             });
         return out;
     };
+
+    const uint32_t h = mix32 (generationSeed
+                              ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
+                              ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
+
+    std::array<std::vector<size_t>, 4> phraseBars;
+    for (int role = 0; role < 4; ++role)
+        phraseBars[(size_t) role] = collectBar (phraseStartBar + role);
+
+    MelodyFeatures phraseState;
+    int totalNotes = 0;
+    int intervalCount = 0;
+    float intervalSum = 0.0f;
+    int turns = 0;
+    std::array<int, 16> intervalBuckets {};
+
+    for (const auto& bar : phraseBars)
+    {
+        totalNotes += (int) bar.size();
+        for (size_t i = 1; i < bar.size(); ++i)
+        {
+            const int d = section.notes[bar[i]].note - section.notes[bar[i - 1]].note;
+            const int ad = juce::jmin (15, std::abs (d));
+            intervalSum += (float) ad;
+            ++intervalCount;
+            ++intervalBuckets[(size_t) ad];
+            if (i > 1)
+            {
+                const int prev = section.notes[bar[i - 1]].note - section.notes[bar[i - 2]].note;
+                if (prev != 0 && d != 0 && ((prev > 0) != (d > 0)))
+                    ++turns;
+            }
+        }
+    }
+
+    phraseState.density = juce::jlimit (0.0f, 1.0f, (float) totalNotes / 24.0f);
+    phraseState.space = 1.0f - phraseState.density;
+    phraseState.leap = juce::jlimit (0.0f, 1.0f,
+        intervalCount > 0 ? (intervalSum / (float) intervalCount) / 9.0f : 0.18f);
+    phraseState.contour = juce::jlimit (0.0f, 1.0f,
+        intervalCount > 1 ? (float) turns / (float) juce::jmax (1, intervalCount - 1) * 1.45f : 0.35f);
+
+    int distinctIntervals = 0;
+    for (const int count : intervalBuckets)
+        if (count > 0) ++distinctIntervals;
+    phraseState.variety = juce::jlimit (0.0f, 1.0f, (float) distinctIntervals / 6.0f);
+    phraseState.surprise = juce::jlimit (0.0f, 1.0f, (float) distinctIntervals / 6.0f);
+
+    auto barContourSimilarity = [&] (const std::vector<size_t>& a,
+                                     const std::vector<size_t>& b)
+    {
+        if (a.size() < 2 || b.size() < 2)
+            return 0.0f;
+
+        const size_t pairs = juce::jmin (a.size(), b.size());
+        int matches = 0;
+        for (size_t i = 1; i < pairs; ++i)
+        {
+            const int da = section.notes[a[i]].note - section.notes[a[i - 1]].note;
+            const int db = section.notes[b[i]].note - section.notes[b[i - 1]].note;
+            if ((da == 0 && db == 0) || (da > 0 && db > 0) || (da < 0 && db < 0))
+                ++matches;
+        }
+        return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
+    };
+
+    auto barRhythmSimilarity = [&] (const std::vector<size_t>& a,
+                                    const std::vector<size_t>& b)
+    {
+        if (a.empty() || b.empty())
+            return 0.0f;
+
+        const size_t pairs = juce::jmin (a.size(), b.size());
+        int matches = 0;
+        for (size_t i = 0; i < pairs; ++i)
+            if (std::abs ((section.notes[a[i]].step % 16)
+                        - (section.notes[b[i]].step % 16)) <= 1)
+                ++matches;
+
+        const float hitFit = (float) matches / (float) juce::jmax (a.size(), b.size());
+        const float countFit = 1.0f - juce::jlimit (0.0f, 1.0f,
+            (float) std::abs ((int) a.size() - (int) b.size()) / 4.0f);
+        return juce::jlimit (0.0f, 1.0f, 0.72f * hitFit + 0.28f * countFit);
+    };
+
+    auto averageBarPitch = [&] (const std::vector<size_t>& bar, float fallback)
+    {
+        if (bar.empty()) return fallback;
+        float sum = 0.0f;
+        for (const auto index : bar) sum += (float) section.notes[index].note;
+        return sum / (float) bar.size();
+    };
+
+    const float bar0Avg = averageBarPitch (phraseBars[0], 0.0f);
+    const float bar1Avg = averageBarPitch (phraseBars[1], bar0Avg);
+    const float bar2Avg = averageBarPitch (phraseBars[2], bar1Avg);
+    const float bar3Avg = averageBarPitch (phraseBars[3], bar2Avg);
+
+    const float aPrimeContour = barContourSimilarity (phraseBars[0], phraseBars[1]);
+    const float returnContour = barContourSimilarity (phraseBars[0], phraseBars[3]);
+    const float aPrimeRhythm = barRhythmSimilarity (phraseBars[0], phraseBars[1]);
+    const float returnRhythm = barRhythmSimilarity (phraseBars[0], phraseBars[3]);
+
+    phraseState.motifIdentity = juce::jlimit (0.0f, 1.0f,
+        0.48f * aPrimeContour + 0.52f * returnContour);
+    phraseState.phraseMemory = juce::jlimit (0.0f, 1.0f,
+        0.25f * aPrimeContour + 0.25f * returnContour
+        + 0.25f * aPrimeRhythm + 0.25f * returnRhythm);
+
+    const float peakLift = bar2Avg - bar0Avg;
+    const float releaseLift = bar2Avg - bar3Avg;
+    phraseState.phraseArc = juce::jlimit (0.0f, 1.0f, 0.50f + peakLift / 10.0f);
+    phraseState.tensionArc = juce::jlimit (0.0f, 1.0f, 0.50f + releaseLift / 10.0f);
+
+    float seamDistance = 12.0f;
+    if (! phraseBars[0].empty() && ! phraseBars[3].empty())
+        seamDistance = (float) std::abs (section.notes[phraseBars[3].back()].note
+                                        - section.notes[phraseBars[0].front()].note);
+    phraseState.seam = 1.0f - juce::jlimit (0.0f, 1.0f, seamDistance / 12.0f);
+    phraseState.loopQuality = phraseState.seam;
+
+    const float copyPressure = juce::jmax (aPrimeContour, returnContour);
+    const float identityDeficit = 1.0f - phraseState.motifIdentity;
+    const bool phraseAlreadyCoherent =
+        phraseState.motifIdentity > 0.66f
+        && phraseState.phraseMemory > 0.62f
+        && phraseState.phraseArc > 0.45f
+        && phraseState.tensionArc > 0.40f
+        && phraseState.loopQuality > 0.72f
+        && phraseState.density > 0.20f && phraseState.density < 0.74f;
+
+    // Context is now a deterministic weighted choice, not an argmax. A
+    // strongly indicated strategy dominates, but close alternatives can still
+    // win sometimes, which keeps the phrase vocabulary alive without making
+    // the decision random in the old sense.
+    std::array<float, 8> strategyWeight {};
+    strategyWeight[RepeatAlter] = 0.34f
+        + 1.34f * identityDeficit
+        + 0.42f * (1.0f - phraseState.phraseMemory);
+    strategyWeight[RhythmicReduction] = 0.32f
+        + 2.05f * juce::jmax (0.0f, phraseState.density - 0.62f)
+        + 0.50f * juce::jmax (0.0f, 0.42f - phraseState.space);
+    strategyWeight[RhythmicExpansion] = 0.30f
+        + 1.95f * juce::jmax (0.0f, 0.38f - phraseState.density)
+        + 0.50f * juce::jmax (0.0f, phraseState.space - 0.68f);
+    strategyWeight[IntervalExpansion] = 0.28f
+        + 1.80f * juce::jmax (0.0f, 0.22f - phraseState.leap)
+        + 0.55f * juce::jmax (0.0f, 0.30f - phraseState.surprise);
+    strategyWeight[Inversion] = 0.26f
+        + 1.14f * juce::jmax (0.0f, 0.34f - phraseState.contour)
+        + 0.30f * juce::jmax (0.0f, 0.34f - phraseState.variety);
+    strategyWeight[Fragmentation] = 0.25f
+        + 1.20f * juce::jmax (0.0f, copyPressure - 0.78f)
+        + 0.72f * juce::jmax (0.0f, phraseState.density - 0.56f);
+    strategyWeight[CallResponse] = 0.30f
+        + 1.55f * juce::jmax (0.0f, 0.54f - phraseState.phraseArc)
+        + 0.90f * juce::jmax (0.0f, 0.46f - phraseState.tensionArc);
+    strategyWeight[Return] = 0.28f
+        + 1.30f * juce::jmax (0.0f, 0.50f - phraseState.loopQuality)
+        + 0.86f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
+
+    if (phraseAlreadyCoherent)
+    {
+        for (int strategyIndex = 1; strategyIndex < 8; ++strategyIndex)
+            strategyWeight[(size_t) strategyIndex] *= 0.56f;
+        strategyWeight[RepeatAlter] += 0.44f;
+    }
+
+    float totalWeight = 0.0f;
+    for (auto& w : strategyWeight)
+    {
+        w = juce::jmax (0.05f, w);
+        totalWeight += w;
+    }
+
+    const float roll = (float) (mix32 (h ^ 0xC84A31D5u) % 10000u) / 10000.0f;
+    float cursor = roll * totalWeight;
+    int selectedStrategy = RepeatAlter;
+    for (int strategyIndex = 0; strategyIndex < 8; ++strategyIndex)
+    {
+        cursor -= strategyWeight[(size_t) strategyIndex];
+        if (cursor <= 0.0f)
+        {
+            selectedStrategy = strategyIndex;
+            break;
+        }
+    }
+    const auto strategy = (DevelopmentStrategy) selectedStrategy;
 
     // Harmonic Intelligence 2.0: development targets are blended toward the
     // actual chord voicing of the destination bar. It is a soft pull, so B can
