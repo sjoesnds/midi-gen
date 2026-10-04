@@ -9,6 +9,8 @@
 - Added a **local weak-spot** judge that penalises unrecovered large jumps, pathological same-note runs and small zig-zag transitions instead of relying only on whole-loop averages.
 - Simple / Medium / Complex selection now responds materially to the **Complexity** control. The default search includes a larger simple-phrase population while still preserving a minority of complex and weird ideas.
 - Candidate ranking now rewards the new register-centre and simplicity signals and applies the weak-spot penalty before the final diversity gate.
+- **Phrase Contrast 2.0** replaces the old "maximal difference" B-bar heuristic with a balanced contrast target: recognizable motif identity plus controlled changes in rhythm, contour direction and register.
+- QA now checks that B phrases land in a useful contrast band instead of rewarding arbitrarily dissimilar material.
 - No new UI controls; this stage only recalibrates the existing MIDI generation and judge pipeline.
 
 
