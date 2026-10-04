@@ -6368,10 +6368,6 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
         return out;
     };
 
-    const uint32_t h = mix32 (generationSeed
-                              ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
-                              ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
-
     std::array<std::vector<size_t>, 4> phraseBars;
     for (int role = 0; role < 4; ++role)
         phraseBars[(size_t) role] = collectBar (phraseStartBar + role);
