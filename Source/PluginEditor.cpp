@@ -147,7 +147,7 @@ setSize(1120, 850);
 setResizable(true, true);
 setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.77.0", juce::dontSendNotification);
+versionLabel.setText("v0.83.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -178,7 +178,7 @@ for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &quantizeBut
                  &transposeUpButton, &snapScaleButton, &humanizeSelectionButton,
                  &duplicateButton, &reverseButton, &doubleTimeButton, &halfTimeButton,
                  &rotateButton, &normalizeVelocityButton, &frameSelectionButton,
-                 &mutateButton, &evolveButton, &similarButton, &likeBtn, &dislikeBtn,
+                 &mutateButton, &evolveButton, &similarButton, &drumViewBtn, &likeBtn, &dislikeBtn,
                  &resetTasteBtn, &undoBtn, &redoBtn, &clearBtn })
     styleTextButton (*b);
 
@@ -229,6 +229,11 @@ ghostChance.setTooltip ("Quiet ghost-note activity");
 swing.setTooltip ("Groove swing");
 humanize.setTooltip ("Optional human timing / velocity amount");
 complexity.setTooltip ("Simple -> complex melody bias");
+mutateButton.setTooltip ("Make a controlled variation of the current loop.");
+evolveButton.setTooltip ("Push the current loop into a new developmental state.");
+likeBtn.setTooltip ("Teach Taste ML that this variation works.");
+dislikeBtn.setTooltip ("Reject this variation and advance.");
+
 root.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"},1);
 root.setSelectedId(p.getRoot()+1); root.onChange=[this]{processor.setRoot(root.getSelectedId()-1);}; addAndMakeVisible(root);
 genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic",
@@ -589,8 +594,6 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour (juce::Colour (kMuted).withAlpha (0.75f));
     g.setFont (juce::FontOptions (9.0f));
-    g.drawText ("TIP: MAGIC chooses fresh musical DNA. Edit the result in the piano roll, then drag exactly what you want into FL Studio.",
-                margin + 12, 713, innerW - 24, 12, juce::Justification::left, false);
 }
 
 void MidiForgeAudioProcessorEditor::resized()
@@ -723,8 +726,10 @@ void MidiForgeAudioProcessorEditor::resized()
     lockBassBtn.setBounds (margin + 266, footerY, 80, 28);
     lockMelodyBtn.setBounds (margin + 354, footerY, 92, 28);
     lockArpBtn.setBounds (margin + 454, footerY, 80, 28);
-    tasteToggleBtn.setBounds (margin + 542, footerY, 90, 28);
-    resetTasteBtn.setBounds (margin + 640, footerY, 58, 28);
+    mutateButton.setBounds (margin + 542, footerY, 72, 28);
+    evolveButton.setBounds (margin + 622, footerY, 72, 28);
+    tasteToggleBtn.setBounds (margin + 702, footerY, 90, 28);
+    resetTasteBtn.setBounds (margin + 800, footerY, 58, 28);
 
     const int dragY = 797;
     dragChords.setBounds (margin + 12, dragY, 96, 25);
