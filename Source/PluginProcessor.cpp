@@ -3515,24 +3515,35 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // during candidate search, while 0 remains a safe default for normal calls.
     const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
 
-    // Simple is now an archetype-sensitive composition choice instead of one
-    // global coin flip. MINIMAL strongly prefers compact cells; WEIRD/WILDCARD
-    // leave more room for angular phrases; the other archetypes stay balanced.
-    float simpleProbability = 0.58f;
+    // 0.83.0 Simple / Medium / Complex: complexity is now a real
+    // composition class instead of a binary "simple vs everything else".
+    // The middle class remains the default because most useful melodies live
+    // there; Complex is a minority language, while archetypes bias the odds.
+    float simpleProbability = 0.34f;
+    float complexProbability = 0.20f;
     switch (nativeArchetype)
     {
-        case 0: simpleProbability = 0.56f; break; // HOOK
-        case 1: simpleProbability = 0.48f; break; // GROOVE
-        case 2: simpleProbability = 0.50f; break; // HARMONY
-        case 3: simpleProbability = 0.64f; break; // MOTIF
-        case 4: simpleProbability = 0.90f; break; // MINIMAL
-        case 5: simpleProbability = 0.34f; break; // WEIRD
-        case 6: simpleProbability = 0.52f; break; // EMOTIONAL
-        default: simpleProbability = 0.44f; break; // WILDCARD
+        case 0: simpleProbability = 0.34f; complexProbability = 0.16f; break; // HOOK
+        case 1: simpleProbability = 0.30f; complexProbability = 0.20f; break; // GROOVE
+        case 2: simpleProbability = 0.32f; complexProbability = 0.18f; break; // HARMONY
+        case 3: simpleProbability = 0.40f; complexProbability = 0.16f; break; // MOTIF
+        case 4: simpleProbability = 0.58f; complexProbability = 0.08f; break; // MINIMAL
+        case 5: simpleProbability = 0.20f; complexProbability = 0.38f; break; // WEIRD
+        case 6: simpleProbability = 0.38f; complexProbability = 0.18f; break; // EMOTIONAL
+        default: simpleProbability = 0.28f; complexProbability = 0.26f; break; // WILDCARD
     }
-    const bool simpleCandidate =
-        (hash32 (identitySeed ^ 0xA11CE55u) % 1000u)
-        < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f);
+
+    const uint32_t complexityRoll = hash32 (identitySeed ^ 0xA11CE55u) % 1000u;
+    const int melodyComplexityClass =
+        complexityRoll < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f)
+            ? 0
+            : complexityRoll < (uint32_t) juce::roundToInt (
+                  (simpleProbability + complexProbability) * 1000.0f)
+                ? 2
+                : 1; // 0 = Simple, 1 = Medium, 2 = Complex
+
+    const bool simpleCandidate = melodyComplexityClass == 0;
+    const bool complexCandidate = melodyComplexityClass == 2;
 
     // 0.61 Tempo Feel Engine: BPM changes the *time feel* of the same musical
     // language instead of simply deleting notes at faster tempos. The old engine
@@ -3564,14 +3575,16 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     const int minNotes = simpleCandidate
         ? 2
-        : juce::jmax (2,
+        : juce::jmax (complexCandidate ? 3 : 2,
             juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minNotes) : prof.minNotes)
-                              * (1.0f + 0.12f * fastTempo + 0.08f * veryFastTempo)));
+                              * (1.0f + 0.12f * fastTempo + 0.08f * veryFastTempo)
+                              + (complexCandidate ? 0.7f : 0.0f)));
     const int minHits = simpleCandidate
         ? 2
-        : juce::jmax (2,
+        : juce::jmax (complexCandidate ? 3 : 2,
             juce::roundToInt ((float) (sparseAllowed ? juce::jmin (2, prof.minHits) : prof.minHits)
-                              * (1.0f + 0.10f * fastTempo + 0.08f * veryFastTempo)));
+                              * (1.0f + 0.10f * fastTempo + 0.08f * veryFastTempo)
+                              + (complexCandidate ? 0.5f : 0.0f)));
 
     // 0.58.3 Context-Aware Generation: melody now reads the musical space that
     // already exists in this bar before choosing its own rhythm and register.
@@ -3739,16 +3752,18 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             leapChance
             + 0.08f * poolTension
             + 0.02f * dnaLeap))
-        : juce::jlimit(0.04f, 0.82f,
+        : juce::jlimit(0.04f, 0.92f,
             leapChance
             + 0.16f * poolTension
+            + (complexCandidate ? 0.12f : 0.0f)
             + 0.10f * ((intervalLanguage == 2 || intervalLanguage == 5 || intervalLanguage == 7) ? 1.0f : 0.0f)
             + 0.05f * dnaLeap);
 
     const bool wideIntervalLanguage =
-        !simpleCandidate &&
-        (intervalLanguage == 2 || intervalLanguage == 3 || intervalLanguage == 5
-         || intervalLanguage == 6 || intervalLanguage == 7);
+        !simpleCandidate
+        && (intervalLanguage == 2 || intervalLanguage == 3 || intervalLanguage == 5
+            || intervalLanguage == 6 || intervalLanguage == 7
+            || (complexCandidate && creativeRange.leapBias > 0.52f));
 
     const bool highRegisterLanguage =
         registerProfile == 2 || registerProfile == 5 || registerProfile == 7;
@@ -3759,7 +3774,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         + 0.18f * poolTension
         + 0.10f * (1.0f - dnaSurprise)
         + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f))
-        * (simpleCandidate ? 0.58f : 1.0f));
+        * (simpleCandidate ? 0.58f : (complexCandidate ? 1.08f : 1.0f)));
 
     // 0.58.4 Phrase Tension Engine: tension is now an explicit four-bar target,
     // not only an incidental result of contour/leaps. The engine creates a
@@ -3928,6 +3943,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             continue;
         if (simpleCandidate && hits > 4)
             continue;
+        if (complexCandidate && hits < 3)
+            continue;
         eligible.push_back (t);
     }
     if (eligible.empty()) eligible.push_back(0);
@@ -4063,7 +4080,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         - 0.60f * (pauseChance - 0.10f)
         - tempoSpaceBonus)
         * tempoDensityMul
-        * (simpleCandidate ? 0.72f : 1.0f));
+        * (simpleCandidate ? 0.72f : (complexCandidate ? 1.06f : 1.0f)));
     std::vector<int> chosen;
     auto posRank = [&](int x) { return hash32(identitySeed ^ (uint32_t)(x * 97 + 31)) % 1000u; };
     for (int x : positions)
@@ -4271,7 +4288,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     };
 
     const int motifType = (int)(hash32(identitySeed ^ (uint32_t)(archetype * 0x51ed270bu)
-                                           ^ (uint32_t)(dnaMotif * 1000.0f)) % (simpleCandidate ? 16u : 32u));
+                                           ^ (uint32_t)(dnaMotif * 1000.0f))
+                                    % (simpleCandidate ? 16u : (complexCandidate ? 32u : 24u)));
     const int motifShift = (int)((identitySeed >> 16) % (uint32_t)scaleCount);
 
     const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 8u);
@@ -4284,17 +4302,21 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // remains recognizable while later phrase systems are free to mutate it.
     const int motifCoreLength =
         simpleCandidate
-            ? 2 + (int) (hash32 (identitySeed ^ 0x4D4F5449u) % 3u)
-            : ((melodyType == HookMelody || melodyType == VocalLikeMelody || melodyType == RiffMelody
-                || melodyType == PhraseMelody || nativeArchetype == 3)
-                   ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
-                   : 2 + (int) (hash32 (identitySeed ^ 0x4D4F544Bu) % 3u));
+            ? 2 + (int) (hash32 (identitySeed ^ 0x4D4F5449u) % 2u)
+            : complexCandidate
+                ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
+                : ((melodyType == HookMelody || melodyType == VocalLikeMelody || melodyType == RiffMelody
+                    || melodyType == PhraseMelody || nativeArchetype == 3)
+                       ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
+                       : 2 + (int) (hash32 (identitySeed ^ 0x4D4F544Bu) % 3u)));
 
     const float motifSpineStrength =
         simpleCandidate
             ? 0.54f
-            : ((melodyType == HookMelody || melodyType == VocalLikeMelody || nativeArchetype == 3)
-                ? 0.34f : 0.24f);
+            : complexCandidate
+                ? 0.26f
+                : ((melodyType == HookMelody || melodyType == VocalLikeMelody || nativeArchetype == 3)
+                    ? 0.34f : 0.24f);
 
     auto motifDegree = [&](int index) -> int
     {
