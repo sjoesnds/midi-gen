@@ -652,7 +652,6 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
             return section.notes[a].note < section.notes[b].note;
         });
 
-    const auto profile = soundProfileFor (soundTarget);
     const auto scale = scaleSemitones();
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
@@ -800,93 +799,10 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
             juce::jmin (laneHi, prev.note + maxLeap));
     }
 
-    // 4) Structural anchors prefer harmony, but not mechanically on every strong beat.
-    // A controlled share of scale-tones on structural points keeps the melody from
-    // collapsing into a chord-tone arpeggio.
-    const auto harmonicAnchorChance = [&] (int local, bool finalNote)
-    {
-        float chance = 0.48f;
-        switch (melodyType)
-        {
-            case HookMelody:        chance = 0.60f; break;
-            case VocalLikeMelody:  chance = 0.54f; break;
-            case RiffMelody:       chance = 0.40f; break;
-            case OstinatoMelody:   chance = 0.82f; break;
-            case ArpMelody:        chance = 0.68f; break;
-            case CounterMelody:    chance = 0.31f; break;
-            case SparseLeadMelody: chance = 0.37f; break;
-            case PhraseMelody:     chance = 0.47f; break;
-        }
-        if (local == 0) chance += 0.08f;
-        else if (local == 8) chance -= 0.08f;
-        if (finalNote) chance += 0.12f;
-        return juce::jlimit (0.12f, 0.90f, chance);
-    };
-
-    const auto finalChord = chordPcsForBar (juce::jmax (0, section.bars - 1));
-    const auto prog = progressionDegrees();
-    for (size_t k = 0; k < melody.size(); ++k)
-    {
-        auto& n = section.notes[melody[k]];
-        const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
-        const int local = n.step % 16;
-        const bool finalNote = (k + 1 == melody.size());
-        const bool anchor = local == 0 || (local == 8 && n.length >= 2) || finalNote;
-        if (! anchor)
-            continue;
-
-        const float chance = harmonicAnchorChance (local, finalNote);
-        const uint32_t roll = hash32 (identity
-            ^ (uint32_t) (k + 1) * 0x9e3779b9u
-            ^ 0xA11C0DE1u) % 1000u;
-        if ((float) roll >= chance * 1000.0f)
-            continue;
-
-        auto chordPcs = chordPcsForBar (bar);
-        if (finalNote && ! finalChord.empty())
-            chordPcs = finalChord;
-
-        if (chordPcs.empty())
-            continue;
-
-        int targetPc = -1;
-        if (finalNote && ! prog.empty())
-        {
-            const int degree = prog[(size_t) ((section.bars - 1) % (int) prog.size())];
-            const int root = pitchClass (degreeToPitch (degree, octave));
-            const int third = pitchClass (degreeToPitch (degree + 2, octave));
-            const int currentPc = pitchClass (n.note);
-            const int rootDistance = std::min (std::abs (currentPc - root),
-                                               12 - std::abs (currentPc - root));
-            const int thirdDistance = std::min (std::abs (currentPc - third),
-                                                12 - std::abs (currentPc - third));
-            targetPc = rootDistance <= thirdDistance ? root : third;
-        }
-
-        int best = n.note;
-        int bestDistance = 1000;
-        for (const int pc : chordPcs)
-        {
-            if (targetPc >= 0 && pc != targetPc)
-                continue;
-
-            for (int oct = 3; oct <= 8; ++oct)
-            {
-                const int candidate = oct * 12 + pc;
-                if (candidate < laneLo || candidate > laneHi)
-                    continue;
-                const int d = std::abs (candidate - n.note);
-                if (d < bestDistance)
-                {
-                    bestDistance = d;
-                    best = candidate;
-                }
-            }
-        }
-
-        if (bestDistance < 1000)
-            n.note = best;
-    }
+    // 4) Do not rewrite good structural pitches here.
+    // Harmonic Intelligence already handled chord gravity upstream. This stage
+    // is intentionally safety-only so it does not turn a finished contour into
+    // another chord-tone pass before judging.
 
     // 5) Final invariant: scale-safe and leap-safe once more.
     int previous = -1;
@@ -972,29 +888,6 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
         return best;
     };
 
-    auto chordPitchesForBar = [&] (int bar)
-    {
-        std::vector<int> out;
-        for (const auto& n : section.notes)
-            if (n.channel == 1 && n.step / 16 == bar)
-                out.push_back (pitchClass (n.note));
-
-        if (out.empty())
-        {
-            const auto prog = progressionDegrees();
-            if (! prog.empty())
-            {
-                const int degree = prog[(size_t) (bar % (int) prog.size())];
-                for (const int d : { degree, degree + 2, degree + 4 })
-                    out.push_back (pitchClass (degreeToPitch (d, octave)));
-            }
-        }
-
-        std::sort (out.begin(), out.end());
-        out.erase (std::unique (out.begin(), out.end()), out.end());
-        return out;
-    };
-
     // Register placement. The composer plans the line inside registerLane(2) (about 62-86), but this lane is tonic-relative
     // (about 44-68 in a typical key). Clamping every note into it piled 35-45% of the notes onto the single highest scale
     // tone under the ceiling (measured: the top pitch was also the most-used pitch in ~75% of loops) and caused long
@@ -1038,104 +931,9 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
         previous = n.note;
     }
 
-    // Important beats usually belong to the active chord, but the ratio is
-    // role-aware so hooks/riffs/counter-lines keep some non-chord scale color.
-    const auto foundationAnchorChance = [&] (int local, bool finalEvent)
-    {
-        float chance = 0.36f;
-        switch (melodyType)
-        {
-            case HookMelody:        chance = 0.43f; break;
-            case VocalLikeMelody:  chance = 0.38f; break;
-            case RiffMelody:       chance = 0.29f; break;
-            case OstinatoMelody:   chance = 0.65f; break;
-            case ArpMelody:        chance = 0.52f; break;
-            case CounterMelody:    chance = 0.22f; break;
-            case SparseLeadMelody: chance = 0.25f; break;
-            case PhraseMelody:     chance = 0.34f; break;
-        }
-        if (local == 0) chance += 0.06f;
-        else if (local == 8) chance -= 0.06f;
-        if (finalEvent) chance += 0.10f;
-        return juce::jlimit (0.10f, 0.82f, chance);
-    };
-
-    for (size_t k = 0; k < melody.size(); ++k)
-    {
-        auto& n = section.notes[melody[k]];
-        const int bar = juce::jlimit (0, juce::jmax (0, section.bars - 1), n.step / 16);
-        const int local = n.step % 16;
-        const auto chordPcs = chordPitchesForBar (bar);
-        if (chordPcs.empty())
-            continue;
-
-        const bool finalEvent = (k + 1 == melody.size());
-        const bool anchor = local == 0
-                         || (local == 8 && n.length >= 3)
-                         || (finalEvent && bar == section.bars - 1);
-        if (! anchor)
-            continue;
-
-        const float chance = foundationAnchorChance (local, finalEvent);
-        const uint32_t roll = hash32 (identity
-            ^ (uint32_t) (k + 1) * 0x85ebca6bu
-            ^ 0xF0A7DA11u) % 1000u;
-        if ((float) roll >= chance * 1000.0f)
-            continue;
-
-        if (std::find (chordPcs.begin(), chordPcs.end(), pitchClass (n.note)) != chordPcs.end())
-            continue;
-
-        int best = n.note;
-        int bestDistance = 1000;
-        for (const int chordPc : chordPcs)
-        {
-            for (int oct = 3; oct <= 8; ++oct)
-            {
-                const int candidate = oct * 12 + chordPc;
-                if (candidate < laneLo || candidate > laneHi || ! inScale (candidate))
-                    continue;
-
-                const int d = std::abs (candidate - n.note);
-                if (d < bestDistance)
-                {
-                    bestDistance = d;
-                    best = candidate;
-                }
-            }
-        }
-
-        // Harmony never wins by creating a giant jump.
-        if (k > 0)
-        {
-            const int prevNote = section.notes[melody[k - 1]].note;
-            if (std::abs (best - prevNote) > maxLeap)
-            {
-                const int lo = juce::jmax (laneLo, prevNote - maxLeap);
-                const int hi = juce::jmin (laneHi, prevNote + maxLeap);
-                int bounded = nearestScalePitch (n.note, lo, hi);
-                int boundedDistance = 1000;
-
-                for (int p = lo; p <= hi; ++p)
-                {
-                    if (! inScale (p))
-                        continue;
-                    if (std::find (chordPcs.begin(), chordPcs.end(), pitchClass (p)) == chordPcs.end())
-                        continue;
-
-                    const int d = std::abs (p - n.note);
-                    if (d < boundedDistance)
-                    {
-                        boundedDistance = d;
-                        bounded = p;
-                    }
-                }
-                best = bounded;
-            }
-        }
-
-        n.note = best;
-    }
+    // Harmony has already been handled by Harmonic Intelligence.
+    // Foundation is deliberately safety-first: it must not rewrite a good
+    // contour merely because a beat is not currently a chord tone.
 
     // Final invariant pass after anchor edits.
     previous = -1;
