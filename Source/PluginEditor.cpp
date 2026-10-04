@@ -44,8 +44,7 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
         activeDragFile = juce::File();
         return;
     }
-    owner.processor.noteKeptVariation();
-
+  
     // The actual button is the OLE source. Using the editor itself can make the
     // VST3 wrapper become the source window inside FL Studio.
     owner.performExternalDragDropOfFiles ({ activeDragFile.getFullPathName() },
@@ -64,11 +63,11 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
 {
-setSize(900,800);
+setSize(980,800);
 setResizable(true, true);
 setResizeLimits(980, 720, 1400, 1100);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.77.0", juce::dontSendNotification);
+versionLabel.setText("v0.80.1", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
