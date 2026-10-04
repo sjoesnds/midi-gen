@@ -4277,6 +4277,25 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int motifTransform = (int)(hash32(identitySeed ^ 0x6d2b79f5u) % 8u);
     const int motifRotation = (int)(hash32(identitySeed ^ 0x1b873593u) % 5u);
 
+    // 0.82.9 Motif First: every bar now has a compact identity-bearing spine.
+    // The old motif was evaluated at every note index, then contour/register/
+    // tension rules could effectively erase its recurrence. Reuse a short 2-4
+    // note cell inside the bar instead. Rhythm may still vary; the pitch idea
+    // remains recognizable while later phrase systems are free to mutate it.
+    const int motifCoreLength =
+        simpleCandidate
+            ? 2 + (int) (hash32 (identitySeed ^ 0x4D4F5449u) % 3u)
+            : ((melodyType == HookMelody || melodyType == VocalLikeMelody || melodyType == RiffMelody
+                || melodyType == PhraseMelody || nativeArchetype == 3)
+                   ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
+                   : 2 + (int) (hash32 (identitySeed ^ 0x4D4F544Bu) % 3u));
+
+    const float motifSpineStrength =
+        simpleCandidate
+            ? 0.54f
+            : ((melodyType == HookMelody || melodyType == VocalLikeMelody || nativeArchetype == 3)
+                ? 0.34f : 0.24f);
+
     auto motifDegree = [&](int index) -> int
     {
         int pos = (index + motifRotation) % 5;
@@ -4328,7 +4347,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     auto planDegree = [&](size_t i) -> int
     {
-        int d = motifDegree((int)i);
+        const int motifIndex = (int) (i % (size_t) motifCoreLength);
+        int d = motifDegree(motifIndex);
 
         // Native archetype pitch grammar. The later archetype pass still acts
         // as a safety/polish stage, but the line already speaks the intended
@@ -4460,6 +4480,20 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             d += (dnaRegister > 0.72f ? 4 : 2);
         if (cycle == 3 && i == chosen.size() / 2 && dnaRegister > 0.72f)
             d -= 1;
+
+        // Reassert the motif spine after the expressive rules have had their say.
+        // A and A'' retain the identity most strongly; B is intentionally freer.
+        const float roleMotifStrength =
+            simpleCandidate
+                ? motifSpineStrength
+                : cycle == 0 ? motifSpineStrength * 1.10f
+                : cycle == 1 ? motifSpineStrength * 0.92f
+                : cycle == 2 ? motifSpineStrength * 0.52f
+                : motifSpineStrength * 0.98f;
+        const int motifAnchor = motifDegree(motifIndex);
+        d = juce::roundToInt (
+            (1.0f - roleMotifStrength) * (float) d
+            + roleMotifStrength * (float) motifAnchor);
 
         return d;
     };
