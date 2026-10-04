@@ -35,7 +35,6 @@ static void styleTextButton (juce::TextButton& b, juce::Colour normal = juce::Co
     b.setColour (juce::TextButton::buttonOnColourId, normal.brighter (0.10f));
     b.setColour (juce::TextButton::textColourOffId, juce::Colour (kText));
     b.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-    b.setColour (juce::TextButton::outlineColourId, juce::Colour (kBorder));
 }
 
 static void styleToggle (juce::ToggleButton& b)
