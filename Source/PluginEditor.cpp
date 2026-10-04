@@ -54,7 +54,7 @@ static void drawCard (juce::Graphics& g, juce::Rectangle<int> area, const juce::
     g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
     g.setColour (juce::Colour (kMuted));
     g.setFont (juce::FontOptions (10.0f));
-    g.drawText (title.toUpperCase(), area.getX() + 12, area.getY() + 7, area.getWidth() - 24, 14,
+    g.drawText (title.toUpperCase(), area.getX() + 12, area.getY() + 6, area.getWidth() - 24, 12,
                 juce::Justification::left, false);
 }
 
@@ -610,8 +610,8 @@ void MidiForgeAudioProcessorEditor::resized()
     tempoLabel.setBounds (W - 140, 20, 122, 22);
 
     const int sourceX = margin + 12;
-    const int sourceY1 = 104;
-    const int sourceY2 = 149;
+    const int sourceY1 = 108;
+    const int sourceY2 = 150;
 
     root.setBounds (sourceX, sourceY1, 74, 26);
     genre.setBounds (sourceX + 82, sourceY1, 106, 26);
@@ -629,14 +629,14 @@ void MidiForgeAudioProcessorEditor::resized()
     chordBox.setBounds (sourceX + 650, sourceY2, 140, 26);
     arpRate.setBounds (sourceX + 798, sourceY2, 64, 26);
 
-    variationBox.setBounds (margin + 12, 204, 78, 28);
-    variationInfoLabel.setBounds (margin + 98, 204, 125, 28);
-    generate.setBounds (margin + 232, 198, 132, 40);
-    newSeed.setBounds (margin + 372, 204, 94, 28);
-    applyVariation.setBounds (margin + 474, 204, 88, 28);
-    similarButton.setBounds (margin + 570, 204, 88, 28);
-    exportMidi.setBounds (margin + 666, 204, 110, 28);
-    dragHandle.setBounds (margin + 786, 198, 148, 40);
+    variationBox.setBounds (margin + 12, 214, 78, 28);
+    variationInfoLabel.setBounds (margin + 98, 214, 125, 28);
+    generate.setBounds (margin + 232, 207, 132, 40);
+    newSeed.setBounds (margin + 372, 214, 94, 28);
+    applyVariation.setBounds (margin + 474, 214, 88, 28);
+    similarButton.setBounds (margin + 570, 214, 88, 28);
+    exportMidi.setBounds (margin + 666, 214, 110, 28);
+    dragHandle.setBounds (margin + 786, 207, 148, 40);
 
     int x = margin + 12;
     const int y = 282;
@@ -658,31 +658,31 @@ void MidiForgeAudioProcessorEditor::resized()
     put (autoNextBtn, 88);
     drumViewBtn.setBounds (W - margin - 92, 282, 80, 24);
 
-    pianoGridBox.setBounds (margin + 12, 334, 58, 24);
-    quantizeButton.setBounds (margin + 76, 334, 72, 24);
-    resetViewButton.setBounds (margin + 156, 334, 76, 24);
-    phraseButton.setBounds (margin + 240, 334, 66, 24);
-    barButton.setBounds (margin + 314, 334, 48, 24);
-    transposeDownButton.setBounds (margin + 370, 334, 48, 24);
-    transposeUpButton.setBounds (margin + 426, 334, 48, 24);
-    snapScaleButton.setBounds (margin + 482, 334, 62, 24);
-    humanizeSelectionButton.setBounds (margin + 552, 334, 82, 24);
-    selectionLabel.setBounds (margin + 642, 334, 120, 24);
+    pianoGridBox.setBounds (margin + 12, 344, 58, 24);
+    quantizeButton.setBounds (margin + 76, 344, 72, 24);
+    resetViewButton.setBounds (margin + 156, 344, 76, 24);
+    phraseButton.setBounds (margin + 240, 344, 66, 24);
+    barButton.setBounds (margin + 314, 344, 48, 24);
+    transposeDownButton.setBounds (margin + 370, 344, 48, 24);
+    transposeUpButton.setBounds (margin + 426, 344, 48, 24);
+    snapScaleButton.setBounds (margin + 482, 344, 62, 24);
+    humanizeSelectionButton.setBounds (margin + 552, 344, 82, 24);
+    selectionLabel.setBounds (margin + 642, 344, 120, 24);
 
-    duplicateButton.setBounds (margin + 12, 360, 52, 22);
-    reverseButton.setBounds (margin + 70, 360, 52, 22);
-    doubleTimeButton.setBounds (margin + 128, 360, 46, 22);
-    halfTimeButton.setBounds (margin + 180, 360, 52, 22);
-    rotateButton.setBounds (margin + 238, 360, 52, 22);
-    normalizeVelocityButton.setBounds (margin + 296, 360, 76, 22);
-    frameSelectionButton.setBounds (margin + 378, 360, 66, 22);
-    historyLabel.setBounds (margin + 454, 359, 190, 23);
-    undoBtn.setBounds (margin + 652, 360, 58, 22);
-    redoBtn.setBounds (margin + 718, 360, 58, 22);
-    clearBtn.setBounds (margin + 784, 360, 58, 22);
+    duplicateButton.setBounds (margin + 12, 370, 52, 22);
+    reverseButton.setBounds (margin + 70, 370, 52, 22);
+    doubleTimeButton.setBounds (margin + 128, 370, 46, 22);
+    halfTimeButton.setBounds (margin + 180, 370, 52, 22);
+    rotateButton.setBounds (margin + 238, 370, 52, 22);
+    normalizeVelocityButton.setBounds (margin + 296, 370, 76, 22);
+    frameSelectionButton.setBounds (margin + 378, 370, 66, 22);
+    historyLabel.setBounds (margin + 454, 369, 190, 23);
+    undoBtn.setBounds (margin + 652, 370, 58, 22);
+    redoBtn.setBounds (margin + 718, 370, 58, 22);
+    clearBtn.setBounds (margin + 784, 370, 58, 22);
 
-    pianoRoll.setBounds (margin + 12, 388, innerW - 24, 178);
-    drumGrid.setBounds (margin + 12, 388, innerW - 24, 178);
+    pianoRoll.setBounds (margin + 12, 400, innerW - 24, 166);
+    drumGrid.setBounds (margin + 12, 400, innerW - 24, 166);
 
     const int detailX = margin + 12;
     const int detailTop = 610;
@@ -717,7 +717,7 @@ void MidiForgeAudioProcessorEditor::resized()
     sliderAt (complexity, 3, 2);
     humanizeModeButton.setBounds (detailX + 3 * (colW + detailGap), detailTop + 3 * rowH + 8, colW, 24);
 
-    const int footerY = 758;
+    const int footerY = 763;
 
     likeBtn.setBounds (margin + 12, footerY, 64, 28);
     dislikeBtn.setBounds (margin + 82, footerY, 78, 28);
@@ -730,7 +730,7 @@ void MidiForgeAudioProcessorEditor::resized()
     tasteToggleBtn.setBounds (margin + 702, footerY, 90, 28);
     resetTasteBtn.setBounds (margin + 800, footerY, 58, 28);
 
-    const int dragY = 797;
+    const int dragY = 803;
     dragChords.setBounds (margin + 12, dragY, 96, 25);
     dragBass.setBounds   (margin + 116, dragY, 88, 25);
     dragMelody.setBounds (margin + 212, dragY, 98, 25);
