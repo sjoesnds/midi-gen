@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.84.1"
+#define MIDIFORGE_ENGINE_VERSION "0.84.2"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -43,6 +43,7 @@ void releaseResources() override
     samplePosition = 0;
     lastGlobalStep.store (-1);
     uiCurrentStep.store (-1);
+    clearActiveSnapshot();
 }
 bool isBusesLayoutSupported(const BusesLayout&) const override;
 void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -195,9 +196,7 @@ bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
-// Compatibility hook for drag/export code. It intentionally does not train Taste ML:
-// explicit LIKE / DISLIKE are the only feedback signals.
-bool noteKeptVariation();
+// Explicit LIKE / DISLIKE are the only Taste ML training signals; drag/export remain telemetry-only.
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
 juce::MidiFile buildMidiFile (int channelFilter = 0, int drumRow = -1) const;
@@ -342,6 +341,9 @@ int selectedVariation = 0;
 std::vector<NoteEvent> activeNotes;
 void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);
 int activeBars = 4;
+// Immutable audio-thread snapshot: processBlock never waits on activeNotesLock.
+std::shared_ptr<const std::vector<NoteEvent>> activeNotesSnapshot;
+std::atomic<int> activeBarsSnapshot { 4 };
 double sampleRate = 44100.0;
 int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
@@ -427,8 +429,8 @@ taste::Model tasteModel;
 taste::Vec tasteMean {};
 taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();
 bool tasteEnabled = true;
-uint32_t keptNonce = 0;
-unsigned keptMask = 0;
+void publishActiveSnapshot (const std::vector<NoteEvent>& notes, int bars);
+void clearActiveSnapshot();
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();

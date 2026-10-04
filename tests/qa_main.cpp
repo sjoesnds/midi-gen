@@ -606,7 +606,7 @@ int main()
 
                 report ("Melody stays in a controlled register",
                         n.note >= 40 && n.note <= 96,
-                        fmt ("seed %d note %d", seed, n.note));
+                        fmt ("seed %.0f note %.0f", (double) seed, (double) n.note));
 
                 const int bar = n.step / 16;
                 if (bar >= 0 && bar < bars)
@@ -2051,31 +2051,26 @@ int main()
 
     // ------------------------------------------------------------------ 12. drag / export must not train Taste ML
     {
-        MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
+        MidiForgeAudioProcessor a;
         a.resetTaste();
         const float c0 = a.getTasteSamples();
-        const bool kept = a.noteKeptVariation();
+        a.writeTemporaryMidiFile();
         const float c1 = a.getTasteSamples();
-
         report ("drag / export has no implicit Taste learning",
-                ! kept && std::abs (c1 - c0) < 0.001f,
+                std::abs (c1 - c0) < 0.001f,
                 fmt ("taste samples %.2f -> %.2f", (double) c0, (double) c1));
-
-        a.chooseVariation (3);
-        report ("drag / export stays non-learning on another variation",
-                ! a.noteKeptVariation() && std::abs (a.getTasteSamples() - c1) < 0.001f,
-                "slot 4 unchanged");
 
         a.chooseVariation (4);
         a.likeVariation (4);
-        report ("explicit LIKE still trains Taste independently",
-                a.getTasteSamples() > c1,
-                fmt ("taste samples %.2f", (double) a.getTasteSamples()));
-
         const float rated = a.getTasteSamples();
+        report ("explicit LIKE still trains Taste independently",
+                rated > c1,
+                fmt ("taste samples %.2f -> %.2f", (double) c1, (double) rated));
+
         a.chooseVariation (5);
-        report ("drag / export after explicit rating still does not add a hidden sample",
-                ! a.noteKeptVariation() && std::abs (a.getTasteSamples() - rated) < 0.001f,
+        a.writeTemporaryMidiFile();
+        report ("drag / export after explicit rating adds no hidden sample",
+                std::abs (a.getTasteSamples() - rated) < 0.001f,
                 "explicit feedback only");
     }
 
