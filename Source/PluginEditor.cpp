@@ -197,7 +197,6 @@ newSeed.setTooltip ("Keep the current musical direction but reroll the seed.");
 applyVariation.setTooltip ("Commit the selected variation as the active loop.");
 similarButton.setTooltip ("Generate close relatives of the selected loop.");
 exportMidi.setTooltip ("Save the active loop as a standard MIDI file.");
-dragHandle.setTooltip ("Drag the full MIDI loop directly into FL Studio.");
 
 root.setTooltip ("Root note / key center");
 genre.setTooltip ("Genre vocabulary");
