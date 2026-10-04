@@ -1217,12 +1217,38 @@ void MidiForgeAudioProcessor::enforceFinalMelodyContract (Section& section, uint
     };
 
     const bool preserveIntentionalRepetition = (melodyType == OstinatoMelody);
+    const bool preserveStepwiseArp = (melodyType == ArpMelody);
+    const int walkThreshold = ((hash32 (identity ^ 0x71A7C0DEu) % 100u) < 58u) ? 5 : 4;
+
+    float walkBreakChance = 0.76f;
+    switch (melodyType)
+    {
+        case HookMelody:        walkBreakChance = 0.68f; break;
+        case VocalLikeMelody:  walkBreakChance = 0.72f; break;
+        case RiffMelody:       walkBreakChance = 0.88f; break;
+        case CounterMelody:    walkBreakChance = 0.90f; break;
+        case SparseLeadMelody: walkBreakChance = 0.80f; break;
+        case PhraseMelody:     walkBreakChance = 0.84f; break;
+        default: break;
+    }
+
     int previous = -1;
     int sameRun = 0;
+    int walkDirection = 0;
+    int walkLength = 0;
+    int previousBar = -1;
 
     for (size_t i = 0; i < melody.size(); ++i)
     {
         auto& n = section.notes[melody[i]];
+        const int currentBar = n.step / 16;
+
+        if (currentBar != previousBar)
+        {
+            walkDirection = 0;
+            walkLength = 0;
+            previousBar = currentBar;
+        }
 
         n.note = nearestScale (n.note, laneLo, laneHi);
 
@@ -1260,6 +1286,75 @@ void MidiForgeAudioProcessor::enforceFinalMelodyContract (Section& section, uint
             {
                 n.note = best;
                 sameRun = 1;
+            }
+        }
+
+        // 0.82.5: prevent long scalar walks without outlawing stepwise melodies.
+        // A short run of stepwise motion is useful; an entire bar of one-direction
+        // scale climbing/descending is one of the main signatures of "AI melody".
+        // Break only after a few same-direction small intervals, then let the line
+        // continue naturally from the changed note.
+        if (previous >= 0 && ! preserveIntentionalRepetition && ! preserveStepwiseArp)
+        {
+            const int delta = n.note - previous;
+            const int direction = (std::abs (delta) <= 3 && delta != 0) ? (delta > 0 ? 1 : -1) : 0;
+
+            if (direction != 0 && direction == walkDirection)
+                ++walkLength;
+            else
+            {
+                walkDirection = direction;
+                walkLength = direction != 0 ? 1 : 0;
+            }
+
+            if (walkLength >= walkThreshold)
+            {
+                const uint32_t roll = hash32 (
+                    identity ^ (uint32_t) (i * 0x85EBCA6Bu) ^ 0xA17F4D31u) % 1000u;
+
+                if ((float) roll < walkBreakChance * 1000.0f)
+                {
+                    int best = n.note;
+                    int bestScore = -100000;
+
+                    for (int p = juce::jmax (laneLo, previous - contractLeap);
+                         p <= juce::jmin (laneHi, previous + contractLeap); ++p)
+                    {
+                        if (! inScale (p) || p == previous)
+                            continue;
+
+                        const int candidateDelta = p - previous;
+                        const int ad = std::abs (candidateDelta);
+                        if (ad < 3 || ad > contractLeap)
+                            continue;
+
+                        const int candidateDirection = candidateDelta > 0 ? 1 : -1;
+                        int score = 0;
+
+                        // Prefer turning around the walk. Staying on the same
+                        // direction is allowed only when the alternative is poor.
+                        score += (candidateDirection != walkDirection) ? 120 : 0;
+                        score += juce::jmin (ad, 7) * 8;
+                        score -= std::abs (p - n.note) * 4;
+
+                        const uint32_t tie = hash32 (
+                            identity ^ (uint32_t) (i * 0x9E3779B9u) ^ (uint32_t) p);
+                        score += (int) (tie & 15u);
+
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            best = p;
+                        }
+                    }
+
+                    if (best != n.note)
+                    {
+                        n.note = best;
+                        walkDirection = 0;
+                        walkLength = 0;
+                    }
+                }
             }
         }
 
