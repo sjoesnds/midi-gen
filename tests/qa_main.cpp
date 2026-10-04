@@ -2464,6 +2464,76 @@ int main()
                 fmt ("%.0f / %.0f loops with severe spots", (double) loopsWithSevereSpot, (double) loops));
     }
 
+
+    // ------------------------------------------------------------------ 16. micro-rhythm quality (0.85.4)
+    {
+        int loops = 0;
+        int duplicateOnsetLoops = 0;
+        int mechanicalRuns = 0;
+        double oneStepSum = 0.0;
+
+        for (int sd = 0; sd < 64; ++sd)
+        {
+            MidiForgeAudioProcessor a;
+            a.setFeedbackLogFile (juce::File());
+            a.setSeed (17000 + sd * 43);
+
+            auto mel = a.getVisibleNotes();
+            std::vector<MidiForgeAudioProcessor::VisibleNote> melody;
+            for (const auto& n : mel)
+                if (n.channel == 3)
+                    melody.push_back (n);
+
+            std::stable_sort (melody.begin(), melody.end(),
+                [] (const auto& x, const auto& y)
+                {
+                    if (x.step != y.step) return x.step < y.step;
+                    return x.note < y.note;
+                });
+
+            if (melody.size() < 4)
+                continue;
+
+            int duplicates = 0;
+            int oneStep = 0;
+            int previousGap = -1;
+            int sameGapRun = 1;
+
+            for (size_t i = 1; i < melody.size(); ++i)
+            {
+                const int gap = melody[i].step - melody[i - 1].step;
+                if (gap <= 0) ++duplicates;
+                if (gap <= 1) ++oneStep;
+
+                if (gap > 0 && gap == previousGap)
+                    ++sameGapRun;
+                else
+                {
+                    if (sameGapRun >= 5) ++mechanicalRuns;
+                    sameGapRun = 1;
+                }
+                previousGap = gap;
+            }
+            if (sameGapRun >= 5) ++mechanicalRuns;
+
+            if (duplicates > 0) ++duplicateOnsetLoops;
+            oneStepSum += (double) oneStep / (double) juce::jmax<size_t> (1, melody.size() - 1);
+            ++loops;
+        }
+
+        const double meanOneStep = oneStepSum / (double) juce::jmax (1, loops);
+        report ("micro-rhythm: melody has no duplicate onsets",
+                loops >= 48 && duplicateOnsetLoops == 0,
+                fmt ("%.0f / %.0f loops with duplicate melody onsets",
+                     (double) duplicateOnsetLoops, (double) loops));
+        report ("micro-rhythm: one-step chains are not dominant",
+                loops >= 48 && meanOneStep < 0.90,
+                fmt ("mean one-step share %.0f%%", 100.0 * meanOneStep));
+        report ("micro-rhythm: long identical gap runs stay rare",
+                loops >= 48 && mechanicalRuns <= 24,
+                fmt ("%.0f mechanical gap runs", (double) mechanicalRuns));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

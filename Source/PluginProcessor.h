@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.85.3"
+#define MIDIFORGE_ENGINE_VERSION "0.85.4"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -314,6 +314,7 @@ void applyMotifSemantics (Section& section, int phraseStartBar, int variationSal
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
 float localMelodyQualityScore (const Section& section, uint32_t identity) const;
+float localMelodyRhythmScore (const Section& section, uint32_t identity) const;
 void repairLocalMelodyQuality (Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;

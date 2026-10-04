@@ -6014,6 +6014,133 @@ float MidiForgeAudioProcessor::phraseContrastScore (const Section& section, uint
 
 
 
+
+float MidiForgeAudioProcessor::localMelodyRhythmScore (const Section& section, uint32_t identity) const
+{
+    std::vector<const NoteEvent*> melody;
+    for (const auto& n : section.notes)
+        if (n.channel == 3)
+            melody.push_back (&n);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [] (const NoteEvent* a, const NoteEvent* b)
+        {
+            if (a->step != b->step) return a->step < b->step;
+            return a->note < b->note;
+        });
+
+    if (melody.size() < 3)
+        return melody.empty() ? 0.35f : 0.62f;
+
+    std::vector<int> gaps;
+    gaps.reserve (melody.size() - 1);
+    int duplicateOnsets = 0;
+    for (size_t i = 1; i < melody.size(); ++i)
+    {
+        const int gap = melody[i]->step - melody[i - 1]->step;
+        if (gap <= 0)
+            ++duplicateOnsets;
+        gaps.push_back (juce::jmax (0, gap));
+    }
+
+    if (gaps.empty())
+        return 0.45f;
+
+    int oneStep = 0;
+    int longGap = 0;
+    int sameGapRuns = 0;
+    int offGrid = 0;
+    int previousGap = -1;
+    int sameGapRun = 1;
+
+    for (size_t i = 0; i < gaps.size(); ++i)
+    {
+        const int gap = gaps[i];
+        if (gap <= 1) ++oneStep;
+        if (gap >= 8) ++longGap;
+
+        if (gap == previousGap && gap > 0)
+            ++sameGapRun;
+        else
+        {
+            if (sameGapRun >= 4) ++sameGapRuns;
+            sameGapRun = 1;
+        }
+        previousGap = gap;
+
+        const int step = melody[i + 1]->step % 16;
+        if ((step % 4) != 0) ++offGrid;
+    }
+    if (sameGapRun >= 4) ++sameGapRuns;
+
+    const float oneStepShare = (float) oneStep / (float) gaps.size();
+    const float longGapShare = (float) longGap / (float) gaps.size();
+    const float offGridShare = (float) offGrid / (float) gaps.size();
+    const float duplicatePenalty = juce::jlimit (
+        0.0f, 1.0f, (float) duplicateOnsets / (float) melody.size());
+
+    // Local rhythm should breathe. Very dense sixteenths can be intentional,
+    // but a high one-step share combined with repetitive gaps reads as machine-made.
+    const float densityTarget =
+        melodyType == SparseLeadMelody ? 0.24f
+        : melodyType == VocalLikeMelody ? 0.34f
+        : melodyType == HookMelody ? 0.42f
+        : 0.48f;
+
+    const float densityFit = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (oneStepShare - densityTarget) / 0.52f);
+
+    const float breathingFit = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (longGapShare - (melodyType == SparseLeadMelody ? 0.16f : 0.08f)) / 0.32f);
+
+    const float offbeatTarget =
+        melodyType == SparseLeadMelody ? 0.34f
+        : melodyType == HookMelody ? 0.46f
+        : 0.40f;
+    const float offbeatFit = 1.0f
+        - juce::jlimit (0.0f, 1.0f,
+            std::abs (offGridShare - offbeatTarget) / 0.55f);
+
+    float sameGapPenalty = juce::jlimit (
+        0.0f, 1.0f, (float) sameGapRuns / 3.0f);
+
+    if (oneStepShare > 0.72f)
+        sameGapPenalty = juce::jmax (sameGapPenalty, 0.60f);
+    if (oneStepShare > 0.82f)
+        sameGapPenalty = juce::jmax (sameGapPenalty, 0.88f);
+
+    // Note length should usually fit inside the next onset gap. Overlapping
+    // micro-notes make a generated line feel smeared even when the pitches work.
+    float lengthFit = 0.62f;
+    int lengthComparisons = 0;
+    for (size_t i = 0; i + 1 < melody.size(); ++i)
+    {
+        const int gap = juce::jmax (1, melody[i + 1]->step - melody[i]->step);
+        const float ratio = (float) melody[i]->length / (float) gap;
+        const float target = melodyType == SparseLeadMelody ? 0.80f : 0.60f;
+        lengthFit += 1.0f
+            - juce::jlimit (0.0f, 1.0f, std::abs (ratio - target) / 0.70f);
+        ++lengthComparisons;
+    }
+    if (lengthComparisons > 0)
+        lengthFit /= (float) (lengthComparisons + 1);
+
+    float score =
+        0.30f * densityFit
+        + 0.20f * breathingFit
+        + 0.18f * offbeatFit
+        + 0.17f * lengthFit
+        + 0.15f * (1.0f - sameGapPenalty);
+
+    score -= 0.20f * duplicatePenalty;
+
+    const float jitter =
+        (float) (hash32 (identity ^ 0x43D91A2Bu) % 1000u) / 100000.0f;
+    return juce::jlimit (0.0f, 1.0f, score + jitter);
+}
+
 float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, uint32_t identity) const
 {
     std::vector<const NoteEvent*> melody;
@@ -11030,6 +11157,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float loopClosure = loopClosureScore (flat, identity);
         const float closureJudge = closureJudgeScore (flat, identity);
         const float localMelodyQuality = localMelodyQualityScore (flat, identity);
+        const float localMelodyRhythm = localMelodyRhythmScore (flat, identity);
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -11053,6 +11181,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.16f * localMelodyQuality;
         if (localMelodyQuality < 0.42f)
             quality -= 0.24f * (0.42f - localMelodyQuality);
+        // 0.85.4 Micro-Rhythm Quality: reject locally mechanical timing even
+        // when the pitch contour itself is strong.
+        quality += 0.11f * localMelodyRhythm;
+        if (localMelodyRhythm < 0.40f)
+            quality -= 0.14f * (0.40f - localMelodyRhythm);
         if (localMelodyQuality < 0.30f)
             quality -= 0.10f * (0.30f - localMelodyQuality);
         const float pleasantness = melodyPleasantnessScore (flat);
