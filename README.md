@@ -4,6 +4,15 @@
 
 **Current version: 0.84.2**
 
+### Unreleased — 0.85 Musical Quality & Phrase Intelligence
+- Judge calibration now separates **register width** from **register position**. A melody that spans a healthy range but sits unnecessarily high is penalised directly, with sound-profile-aware register targets.
+- Added a **local weak-spot** judge that penalises unrecovered large jumps, pathological same-note runs and small zig-zag transitions instead of relying only on whole-loop averages.
+- Simple / Medium / Complex selection now responds materially to the **Complexity** control. The default search includes a larger simple-phrase population while still preserving a minority of complex and weird ideas.
+- Candidate ranking now rewards the new register-centre and simplicity signals and applies the weak-spot penalty before the final diversity gate.
+- No new UI controls; this stage only recalibrates the existing MIDI generation and judge pipeline.
+
+
+
 
 
 ### 0.84.2 — Runtime stability
