@@ -6050,7 +6050,6 @@ float MidiForgeAudioProcessor::localMelodyRhythmScore (const Section& section, u
     int longGap = 0;
     int sameGapRuns = 0;
     int offGrid = 0;
-    int strongBeats = 0;
     int previousGap = -1;
     int sameGapRun = 1;
 
@@ -6071,7 +6070,6 @@ float MidiForgeAudioProcessor::localMelodyRhythmScore (const Section& section, u
 
         const int step = melody[i + 1]->step % 16;
         if ((step % 4) != 0) ++offGrid;
-        else ++strongBeats;
     }
     if (sameGapRun >= 4) ++sameGapRuns;
 
