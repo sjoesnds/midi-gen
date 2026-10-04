@@ -5017,7 +5017,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             len = juce::jmin(4, len + 1);
         if (soundCloud)
         {
-            const roll = h % 100u;
+            const uint32_t roll = h % 100u;
             len = roll < 12u ? 1 : (roll < 72u ? 2 : 3);
         }
 
@@ -10549,7 +10549,7 @@ void MidiForgeAudioProcessor::magicRandomize()
         // SoundCloud is intentionally a minority MAGIC language:
         // sparse chant cells, repeated home notes and strong harmonic pull.
         const float soundCloudChance = juce::jlimit (0.10f, 0.28f,
-            0.10f + dnaSpace * 0.14f + (dnaMotif < 0.42f ? 0.04f : 0.0f));
+            0.10f + (1.0f - dnaMelody) * 0.14f + (dnaMotif < 0.42f ? 0.04f : 0.0f));
         leadStyleSoundCloud = r.nextFloat() < soundCloudChance;
     }
 
