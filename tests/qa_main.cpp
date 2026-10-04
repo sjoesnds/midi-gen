@@ -506,7 +506,7 @@ int main()
 
                 report ("Melody pitches stay in scale",
                         p.snapPitchToScale (n.note) == n.note,
-                        fmt ("seed %d note %d", seed, n.note));
+                        fmt ("seed %.0f note %.0f", (double) seed, (double) n.note));
 
                 report ("Melody stays in a controlled register",
                         n.note >= 40 && n.note <= 96,
@@ -1747,26 +1747,19 @@ int main()
         }
     }
 
-    // ------------------------------------------------------------------ 12. implicit taste signal (drag / export)
+    // ------------------------------------------------------------------ 12. Drag/export are neutral for Taste ML
     {
-        MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
+        MidiForgeAudioProcessor a;
         a.resetTaste();
         const float c0 = a.getTasteSamples();
-        const bool first = a.noteKeptVariation();
+        a.writeTemporaryMidiFile();
         const float c1 = a.getTasteSamples();
-        report ("kept loop: the first drag / export adds a taste sample", first && std::abs ((c1 - c0) - 0.5f) < 0.01f, fmt ("taste samples %.2f -> %.2f (weight 0.5)", (double) c0, (double) c1));
-        report ("kept loop: the same loop is counted only once", ! a.noteKeptVariation() && a.getTasteSamples() == c1, "second call ignored");
-        a.chooseVariation (3);
-        report ("kept loop: another variation counts separately", a.noteKeptVariation(), "slot 4");
-        a.chooseVariation (4);
-        a.likeVariation (4);
-        report ("kept loop: an explicitly rated loop is not counted again", ! a.noteKeptVariation(), "liked slot skipped");
-        a.regenerate();
-        a.chooseVariation (0);
-        report ("kept loop: a fresh bank is counted again", a.noteKeptVariation(), "new generation");
-        a.setTasteEnabled (false);
-        a.chooseVariation (1);
-        report ("kept loop: nothing is learned while Taste is off", ! a.noteKeptVariation(), "taste disabled");
+        report ("drag/export does not train Taste ML", std::abs (c1 - c0) < 0.01f,
+                fmt ("taste samples %.2f -> %.2f", (double) c0, (double) c1));
+        a.likeVariation (0);
+        const float c2 = a.getTasteSamples();
+        report ("explicit LIKE trains Taste ML", std::abs ((c2 - c1) - 1.0f) < 0.01f,
+                fmt ("taste samples %.2f -> %.2f", (double) c1, (double) c2));
     }
 
     // ------------------------------------------------------------------ 13. SIMILAR / more like this (0.80)
