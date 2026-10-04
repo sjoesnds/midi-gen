@@ -120,7 +120,6 @@ bool preserveSelectionOnRegenerate = false;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.processor.noteKeptVariation();
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
@@ -155,7 +154,6 @@ bool preserveSelectionOnRegenerate = false;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForDrumRow (row);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.processor.noteKeptVariation();
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }

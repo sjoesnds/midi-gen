@@ -15,6 +15,9 @@
 
 namespace
 {
+    constexpr int kStateMagic = 0x4D464753;   // "MFGS"
+    constexpr int kStateVersion = 1;
+
     // Shared deterministic hash used by generation and mutation paths.
     // Kept at file scope so helper methods can use the same seed logic as addMelody().
     static uint32_t hash32(uint32_t x)
@@ -2350,25 +2353,6 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
     for (size_t i = 0; i < (size_t) taste::kDim; ++i)
         z[i] = juce::jlimit(-3.0f, 3.0f, (x[i] - tasteMean[i]) / tasteStd[i]);
     tasteModel.update(z, soundTarget, genre, likeTarget, weight);
-}
-
-bool MidiForgeAudioProcessor::noteKeptVariation()
-{
-    if (! tasteEnabled) return false;
-    int vi = 0;
-    {
-        const juce::ScopedLock sl (variationsLock);
-        if (variations.empty()) return false;
-        vi = juce::jlimit (0, juce::jmin (7, (int) variations.size() - 1), selectedVariation);
-    }
-    const uint32_t nonce = generationNonce.load();
-    if (keptNonce != nonce) { keptNonce = nonce; keptMask = 0; }   // a fresh bank: forget what was already counted
-    if ((keptMask & (1u << vi)) != 0) return false;                  // this loop already counted once
-    keptMask |= (1u << vi);
-    if (likeCounts[(size_t) vi] > 0 || dislikeCounts[(size_t) vi] > 0) return false;   // an explicit rating outranks the implicit one
-    trainTaste (vi, 1.0f, 0.5f);   // the drag / export itself is already a row in feedback.csv
-    savePreferences();
-    return true;
 }
 
 void MidiForgeAudioProcessor::resetTaste()
@@ -9934,25 +9918,43 @@ void MidiForgeAudioProcessor::regenerateVariations()
     }
     startGeneration (keep);
 }
-void MidiForgeAudioProcessor::chooseVariation(int index)
+void MidiForgeAudioProcessor::publishActiveSnapshot (const std::vector<NoteEvent>& notes, int bars)
 {
-std::vector<NoteEvent> selectedNotes;
-int selectedBars = bars;
+    auto snapshot = std::make_shared<const std::vector<NoteEvent>> (notes);
+    std::atomic_store_explicit (&activeNotesSnapshot, std::move (snapshot), std::memory_order_release);
+    activeBarsSnapshot.store (juce::jmax (1, bars), std::memory_order_release);
+}
+
+void MidiForgeAudioProcessor::clearActiveSnapshot()
 {
-const juce::ScopedLock sl(variationsLock);
-if (variations.empty())
-return;
-selectedVariation=juce::jlimit(0,(int)variations.size()-1,index);
-selectedNotes = variations[(size_t)selectedVariation].notes;
-selectedBars = variations[(size_t)selectedVariation].bars;
+    std::atomic_store_explicit (&activeNotesSnapshot,
+                                std::shared_ptr<const std::vector<NoteEvent>>{},
+                                std::memory_order_release);
+    activeBarsSnapshot.store (4, std::memory_order_release);
 }
+
+void MidiForgeAudioProcessor::chooseVariation (int index)
 {
-const juce::ScopedLock sl(activeNotesLock);
-activeNotes = std::move(selectedNotes);
-activeBars = selectedBars;
+    std::vector<NoteEvent> selectedNotes;
+    int selectedBars = bars;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (variations.empty())
+            return;
+        selectedVariation = juce::jlimit (0, (int) variations.size() - 1, index);
+        selectedNotes = variations[(size_t) selectedVariation].notes;
+        selectedBars = variations[(size_t) selectedVariation].bars;
+    }
+
+    publishActiveSnapshot (selectedNotes, selectedBars);
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        activeNotes = std::move (selectedNotes);
+        activeBars = selectedBars;
+    }
+    lastGlobalStep.store (-1);
 }
-lastGlobalStep.store (-1);
-}
+
 MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::mergedSelectedSong() const
 {
 if(variations.empty())return {};
@@ -10051,166 +10053,231 @@ return exported;
 }
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer& midi)
 {
-audio.clear();
-auto& out = outScratch;
-out.clear();
-for(const auto m:midi)out.addEvent(m.getMessage(),m.samplePosition);
-if(auto* ph=getPlayHead()){
-if(auto pos=ph->getPosition()){
-const double bpmNow = pos->getBpm().orFallback (120.0);
-currentBpm.store (bpmNow);
-const double ppq=pos->getPpqPosition().orFallback(0.0);
-if (! pos->getIsPlaying())
-{
-    // Stopped: emit nothing, and forget the last step so the downbeat sounds again when playback restarts.
-    lastGlobalStep.store (-1);
-}
-else
-{
-// Sample-accurate steps: find the first 16th-note boundary at or after this block's start and, when it falls inside
-// the block, place the notes at that exact sample. (Before, a step was only noticed by the first block that STARTED
-// inside it, so every note was late by up to one full buffer and jittered with the buffer size.)
-const double samplesPerPpq = sampleRate * 60.0 / juce::jmax (20.0, bpmNow);
-const int blockLen = audio.getNumSamples();
-const int globalStep = (int) std::ceil (ppq * 4.0 - 1e-6);
-const double toBoundary = juce::jmax (0.0, ((double) globalStep * 0.25 - ppq) * samplesPerPpq);
-if (toBoundary < (double) blockLen && globalStep != lastGlobalStep.load())
-{
-lastGlobalStep.store (globalStep);
-const int stepStartOffset = (int) toBoundary;
-int local = 0;
-std::array<NoteEvent, 256> dueNotes {};
-int dueCount = 0;
-{
-    const juce::ScopedLock sl (activeNotesLock);
-    if (!activeNotes.empty())
+    audio.clear();
+    auto& out = outScratch;
+    out.clear();
+    for (const auto m : midi)
+        out.addEvent (m.getMessage(), m.samplePosition);
+
+    if (auto* ph = getPlayHead())
     {
-        const int period = juce::jmax (16, activeBars * 16);
-        local = globalStep % period;
-        if (local < 0) local += period;
-        for (const auto& e : activeNotes)
-            if (e.step == local && dueCount < (int) dueNotes.size())
-                dueNotes[(size_t) dueCount++] = e;
-    }
-}
-if (dueCount > 0)
-{
-    uiCurrentStep.store (local);
-    int offset = stepStartOffset;
-    if ((local % 2) == 1)
-        offset += (int) (realtimeSwing.load() * sampleRate * 60.0
-                        / juce::jmax (20.0, bpmNow) / 8.0);
-    const int velBias = realtimeHumanizeEnabled.load()
-        ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * realtimeHumanize.load())
-        : 0;
-    for (int n = 0; n < dueCount; ++n)
-        emitNote (dueNotes[(size_t) n], out, offset, velBias, stepStartOffset);
-}
-}
-}
-}
-}
-const int numSamples = audio.getNumSamples();
-const juce::int64 blockEnd = samplePosition + numSamples;
-// pass 0 = note-offs, pass 1 = note-ons: at the same sample a note always ends before the next one starts
-for (int pass = 0; pass < 2; ++pass)
-{
-    const bool wantOn = (pass == 1);
-    for (size_t i = 0; i < pendingEvents.size(); )
-    {
-        auto& p = pendingEvents[i];
-        if (p.on == wantOn && p.globalSample < blockEnd)
+        if (auto pos = ph->getPosition())
         {
-            const int local = (int) juce::jlimit<juce::int64> (0, juce::jmax (0, numSamples - 1), p.globalSample - samplePosition);
-            if (p.on) out.addEvent (juce::MidiMessage::noteOn (p.channel, p.note, (juce::uint8) p.velocity), local);
-            else      out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), local);
-            p = pendingEvents.back();
-            pendingEvents.pop_back();
-        }
-        else
-        {
-            ++i;
+            const double bpmNow = pos->getBpm().orFallback (120.0);
+            currentBpm.store (bpmNow);
+            const double ppq = pos->getPpqPosition().orFallback (0.0);
+
+            if (! pos->getIsPlaying())
+                lastGlobalStep.store (-1);
+            else
+            {
+                const double samplesPerPpq = sampleRate * 60.0 / juce::jmax (20.0, bpmNow);
+                const int blockLen = audio.getNumSamples();
+                const double blockPpq = (double) blockLen / juce::jmax (1.0, samplesPerPpq);
+                const int firstGlobalStep = juce::jmax (0, (int) std::ceil (ppq * 4.0 - 1e-6));
+                const int lastGlobalStepInBlock = (int) std::floor ((ppq + blockPpq) * 4.0 + 1e-6);
+
+                // Audio thread reads one immutable snapshot and never waits for activeNotesLock.
+                auto snapshot = std::atomic_load_explicit (&activeNotesSnapshot, std::memory_order_acquire);
+                const int period = juce::jmax (16, activeBarsSnapshot.load (std::memory_order_acquire) * 16);
+
+                for (int globalStep = firstGlobalStep; globalStep <= lastGlobalStepInBlock; ++globalStep)
+                {
+                    if (globalStep == lastGlobalStep.load())
+                        continue;
+
+                    const double toBoundary = ((double) globalStep * 0.25 - ppq) * samplesPerPpq;
+                    if (toBoundary < -0.5 || toBoundary >= (double) blockLen)
+                        continue;
+
+                    lastGlobalStep.store (globalStep);
+                    const int stepStartOffset = juce::jlimit (0, juce::jmax (0, blockLen - 1),
+                                                              (int) std::llround (juce::jmax (0.0, toBoundary)));
+                    int local = globalStep % period;
+                    if (local < 0) local += period;
+
+                    std::array<NoteEvent, 256> dueNotes {};
+                    int dueCount = 0;
+                    if (snapshot && ! snapshot->empty())
+                        for (const auto& e : *snapshot)
+                            if (e.step == local && dueCount < (int) dueNotes.size())
+                                dueNotes[(size_t) dueCount++] = e;
+
+                    if (dueCount > 0)
+                    {
+                        uiCurrentStep.store (local);
+                        int offset = stepStartOffset;
+                        if ((local % 2) == 1)
+                            offset += (int) (realtimeSwing.load() * sampleRate * 60.0
+                                             / juce::jmax (20.0, bpmNow) / 8.0);
+
+                        const int velBias = realtimeHumanizeEnabled.load()
+                            ? (int) ((realtimeRng.nextFloat() * 2.0f - 1.0f) * 14.0f * realtimeHumanize.load())
+                            : 0;
+
+                        for (int n = 0; n < dueCount; ++n)
+                            emitNote (dueNotes[(size_t) n], out, offset, velBias, stepStartOffset);
+                    }
+                }
+            }
         }
     }
+
+    const int numSamples = audio.getNumSamples();
+    const juce::int64 blockEnd = samplePosition + numSamples;
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        const bool wantOn = (pass == 1);
+        for (size_t i = 0; i < pendingEvents.size(); )
+        {
+            auto& p = pendingEvents[i];
+            if (p.on == wantOn && p.globalSample < blockEnd)
+            {
+                const int local = (int) juce::jlimit<juce::int64> (0, juce::jmax (0, numSamples - 1), p.globalSample - samplePosition);
+                if (p.on)
+                    out.addEvent (juce::MidiMessage::noteOn (p.channel, p.note, (juce::uint8) p.velocity), local);
+                else
+                    out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), local);
+                p = pendingEvents.back();
+                pendingEvents.pop_back();
+            }
+            else ++i;
+        }
+    }
+    samplePosition += audio.getNumSamples();
+    midi.swapWith(out);
 }
-samplePosition += audio.getNumSamples();
-midi.swapWith(out);
-}
+
 void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
-waitForGeneration();   // 0.78: never save controls the worker is temporarily adjusting
-juce::MemoryOutputStream o(dest,false);
-o.writeInt(rootPc);o.writeInt(genre);o.writeInt(scale);o.writeInt(progression);
-o.writeInt(rhythm);o.writeInt(bars);o.writeInt(seed);o.writeInt(octave);o.writeInt(sectionMode);
-o.writeFloat(chordDensity);o.writeFloat(bassDensity);o.writeFloat(melodyDensity);o.writeFloat(arpDensity);
-o.writeFloat(swing);o.writeFloat(humanize);o.writeFloat(complexity);
-o.writeFloat(melodyLength);o.writeFloat(pauseChance);o.writeFloat(leapChance);o.writeFloat(ghostChance);
-o.writeInt(arpRate);o.writeFloat(voicingWidth);o.writeBool(chordExtensions);o.writeBool(inversions);
-o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
-o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
-o.writeInt(selectedVariation);
-o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
-o.writeInt(soundTarget);
-o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
-o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
-o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
-// 0.46: persist newer UI/learning state while remaining backward-compatible.
-o.writeBool(leadStyleSoundCloud);
-o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
-o.writeBool(tasteEnabled);
-// 0.62: Humanize is an opt-in performance layer; append the flag for backward compatibility.
-o.writeBool(humanizeEnabled);
+    waitForGeneration();
+    juce::MemoryOutputStream o(dest, false);
+    o.writeInt (kStateMagic);
+    o.writeInt (kStateVersion);
+
+    o.writeInt(rootPc);o.writeInt(genre);o.writeInt(scale);o.writeInt(progression);
+    o.writeInt(rhythm);o.writeInt(bars);o.writeInt(seed);o.writeInt(octave);o.writeInt(sectionMode);
+    o.writeFloat(chordDensity);o.writeFloat(bassDensity);o.writeFloat(melodyDensity);o.writeFloat(arpDensity);
+    o.writeFloat(swing);o.writeFloat(humanize);o.writeFloat(complexity);
+    o.writeFloat(melodyLength);o.writeFloat(pauseChance);o.writeFloat(leapChance);o.writeFloat(ghostChance);
+    o.writeInt(arpRate);o.writeFloat(voicingWidth);o.writeBool(chordExtensions);o.writeBool(inversions);
+    o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
+    o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
+    o.writeInt(selectedVariation);
+    o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
+    o.writeInt(soundTarget);
+    o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
+    o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
+    o.writeInt(drumMuteMask);o.writeInt(drumPitchMode);
+    o.writeBool(leadStyleSoundCloud);
+    o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
+    o.writeBool(tasteEnabled);
+    o.writeBool(humanizeEnabled);
 }
+
 void MidiForgeAudioProcessor::setStateInformation(const void* data,int size)
 {
-if(!data||size<=0)return;
-waitForGeneration();   // 0.78
-juce::MemoryInputStream i(data,(size_t)size,false);
-rootPc=i.readInt();genre=i.readInt();scale=i.readInt();progression=i.readInt();
-rhythm=i.readInt();bars=i.readInt();seed=i.readInt();octave=i.readInt();sectionMode=i.readInt();
-chordDensity=i.readFloat();bassDensity=i.readFloat();melodyDensity=i.readFloat();arpDensity=i.readFloat();
-swing=i.readFloat();humanize=i.readFloat();complexity=i.readFloat();
-melodyLength=i.readFloat();pauseChance=i.readFloat();leapChance=i.readFloat();ghostChance=i.readFloat();
-arpRate=i.readInt();voicingWidth=i.readFloat();chordExtensions=i.readBool();inversions=i.readBool();
-motifStrength=i.readFloat();variationAmount=i.readFloat();fillAmount=i.readFloat();energy=i.readFloat();
-chordsEnabled=i.readBool();bassEnabled=i.readBool();melodyEnabled=i.readBool();arpEnabled=i.readBool();hookMode=i.readBool();
-int savedSelection=i.readInt();
-// Reset every optional field to its historical default before reading appended
-// bytes. A legacy preset can legitimately end before these fields; loading it
-// into an already-used processor must not leak the previous UI state.
-mood = NeutralMood;
-melodyType = HookMelody;
-era = 5;
-soundTarget = 0;
-articulation = 0;
-autoNextOnDislike = true;
-chordStyle = 0;
-drumsEnabled = false;
-drumMuteMask = 0;
-drumPitchMode = 0;
-leadStyleSoundCloud = false;
-lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
-tasteEnabled = true;
-humanizeEnabled = false;
+    if (!data || size <= 0) return;
+    waitForGeneration();
 
-if (i.getNumBytesRemaining() >= 12) { mood=i.readInt(); melodyType=i.readInt(); era=i.readInt(); }
-if (i.getNumBytesRemaining() >= 4) soundTarget=juce::jlimit(0,7,i.readInt());
-if (i.getNumBytesRemaining() >= 8) { articulation=juce::jlimit(0,2,i.readInt()); autoNextOnDislike=i.readInt()!=0; }
-if (i.getNumBytesRemaining() >= 8) { chordStyle=juce::jlimit(0,2,i.readInt()); drumsEnabled=i.readInt()!=0; }
-if (i.getNumBytesRemaining() >= 8) { drumMuteMask=i.readInt() & 0xFF; drumPitchMode=juce::jlimit(0,1,i.readInt()); }
+    juce::MemoryInputStream i(data, (size_t) size, false);
+    if (i.getNumBytesRemaining() >= 8)
+    {
+        const int marker = i.readInt();
+        if (marker == kStateMagic)
+        {
+            const int version = i.readInt();
+            if (version < 1 || version > kStateVersion) return;
+        }
+        else i.setPosition (0);
+    }
 
-// 0.46: older preset states simply stop before these optional bytes.
-if (i.getNumBytesRemaining() >= 1) leadStyleSoundCloud = i.readBool();
-if (i.getNumBytesRemaining() >= 4)
-{
-    lockChordsLayer = i.readBool(); lockBassLayer = i.readBool();
-    lockMelodyLayer = i.readBool(); lockArpLayer = i.readBool();
-}
-if (i.getNumBytesRemaining() >= 1) tasteEnabled = i.readBool();
-// Older states stop before this byte, so legacy presets remain Humanize OFF.
-humanizeEnabled = false;
-if (i.getNumBytesRemaining() >= 1) humanizeEnabled = i.readBool();
-regenerateBlocking (savedSelection);
+    rootPc = 0; genre = Universal; scale = Minor; progression = AutoProg;
+    rhythm = Straight; bars = 4; seed = 1337; octave = 4; sectionMode = Loop;
+    chordDensity = 0.9f; bassDensity = 0.8f; melodyDensity = 0.62f; arpDensity = 0.25f;
+    swing = 0.0f; humanize = 0.15f; complexity = 0.55f;
+    melodyLength = 0.35f; pauseChance = 0.10f; leapChance = 0.18f; ghostChance = 0.08f;
+    arpRate = 4; voicingWidth = 0.45f; chordExtensions = true; inversions = true;
+    motifStrength = 0.78f; variationAmount = 0.40f; fillAmount = 0.18f; energy = 0.65f;
+    chordsEnabled = bassEnabled = melodyEnabled = true; arpEnabled = false; hookMode = true;
+    mood = NeutralMood; melodyType = HookMelody; era = 5; soundTarget = 0; articulation = 0;
+    autoNextOnDislike = true; chordStyle = 0; drumsEnabled = false; drumMuteMask = 0; drumPitchMode = 0;
+    leadStyleSoundCloud = false; lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
+    tasteEnabled = true; humanizeEnabled = false;
+    int savedSelection = 0;
+
+    auto readIntRaw = [&] (int& out) -> bool
+    {
+        if (i.getNumBytesRemaining() < 4) return false;
+        out = i.readInt(); return true;
+    };
+    auto readIntClamped = [&] (int& out, int lo, int hi) -> bool
+    {
+        int raw = 0;
+        if (! readIntRaw (raw)) return false;
+        out = juce::jlimit (lo, hi, raw); return true;
+    };
+    auto readFloatClamped = [&] (float& out, float lo, float hi) -> bool
+    {
+        if (i.getNumBytesRemaining() < 4) return false;
+        const float raw = i.readFloat();
+        if (std::isfinite (raw)) out = juce::jlimit (lo, hi, raw);
+        return true;
+    };
+    auto readBoolSafe = [&] (bool& out) -> bool
+    {
+        if (i.getNumBytesRemaining() < 1) return false;
+        out = i.readBool(); return true;
+    };
+
+    readIntClamped (rootPc, 0, 11); readIntClamped (genre, 0, 15); readIntClamped (scale, 0, 6);
+    readIntClamped (progression, 0, 6); readIntClamped (rhythm, 0, 3); readIntClamped (bars, 1, 16);
+    readIntRaw (seed); readIntClamped (octave, 2, 6); readIntClamped (sectionMode, (int) Loop, (int) SongExtended);
+    readFloatClamped (chordDensity, 0.0f, 1.0f); readFloatClamped (bassDensity, 0.0f, 1.0f);
+    readFloatClamped (melodyDensity, 0.0f, 1.0f); readFloatClamped (arpDensity, 0.0f, 1.0f);
+    readFloatClamped (swing, 0.0f, 0.75f); readFloatClamped (humanize, 0.0f, 1.0f);
+    readFloatClamped (complexity, 0.0f, 1.0f); readFloatClamped (melodyLength, 0.0f, 1.0f);
+    readFloatClamped (pauseChance, 0.0f, 1.0f); readFloatClamped (leapChance, 0.0f, 1.0f);
+    readFloatClamped (ghostChance, 0.0f, 1.0f); readIntClamped (arpRate, 1, 8);
+    readFloatClamped (voicingWidth, 0.0f, 1.0f); readBoolSafe (chordExtensions); readBoolSafe (inversions);
+    readFloatClamped (motifStrength, 0.0f, 1.0f); readFloatClamped (variationAmount, 0.0f, 1.0f);
+    readFloatClamped (fillAmount, 0.0f, 1.0f); readFloatClamped (energy, 0.0f, 1.0f);
+    readBoolSafe (chordsEnabled); readBoolSafe (bassEnabled); readBoolSafe (melodyEnabled);
+    readBoolSafe (arpEnabled); readBoolSafe (hookMode); readIntClamped (savedSelection, 0, 7);
+
+    if (i.getNumBytesRemaining() >= 4) readIntClamped (mood, 0, 8);
+    if (i.getNumBytesRemaining() >= 4) readIntClamped (melodyType, 0, 7);
+    if (i.getNumBytesRemaining() >= 4) readIntClamped (era, 0, 5);
+    if (i.getNumBytesRemaining() >= 4) readIntClamped (soundTarget, 0, 7);
+    if (i.getNumBytesRemaining() >= 8)
+    {
+        readIntClamped (articulation, 0, 2);
+        int autoNext = autoNextOnDislike ? 1 : 0;
+        if (readIntRaw (autoNext)) autoNextOnDislike = autoNext != 0;
+    }
+    if (i.getNumBytesRemaining() >= 8)
+    {
+        readIntClamped (chordStyle, 0, 2);
+        int drums = drumsEnabled ? 1 : 0;
+        if (readIntRaw (drums)) drumsEnabled = drums != 0;
+    }
+    if (i.getNumBytesRemaining() >= 8)
+    {
+        readIntRaw (drumMuteMask); drumMuteMask &= 0xFF;
+        readIntClamped (drumPitchMode, 0, 1);
+    }
+    if (i.getNumBytesRemaining() >= 1) readBoolSafe (leadStyleSoundCloud);
+    if (i.getNumBytesRemaining() >= 4)
+    {
+        readBoolSafe (lockChordsLayer); readBoolSafe (lockBassLayer);
+        readBoolSafe (lockMelodyLayer); readBoolSafe (lockArpLayer);
+    }
+    if (i.getNumBytesRemaining() >= 1) readBoolSafe (tasteEnabled);
+    if (i.getNumBytesRemaining() >= 1) readBoolSafe (humanizeEnabled);
+
+    realtimeSwing.store (swing); realtimeHumanize.store (humanize);
+    realtimeHumanizeEnabled.store (humanizeEnabled); realtimeDrumMuteMask.store (drumMuteMask);
+    regenerateBlocking (savedSelection);
 }
 // --- MIDI export --------------------------------------------------------
 std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const
@@ -10373,15 +10440,24 @@ return activeBars;
 
 void MidiForgeAudioProcessor::syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes)
 {
-    const juce::ScopedLock sl (variationsLock);
-    if (selectedVariation < 0 || selectedVariation >= static_cast<int> (variations.size()))
-        return;
+    int barsN = 4;
+    {
+        const juce::ScopedLock sl (variationsLock);
+        if (selectedVariation < 0 || selectedVariation >= static_cast<int> (variations.size()))
+            return;
+        auto& section = variations[(size_t) selectedVariation];
+        section.notes.clear();
+        section.notes.reserve (notes.size());
+        for (const auto& n : notes)
+            section.notes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+        barsN = section.bars;
+    }
 
-    auto& section = variations[static_cast<size_t> (selectedVariation)];
-    section.notes.clear();
-    section.notes.reserve (notes.size());
+    std::vector<NoteEvent> active;
+    active.reserve (notes.size());
     for (const auto& n : notes)
-        section.notes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+        active.push_back ({ n.step, n.length, n.note, n.velocity, n.channel, false });
+    publishActiveSnapshot (active, barsN);
 }
 
 bool MidiForgeAudioProcessor::addVisibleNote (int step, int note, int length, int velocity, int channel)

@@ -9,8 +9,7 @@
 //           - global weights w learn the general taste
 //           - small, strongly regularised residuals per Sound target and per Genre
 //             learn context-specific taste without overfitting a handful of ratings
-//           - trained online by SGD; explicit LIKE / DISLIKE = weight 1,
-//             implicit "dragged / exported to the DAW" = positive sample, weight 0.5
+//           - trained online by SGD; explicit LIKE / DISLIKE = weight 1
 //
 #include <juce_core/juce_core.h>
 #include <cstdlib>
