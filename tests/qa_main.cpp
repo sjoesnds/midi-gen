@@ -1125,8 +1125,8 @@ int main()
 
         report ("MAGIC archetypes create distinct musical behavior",
                 pairCount >= 400 && diverseBanks >= 18 && meanDistance >= 0.055,
-                fmt ("mean bank fingerprint distance %.3f, %d/24 banks above floor",
-                     meanDistance, diverseBanks));
+                fmt ("mean bank fingerprint distance %.3f, %.0f/24 banks above floor",
+                     meanDistance, (double) diverseBanks));
     }
 
     // ------------------------------------------------------------------ 2c. Expressive Melody Engine
