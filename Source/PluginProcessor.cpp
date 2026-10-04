@@ -6175,6 +6175,167 @@ float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, 
     return juce::jlimit (0.0f, 1.0f, localScore + jitter);
 }
 
+
+void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32_t identity) const
+{
+    if (section.notes.empty() || ! melodyEnabled || soundProfileFor (soundTarget).soloLine)
+        return;
+
+    std::vector<size_t> melody;
+    for (size_t i = 0; i < section.notes.size(); ++i)
+        if (section.notes[i].channel == 3)
+            melody.push_back (i);
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (section.notes[a].step != section.notes[b].step)
+                return section.notes[a].step < section.notes[b].step;
+            return section.notes[a].note < section.notes[b].note;
+        });
+
+    if (melody.size() < 4)
+        return;
+
+    int laneLo = 40, laneHi = 96, maxLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, maxLeap);
+
+    auto pitchClass = [] (int n)
+    {
+        return (n % 12 + 12) % 12;
+    };
+
+    const auto scale = scaleSemitones();
+    auto inScale = [&] (int pitch)
+    {
+        const int rel = (pitchClass (pitch) - rootPc + 12) % 12;
+        return std::find (scale.begin(), scale.end(), rel) != scale.end();
+    };
+
+    auto nearestScale = [&] (int target, int lo, int hi)
+    {
+        lo = juce::jlimit (0, 127, lo);
+        hi = juce::jlimit (lo, 127, hi);
+        int best = juce::jlimit (lo, hi, target);
+        int bestDistance = 999;
+        for (int p = lo; p <= hi; ++p)
+        {
+            if (! inScale (p))
+                continue;
+            const int d = std::abs (p - target);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = p;
+            }
+        }
+        return best;
+    };
+
+    auto badness = [&] (int i)
+    {
+        if (i <= 0 || i + 1 >= (int) melody.size())
+            return 0.0f;
+
+        const int a = section.notes[melody[(size_t) i - 1]].note;
+        const int b = section.notes[melody[(size_t) i]].note;
+        const int c = section.notes[melody[(size_t) i + 1]].note;
+        const int d0 = b - a;
+        const int d1 = c - b;
+        const int ad0 = std::abs (d0);
+        const int ad1 = std::abs (d1);
+
+        float score = 0.0f;
+        const bool recovered = (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0);
+        if (ad0 >= 8 && (! recovered || ad1 > 5))
+            score += 1.0f;
+        if (ad0 >= 10)
+            score += 0.75f;
+        if (ad1 >= 10)
+            score += 0.75f;
+        if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0
+            && ((d0 > 0) != (d1 > 0)))
+            score += 0.48f;
+
+        if (i >= 2)
+        {
+            const int p = section.notes[melody[(size_t) i - 2]].note;
+            if (b == a && b == p)
+                score += 0.72f;
+        }
+
+        // Long same-direction micro-walks are only repaired once they become
+        // clearly mechanical; this keeps legitimate scale fragments intact.
+        if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0
+            && ((d0 > 0) == (d1 > 0)))
+            score += 0.30f;
+
+        return score;
+    };
+
+    // Pick the worst two internal spots. Never rewrite the opening or the final
+    // two notes here; phrase identity and closure have dedicated judges/passes.
+    std::vector<int> targets;
+    for (int i = 1; i + 2 < (int) melody.size(); ++i)
+    {
+        if (badness (i) >= 0.70f)
+            targets.push_back (i);
+    }
+
+    std::stable_sort (targets.begin(), targets.end(),
+        [&] (int a, int b)
+        {
+            return badness (a) > badness (b);
+        });
+
+    if (targets.size() > 2)
+        targets.resize (2);
+
+    const int offsets[] = { -5, -3, -2, -1, 1, 2, 3, 5 };
+
+    for (const int i : targets)
+    {
+        const size_t idx = melody[(size_t) i];
+        const int original = section.notes[idx].note;
+
+        float bestScore =
+            0.72f * localMelodyQualityScore (section, identity ^ (uint32_t) i)
+            + 0.28f * melodyPleasantnessScore (section);
+        int bestPitch = original;
+
+        const int prev = section.notes[melody[(size_t) i - 1]].note;
+        const int next = section.notes[melody[(size_t) i + 1]].note;
+        const int lo = juce::jmax (laneLo, juce::jmax (prev - maxLeap, next - maxLeap));
+        const int hi = juce::jmin (laneHi, juce::jmin (prev + maxLeap, next + maxLeap));
+
+        for (const int offset : offsets)
+        {
+            int candidate = nearestScale (original + offset, lo, hi);
+            if (candidate == original)
+                continue;
+
+            section.notes[idx].note = candidate;
+
+            const float local =
+                localMelodyQualityScore (section, identity ^ (uint32_t) (i * 0x9e3779b9u));
+            const float pleasant =
+                melodyPleasantnessScore (section);
+            const float score = 0.72f * local + 0.28f * pleasant;
+
+            const bool improves = score > bestScore + 0.018f;
+            if (improves)
+            {
+                bestScore = score;
+                bestPitch = candidate;
+            }
+        }
+
+        section.notes[idx].note = bestPitch;
+    }
+
+    cleanMelodyLine (section.notes);
+}
+
 float MidiForgeAudioProcessor::closureJudgeScore (const Section& section, uint32_t identity) const
 {
     if (section.bars < 2)
@@ -10089,6 +10250,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         applyMelodyFoundation (flat, identity);
         applyMelodyPleasantness (flat, identity);
+        repairLocalMelodyQuality (flat, identity);
         traceMelodyStage (8, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
