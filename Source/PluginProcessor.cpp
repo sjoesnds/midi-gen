@@ -1066,6 +1066,116 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
     cleanMelodyLine (section.notes);
 }
 
+void MidiForgeAudioProcessor::enforceFinalMelodyContract (Section& section, uint32_t identity) const
+{
+    if (section.notes.empty() || ! melodyEnabled || soundProfileFor (soundTarget).soloLine)
+        return;
+
+    std::vector<size_t> melody;
+    melody.reserve (section.notes.size());
+    for (size_t i = 0; i < section.notes.size(); ++i)
+        if (section.notes[i].channel == 3)
+            melody.push_back (i);
+
+    if (melody.empty())
+        return;
+
+    std::stable_sort (melody.begin(), melody.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (section.notes[a].step != section.notes[b].step)
+                return section.notes[a].step < section.notes[b].step;
+            return section.notes[a].note < section.notes[b].note;
+        });
+
+    int laneLo = 40, laneHi = 96, contractLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, contractLeap);
+    const auto scale = scaleSemitones();
+
+    auto pitchClass = [] (int n)
+    {
+        return (n % 12 + 12) % 12;
+    };
+
+    auto inScale = [&] (int pitch)
+    {
+        const int rel = (pitchClass (pitch) - rootPc + 12) % 12;
+        return std::find (scale.begin(), scale.end(), rel) != scale.end();
+    };
+
+    auto nearestScale = [&] (int target, int lo, int hi)
+    {
+        lo = juce::jlimit (0, 127, lo);
+        hi = juce::jlimit (lo, 127, hi);
+
+        int best = juce::jlimit (lo, hi, target);
+        int bestDistance = 1000;
+        for (int p = lo; p <= hi; ++p)
+        {
+            if (! inScale (p))
+                continue;
+
+            const int d = std::abs (p - target);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = p;
+            }
+        }
+        return best;
+    };
+
+    const bool preserveIntentionalRepetition = (melodyType == OstinatoMelody);
+    int previous = -1;
+    int sameRun = 0;
+
+    for (size_t i = 0; i < melody.size(); ++i)
+    {
+        auto& n = section.notes[melody[i]];
+
+        n.note = nearestScale (n.note, laneLo, laneHi);
+
+        if (previous >= 0)
+        {
+            const int lo = juce::jmax (laneLo, previous - contractLeap);
+            const int hi = juce::jmin (laneHi, previous + contractLeap);
+            n.note = nearestScale (n.note, lo, hi);
+        }
+
+        sameRun = (previous >= 0 && n.note == previous) ? sameRun + 1 : 1;
+
+        if (! preserveIntentionalRepetition && sameRun >= 3)
+        {
+            int best = n.note;
+            int bestDistance = 1000;
+
+            for (int p = juce::jmax (laneLo, previous - contractLeap);
+                 p <= juce::jmin (laneHi, previous + contractLeap); ++p)
+            {
+                if (! inScale (p) || p == previous)
+                    continue;
+
+                const int d = std::abs (p - n.note);
+                const uint32_t tie = hash32 (identity ^ (uint32_t) (i * 0x9E3779B9u) ^ (uint32_t) p);
+
+                if (d < bestDistance || (d == bestDistance && (tie & 1u) == 0u))
+                {
+                    bestDistance = d;
+                    best = p;
+                }
+            }
+
+            if (best != previous)
+            {
+                n.note = best;
+                sameRun = 1;
+            }
+        }
+
+        previous = n.note;
+    }
+}
+
 bool MidiForgeAudioProcessor::rhythmHit(int x) const
 {
 x=((x%16)+16)%16;
