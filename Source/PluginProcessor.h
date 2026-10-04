@@ -465,6 +465,7 @@ float composerGrammarScore (const Section& section) const;
 void applyMelodicProsody (Section& section, uint32_t identity) const;
 float melodicProsodyScore (const Section& section) const;
 float creativeRangeScore (const Section& section, uint32_t identity) const;
+float contextualPhraseQualityScore (const Section& section) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
