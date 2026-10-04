@@ -8683,6 +8683,159 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
         + 0.10f * durationFit);
 }
 
+float MidiForgeAudioProcessor::contextualPhraseQualityScore (const Section& section) const
+{
+    if (section.notes.empty() || section.bars < 4 || ! melodyEnabled)
+        return 0.50f;
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<const NoteEvent*> out;
+        for (const auto& n : section.notes)
+            if (n.channel == 3 && n.step / 16 == bar)
+                out.push_back (&n);
+
+        std::stable_sort (out.begin(), out.end(),
+            [] (const NoteEvent* a, const NoteEvent* b)
+            {
+                if (a->step != b->step) return a->step < b->step;
+                return a->note < b->note;
+            });
+        return out;
+    };
+
+    auto contourSimilarity = [] (const std::vector<const NoteEvent*>& a,
+                                  const std::vector<const NoteEvent*>& b)
+    {
+        if (a.size() < 2 || b.size() < 2)
+            return 0.42f;
+
+        const size_t pairs = juce::jmin (a.size(), b.size());
+        int matches = 0;
+        for (size_t i = 1; i < pairs; ++i)
+        {
+            const int da = a[i]->note - a[i - 1]->note;
+            const int db = b[i]->note - b[i - 1]->note;
+            if ((da == 0 && db == 0) || (da > 0 && db > 0) || (da < 0 && db < 0))
+                ++matches;
+        }
+        return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
+    };
+
+    auto rhythmSimilarity = [] (const std::vector<const NoteEvent*>& a,
+                                const std::vector<const NoteEvent*>& b)
+    {
+        if (a.empty() || b.empty())
+            return 0.40f;
+
+        const size_t pairs = juce::jmin (a.size(), b.size());
+        int matches = 0;
+        for (size_t i = 0; i < pairs; ++i)
+            if (std::abs ((a[i]->step % 16) - (b[i]->step % 16)) <= 1)
+                ++matches;
+
+        const float hitFit = (float) matches / (float) juce::jmax (a.size(), b.size());
+        const float countFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f,
+            (float) std::abs ((int) a.size() - (int) b.size()) / 4.0f);
+        return juce::jlimit (0.0f, 1.0f, 0.72f * hitFit + 0.28f * countFit);
+    };
+
+    auto avgPitch = [] (const std::vector<const NoteEvent*>& notes, float fallback)
+    {
+        if (notes.empty())
+            return fallback;
+        float sum = 0.0f;
+        for (const auto* n : notes) sum += (float) n->note;
+        return sum / (float) notes.size();
+    };
+
+    float total = 0.0f;
+    int phraseCount = 0;
+
+    for (int start = 0; start + 3 < section.bars; start += 4)
+    {
+        std::array<std::vector<const NoteEvent*>, 4> bars;
+        for (int i = 0; i < 4; ++i)
+            bars[(size_t) i] = collectBar (start + i);
+
+        int noteCount = 0;
+        for (const auto& b : bars) noteCount += (int) b.size();
+        if (noteCount < 2)
+            continue;
+
+        const float aPrime = contourSimilarity (bars[0], bars[1]);
+        const float aReturn = contourSimilarity (bars[0], bars[3]);
+        const float aPrimeRhythm = rhythmSimilarity (bars[0], bars[1]);
+        const float aReturnRhythm = rhythmSimilarity (bars[0], bars[3]);
+
+        // A' and A'' should remember the idea, but not become literal copies.
+        const float identityFit =
+            juce::jlimit (0.0f, 1.0f, 0.54f * aPrime + 0.46f * aReturn);
+        const float repetitionPenalty =
+            juce::jlimit (0.0f, 1.0f, 0.58f * aPrime + 0.42f * aReturn);
+        const float changedReturn = juce::jlimit (
+            0.0f, 1.0f, 1.0f - std::abs (aPrime - aReturn) * 0.65f);
+
+        const float bar0 = avgPitch (bars[0], 64.0f);
+        const float bar2 = avgPitch (bars[2], bar0);
+        const float bar3 = avgPitch (bars[3], bar2);
+        const float peakLift = std::abs (bar2 - bar0);
+        const float release = std::abs (bar2 - bar3);
+
+        // B needs contrast, but a giant register jump is not a better phrase.
+        const float peakFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f, std::abs (peakLift - 3.5f) / 8.0f);
+        const float releaseFit = 1.0f - juce::jlimit (
+            0.0f, 1.0f, std::abs (release - 2.0f) / 8.0f);
+
+        float targetHits = 4.0f;
+        switch (melodyType)
+        {
+            case HookMelody:        targetHits = 4.0f; break;
+            case VocalLikeMelody:  targetHits = 3.5f; break;
+            case RiffMelody:       targetHits = 5.0f; break;
+            case OstinatoMelody:   targetHits = 3.5f; break;
+            case ArpMelody:        targetHits = 5.0f; break;
+            case CounterMelody:    targetHits = 4.0f; break;
+            case SparseLeadMelody: targetHits = 2.5f; break;
+            case PhraseMelody:     targetHits = 4.0f; break;
+        }
+
+        const float meanHits = (float) noteCount / 4.0f;
+        const float clarity = 1.0f - juce::jlimit (
+            0.0f, 1.0f, std::abs (meanHits - targetHits) / 4.0f);
+
+        float seam = 0.48f;
+        if (! bars[3].empty() && ! bars[0].empty())
+        {
+            const int distance = std::abs (bars[3].back()->note - bars[0].front()->note);
+            seam = 1.0f - juce::jlimit (0.0f, 1.0f, (float) distance / 12.0f);
+        }
+
+        const float contextScore =
+            0.24f * identityFit
+            + 0.15f * aPrimeRhythm
+            + 0.15f * aReturnRhythm
+            + 0.12f * changedReturn
+            + 0.12f * peakFit
+            + 0.08f * releaseFit
+            + 0.08f * clarity
+            + 0.06f * seam;
+
+        // Don't reward perfect copying. Strong memory with useful change is the
+        // target; literal duplication is deliberately softened.
+        const float copySafe = 0.72f * contextScore
+                             + 0.18f * identityFit
+                             + 0.10f * (1.0f - repetitionPenalty * 0.52f);
+
+        total += juce::jlimit (0.0f, 1.0f, copySafe);
+        ++phraseCount;
+    }
+
+    return phraseCount > 0 ? total / (float) phraseCount : 0.50f;
+}
+
 float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
@@ -8698,6 +8851,7 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
         const float composerGrammar = composerGrammarScore (sec);
         const float melodicProsody = melodicProsodyScore (sec);
         const float creativeRange = creativeRangeScore (sec, generationSeed);
+        const float contextualPhrase = contextualPhraseQualityScore (sec);
         const float motifSemantics = motifSemanticsScore (sec, generationSeed);
         const float loopClosure = loopClosureScore (sec, generationSeed);
         int melodyCount = 0;
@@ -8735,7 +8889,8 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 
         return
             0.24f * f.loopQuality
-            + 0.16f * f.context
+            + 0.10f * f.context
+            + 0.06f * contextualPhrase
             + 0.14f * f.tensionArc
             + 0.10f * f.phraseArc
             + 0.12f * motif
