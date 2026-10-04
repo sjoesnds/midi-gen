@@ -4300,15 +4300,17 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // tension rules could effectively erase its recurrence. Reuse a short 2-4
     // note cell inside the bar instead. Rhythm may still vary; the pitch idea
     // remains recognizable while later phrase systems are free to mutate it.
-    const int motifCoreLength =
-        simpleCandidate
-            ? 2 + (int) (hash32 (identitySeed ^ 0x4D4F5449u) % 2u)
-            : complexCandidate
-                ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
-                : ((melodyType == HookMelody || melodyType == VocalLikeMelody || melodyType == RiffMelody
-                    || melodyType == PhraseMelody || nativeArchetype == 3)
-                       ? 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u)
-                       : 2 + (int) (hash32 (identitySeed ^ 0x4D4F544Bu) % 3u)));
+    int motifCoreLength = 3;
+    if (simpleCandidate)
+        motifCoreLength = 2 + (int) (hash32 (identitySeed ^ 0x4D4F5449u) % 2u);
+    else if (complexCandidate)
+        motifCoreLength = 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u);
+    else if (melodyType == HookMelody || melodyType == VocalLikeMelody
+             || melodyType == RiffMelody || melodyType == PhraseMelody
+             || nativeArchetype == 3)
+        motifCoreLength = 3 + (int) (hash32 (identitySeed ^ 0x4D4F544Au) % 2u);
+    else
+        motifCoreLength = 2 + (int) (hash32 (identitySeed ^ 0x4D4F544Bu) % 3u);
 
     const float motifSpineStrength =
         simpleCandidate
