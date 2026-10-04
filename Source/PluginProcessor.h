@@ -315,6 +315,7 @@ float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
+float closureJudgeScore (const Section& section, uint32_t identity) const;
 struct ComposerJudgeInputs
 {
     MelodyFeatures features {};
