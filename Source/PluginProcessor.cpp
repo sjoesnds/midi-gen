@@ -10481,7 +10481,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     if (!lockChordsLayer)
     {
         rootPc = pick(12);
-        scale = pick(7);
+        scale = pick(12);
         progression = pick(7);
         chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
         chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
