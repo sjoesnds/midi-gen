@@ -302,15 +302,15 @@ int main()
 
         report ("Melody remains scale-safe",
                 checkedMelodyNotes > 0 && badScaleNotes == 0,
-                fmt ("%d checked notes, %d out of scale", checkedMelodyNotes, badScaleNotes));
+                fmt ("%.0f checked notes, %.0f out of scale", checkedMelodyNotes, badScaleNotes));
 
         report ("Melody avoids oversized default leaps",
                 badLeaps == 0,
-                fmt ("%d leaps > 9 semitones", badLeaps));
+                fmt ("%.0f leaps > 9 semitones", badLeaps));
 
         report ("Melody avoids pathological note runs",
                 badRepeatRuns == 0,
-                fmt ("%d runs of 3+ identical notes", badRepeatRuns));
+                fmt ("%.0f runs of 3+ identical notes", badRepeatRuns));
     }
 
     // ------------------------------------------------------------------ 0. Creative Range
@@ -572,7 +572,7 @@ int main()
 
                 report ("Melody pitches stay in scale",
                         p.snapPitchToScale (n.note) == n.note,
-                        fmt ("seed %d note %d", seed, n.note));
+                        fmt ("seed %.0f note %.0f", seed, n.note));
 
                 report ("Melody stays in a controlled register",
                         n.note >= 40 && n.note <= 96,
