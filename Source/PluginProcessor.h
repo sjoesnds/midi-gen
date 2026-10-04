@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.84.1"
+#define MIDIFORGE_ENGINE_VERSION "0.84.2"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -196,9 +196,7 @@ bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
-// Compatibility hook for drag/export code. It intentionally does not train Taste ML:
-// explicit LIKE / DISLIKE are the only feedback signals.
-// Explicit LIKE / DISLIKE are the only Taste ML training signals.
+// Explicit LIKE / DISLIKE are the only Taste ML training signals; drag/export remain telemetry-only.
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
 juce::MidiFile buildMidiFile (int channelFilter = 0, int drumRow = -1) const;
