@@ -590,14 +590,24 @@ float MidiForgeAudioProcessor::melodyPleasantnessScore (const Section& section) 
     if (anchors > 0)
         anchorFit = (float) chordAnchors / (float) anchors;
 
-    // Keep the melodic voice in a comfortable lead register. This is a soft
-    // score because some sound profiles intentionally sit lower/higher.
+    // Keep the melodic voice in a comfortable profile-aware register.
+    // The old fixed 72 MIDI target made higher sound profiles and low-register
+    // profiles fight the same judge.
     float meanPitch = 0.0f;
     for (const auto* n : melody)
         meanPitch += (float) n->note;
     meanPitch /= (float) melody.size();
-    registerFit = 1.0f - juce::jlimit (0.0f, 1.0f,
-        std::abs (meanPitch - 72.0f) / 20.0f);
+
+    int laneLo = 48, laneHi = 90, ignoredLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, ignoredLeap);
+    const float preferredCenter = (float) laneLo
+        + 0.38f * (float) juce::jmax (1, laneHi - laneLo);
+    const float centreDelta = meanPitch - preferredCenter;
+    const float weightedDistance = centreDelta >= 0.0f
+        ? centreDelta * 1.35f
+        : -centreDelta * 0.85f;
+    registerFit = 1.0f - juce::jlimit (
+        0.0f, 1.0f, weightedDistance / 18.0f);
 
     if (! finalBarChord.empty())
     {
@@ -3513,19 +3523,24 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // composition class instead of a binary "simple vs everything else".
     // The middle class remains the default because most useful melodies live
     // there; Complex is a minority language, while archetypes bias the odds.
-    float simpleProbability = 0.34f;
-    float complexProbability = 0.20f;
+    float simpleProbability = 0.46f - 0.16f * juce::jlimit (0.0f, 1.0f, complexity);
+    float complexProbability = 0.10f + 0.17f * juce::jlimit (0.0f, 1.0f, complexity);
     switch (nativeArchetype)
     {
-        case 0: simpleProbability = 0.34f; complexProbability = 0.16f; break; // HOOK
-        case 1: simpleProbability = 0.30f; complexProbability = 0.20f; break; // GROOVE
-        case 2: simpleProbability = 0.32f; complexProbability = 0.18f; break; // HARMONY
-        case 3: simpleProbability = 0.40f; complexProbability = 0.16f; break; // MOTIF
-        case 4: simpleProbability = 0.58f; complexProbability = 0.08f; break; // MINIMAL
-        case 5: simpleProbability = 0.20f; complexProbability = 0.38f; break; // WEIRD
-        case 6: simpleProbability = 0.38f; complexProbability = 0.18f; break; // EMOTIONAL
-        default: simpleProbability = 0.28f; complexProbability = 0.26f; break; // WILDCARD
+        case 0: simpleProbability += 0.03f; complexProbability -= 0.02f; break; // HOOK
+        case 1: simpleProbability -= 0.01f; break; // GROOVE
+        case 2: simpleProbability += 0.01f; break; // HARMONY
+        case 3: simpleProbability += 0.05f; complexProbability -= 0.02f; break; // MOTIF
+        case 4: simpleProbability += 0.13f; complexProbability -= 0.06f; break; // MINIMAL
+        case 5: simpleProbability -= 0.10f; complexProbability += 0.10f; break; // WEIRD
+        case 6: simpleProbability += 0.04f; break; // EMOTIONAL
+        default: complexProbability += 0.03f; break; // WILDCARD
     }
+
+    simpleProbability = juce::jlimit (0.18f, 0.68f, simpleProbability);
+    complexProbability = juce::jlimit (0.08f, 0.38f, complexProbability);
+    if (simpleProbability + complexProbability > 0.90f)
+        complexProbability = juce::jmax (0.08f, 0.90f - simpleProbability);
 
     const uint32_t complexityRoll = hash32 (identitySeed ^ 0xA11CE55u) % 1000u;
     const int melodyComplexityClass =
@@ -7052,16 +7067,115 @@ MidiForgeAudioProcessor::MelodyFeatures MidiForgeAudioProcessor::melodyFeatures 
             if (m.front()->note==m.back()->note && m.size()<5) f.seam*=0.65f;
         }
 
-        // Register and surprise: a little controlled contrast is useful, but
-        // huge random jumps should not dominate the loop.
+        // Register and surprise: keep range diversity separate from where the
+        // phrase actually lives. Previously registerScore was effectively only
+        // pitch-span, so a melody could spread across a wide range and still sit
+        // uncomfortably high without being penalised.
         if (!m.empty())
         {
-            float mean=0; for(auto* n:m) mean+=(float)n->note; mean/=(float)m.size();
-            float spread=0; for(auto* n:m) spread+=std::abs((float)n->note-mean);
-            f.registerScore=juce::jlimit(0.0f,1.0f,(spread/(float)m.size())/14.0f);
-            int unusual=0;
-            for(size_t i=1;i<m.size();++i) if(std::abs(m[i]->note-m[i-1]->note)>=8) ++unusual;
-            f.surprise=juce::jlimit(0.0f,1.0f,(float)unusual/(float)juce::jmax<size_t>(1,m.size()-1));
+            float mean = 0.0f;
+            for (auto* n : m) mean += (float) n->note;
+            mean /= (float) m.size();
+
+            float spread = 0.0f;
+            for (auto* n : m) spread += std::abs ((float) n->note - mean);
+            f.registerScore = juce::jlimit (
+                0.0f, 1.0f, (spread / (float) m.size()) / 14.0f);
+
+            int laneLo = 48, laneHi = 90, ignoredLeap = 9;
+            melodyRegisterContract (laneLo, laneHi, ignoredLeap);
+            const float laneSpan = (float) juce::jmax (1, laneHi - laneLo);
+
+            // Electronic lead melodies generally feel more grounded when their
+            // centre sits below the midpoint of the playable lane. Profiles that
+            // intentionally sit higher (e.g. Bell) inherit their own lane shift.
+            const float preferredCenter = (float) laneLo + 0.38f * laneSpan;
+            const float centreDelta = mean - preferredCenter;
+            const float weightedDistance = centreDelta >= 0.0f
+                ? centreDelta * 1.35f
+                : -centreDelta * 0.85f;
+            f.registerCenter = 1.0f
+                - juce::jlimit (0.0f, 1.0f, weightedDistance / 18.0f);
+
+            // Local weak-spot score: a melody should not be judged only by its
+            // averages. Penalise isolated awkward transitions, unrecovered large
+            // jumps and pathological same-note runs, while allowing intentional
+            // expressive leaps when they resolve.
+            float weakness = 0.0f;
+            int transitionCount = 0;
+            int sameRun = 1;
+            for (size_t i = 1; i < m.size(); ++i)
+            {
+                ++transitionCount;
+                const int d = m[i]->note - m[i - 1]->note;
+                const int ad = std::abs (d);
+                float local = 0.0f;
+
+                if (ad >= 10)
+                {
+                    bool recoveredLeap = false;
+                    if (i + 1 < m.size())
+                    {
+                        const int next = m[i + 1]->note - m[i]->note;
+                        recoveredLeap = ((d > 0 && next < 0) || (d < 0 && next > 0))
+                                     && std::abs (next) <= 5;
+                    }
+                    local = recoveredLeap ? 0.15f : 0.72f;
+                }
+                else if (ad >= 8)
+                {
+                    local = 0.12f;
+                    if (i + 1 < m.size())
+                    {
+                        const int next = m[i + 1]->note - m[i]->note;
+                        const bool recovered =
+                            ((d > 0 && next < 0) || (d < 0 && next > 0))
+                            && std::abs (next) <= 5;
+                        if (! recovered)
+                            local = 0.48f;
+                    }
+                }
+                else if (ad <= 3 && ad > 0 && i >= 2)
+                {
+                    const int prevDelta = m[i - 1]->note - m[i - 2]->note;
+                    if (prevDelta != 0 && ((prevDelta > 0) != (d > 0)))
+                        local = 0.24f;
+                }
+
+                if (m[i]->note == m[i - 1]->note)
+                {
+                    ++sameRun;
+                    if (sameRun >= 3)
+                        local = juce::jmax (local, 0.58f);
+                }
+                else
+                {
+                    sameRun = 1;
+                }
+
+                weakness += local;
+            }
+            f.weakSpot = 1.0f - juce::jlimit (
+                0.0f, 1.0f, weakness / (float) juce::jmax (1, transitionCount));
+
+            const float observedComplexity = juce::jlimit (
+                0.0f, 1.0f,
+                0.34f * f.density
+                + 0.22f * f.leap
+                + 0.18f * f.rhythmIdentity
+                + 0.26f * (1.0f - f.repetition));
+            const float simplicityTarget = juce::jlimit (
+                0.18f, 0.72f, 0.56f - 0.26f * juce::jlimit (0.0f, 1.0f, complexity));
+            f.simplicity = 1.0f - juce::jlimit (
+                0.0f, 1.0f, std::abs (observedComplexity - simplicityTarget) / 0.52f);
+
+            int unusual = 0;
+            for (size_t i = 1; i < m.size(); ++i)
+                if (std::abs (m[i]->note - m[i - 1]->note) >= 8)
+                    ++unusual;
+            f.surprise = juce::jlimit (
+                0.0f, 1.0f,
+                (float) unusual / (float) juce::jmax<size_t> (1, m.size() - 1));
         }
 
         // Reward intentional space and a memorable amount of repetition, but
@@ -9739,8 +9853,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.07f * composerGrammarQuality;
         quality += 0.07f * melodicProsodyQuality;
         quality += 0.08f * creativeRangeQuality;
-        quality += 0.05f*f.registerScore;
-        quality += 0.05f*f.surprise;
+        quality += 0.05f * f.registerScore;
+        quality += 0.07f * f.registerCenter;
+        quality += 0.05f * f.simplicity;
+        quality += 0.05f * f.surprise;
+        quality -= 0.12f * (1.0f - f.weakSpot);
 
         // 0.61 Tempo Feel Judge: score the generated loop in the same temporal
         // language that the generator used. The old judge rewarded progressively
@@ -9919,6 +10036,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         quality += 0.10f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.density-genreDensityTarget)));
         quality += 0.06f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.space-genreSpaceTarget)));
         quality += 0.04f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.registerScore-genreRegisterTarget)));
+        quality += 0.035f * f.registerCenter;
         quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.leap-genreLeapTarget)));
         quality += 0.045f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.rhythmIdentity-genreRhythmTarget)));
         quality += 0.040f * (1.0f - juce::jlimit(0.0f,1.0f,std::abs(f.motifIdentity-genreMotifTarget)));
