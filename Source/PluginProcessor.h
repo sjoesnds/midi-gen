@@ -245,7 +245,8 @@ struct MelodyFeatures
 {
     float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
     float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, tensionArc=0,
-          stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f,
+          stepPenalty=0, registerScore=0, registerCenter=0.5f, weakSpot=0.5f,
+          simplicity=0.5f, surprise=0, context=0.5f, velocity=0.5f,
           noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
 };
 
