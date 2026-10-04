@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForge VERSION 0.80.0)
+project(MidiForge VERSION 0.82.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -45,7 +45,7 @@ target_sources(MidiForge PRIVATE
 juce_generate_juce_header(MidiForge)
 
 target_compile_features(MidiForge PRIVATE cxx_std_17)
-target_compile_definitions(MidiForge PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_compile_definitions(MidiForge PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 MIDIFORGE_ENGINE_VERSION=\"${PROJECT_VERSION}\")
 
 if (MSVC)
     # Исходники содержат кириллические комментарии (UTF-8) — без этого флага
