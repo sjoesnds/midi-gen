@@ -10299,6 +10299,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             // Safety is outside the Forge rollback. A score regression may undo
             // a stylistic transform, but it must never undo tonal/register safety.
             applyMelodyFoundation (flat, transformationSeeds[sourceIndex]);
+            enforceFinalMelodyContract (flat, transformationSeeds[sourceIndex]);
             removeDuplicateNotes (flat.notes);
             cleanMelodyLine (flat.notes);
             std::sort (flat.notes.begin(), flat.notes.end(),
