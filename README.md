@@ -2,15 +2,17 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.85.0**
+**Current version: 0.85.1**
 
-### 0.85.0 — Musical Quality & Phrase Intelligence
+### 0.85.1 — Musical Quality & Phrase Intelligence
 - Judge calibration now separates **register width** from **register position**. A melody that spans a healthy range but sits unnecessarily high is penalised directly, with sound-profile-aware register targets.
 - Added a **local weak-spot** judge that penalises unrecovered large jumps, pathological same-note runs and small zig-zag transitions instead of relying only on whole-loop averages.
 - Simple / Medium / Complex selection now responds materially to the **Complexity** control. The default search includes a larger simple-phrase population while still preserving a minority of complex and weird ideas.
 - Candidate ranking now rewards the new register-centre and simplicity signals and applies the weak-spot penalty before the final diversity gate.
 - **Phrase Contrast 2.0** replaces the old "maximal difference" B-bar heuristic with a balanced contrast target: recognizable motif identity plus controlled changes in rhythm, contour direction and register.
 - QA now checks that B phrases land in a useful contrast band instead of rewarding arbitrarily dissimilar material.
+- **Closure Judge 2.0** evaluates the final seam as a real phrase ending: seam distance, release tail, final-bar placement, approach gesture and harmonic landing are scored together.
+- QA now checks real generated endings for extreme seam jumps, missing final-bar material and obviously truncated tails.
 - No new UI controls; this stage only recalibrates the existing MIDI generation and judge pipeline.
 
 
