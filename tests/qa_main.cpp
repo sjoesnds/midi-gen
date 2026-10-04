@@ -261,43 +261,53 @@ int main()
         for (int pass = 0; pass < 48; ++pass)
         {
             p.magicRandomize();
-            auto notes = p.getVisibleNotes();
-            std::sort (notes.begin(), notes.end(), [] (const auto& a, const auto& b)
+            const bool ostinato = p.getMelodyType() == MidiForgeAudioProcessor::OstinatoMelody;
+            const int variationCount = p.getVariationCount();
+
+            for (int variation = 0; variation < variationCount; ++variation)
             {
-                if (a.channel != b.channel) return a.channel < b.channel;
-                return a.step < b.step;
-            });
+                p.chooseVariation (variation);
+                auto notes = p.getVisibleNotes();
+                std::sort (notes.begin(), notes.end(), [] (const auto& a, const auto& b)
+                {
+                    if (a.channel != b.channel) return a.channel < b.channel;
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
 
-            int previous = -1;
-            int sameRun = 1;
-            bool hadMelody = false;
-            for (const auto& n : notes)
-            {
-                if (n.channel != 3)
-                    continue;
+                int previous = -1;
+                int sameRun = 1;
+                bool hadMelody = false;
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3)
+                        continue;
 
-                ++checkedMelodyNotes;
-                hadMelody = true;
+                    ++checkedMelodyNotes;
+                    hadMelody = true;
 
-                if (p.snapPitchToScale (n.note) != n.note)
-                    ++badScaleNotes;
+                    if (p.snapPitchToScale (n.note) != n.note)
+                        ++badScaleNotes;
 
-                if (previous >= 0 && std::abs (n.note - previous) > 9)
-                    ++badLeaps;
+                    if (previous >= 0 && std::abs (n.note - previous) > 9)
+                        ++badLeaps;
 
-                if (previous >= 0 && n.note == previous)
-                    ++sameRun;
-                else
-                    sameRun = 1;
+                    if (previous >= 0 && n.note == previous)
+                        ++sameRun;
+                    else
+                        sameRun = 1;
 
-                if (sameRun >= 3)
+                    if (! ostinato && sameRun >= 3)
+                        ++badRepeatRuns;
+
+                    previous = n.note;
+                }
+
+                if (!hadMelody && !ostinato)
                     ++badRepeatRuns;
-
-                previous = n.note;
             }
 
-            if (!hadMelody)
-                ++badRepeatRuns;
+            p.chooseVariation (0);
         }
 
         report ("Melody remains scale-safe",
