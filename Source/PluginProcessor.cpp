@@ -1197,32 +1197,6 @@ void MidiForgeAudioProcessor::applyMelodyExpression (Section& section, uint32_t 
         return juce::jlimit (lo, hi, snapToScale (pitch));
     };
 
-    auto nearestChordTone = [&] (int bar, int pitch) -> int
-    {
-        int best = pitch;
-        int bestDistance = 999;
-        for (const auto& n : section.notes)
-        {
-            if (n.channel != 1 || n.step / 16 != bar)
-                continue;
-
-            for (int oct = -2; oct <= 2; ++oct)
-            {
-                const int candidate = n.note + 12 * oct;
-                if (candidate < 40 || candidate > 104)
-                    continue;
-
-                const int distance = std::abs (candidate - pitch);
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = candidate;
-                }
-            }
-        }
-        return best;
-    };
-
     static const int gestures[8][5] =
     {
         { -1,  2,  5,  2, -1 }, // arch
@@ -1339,17 +1313,10 @@ void MidiForgeAudioProcessor::applyMelodyExpression (Section& section, uint32_t 
                 target += juce::roundToInt (
                     (float) gestures[gestureId][gestureSlot] * gestureWeight);
 
-                // Strong beats remain harmonically grounded, but the line is not
-                // forced onto chord tones on every event.
-                const bool strong = (n.step % 4) == 0;
-                if (strong || n.length >= 4)
-                {
-                    const int chordTarget = nearestChordTone (absoluteBar, target);
-                    const float chordBlend = role == 2 ? 0.12f : 0.22f;
-                    target = juce::roundToInt (
-                        (1.0f - chordBlend) * (float) target
-                        + chordBlend * (float) chordTarget);
-                }
+                // Harmonic Intelligence has already supplied the harmonic context.
+                // Expression is deliberately harmony-neutral: strong beats may carry
+                // scale tones, tensions, passing tones and non-chord accents as chosen
+                // upstream. Do not silently re-voice them into an arpeggio here.
 
                 // Give the B peak a genuine register change rather than only a
                 // single-note random jump. The surrounding note remains useful.
