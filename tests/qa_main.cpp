@@ -2363,6 +2363,98 @@ int main()
         report ("melody variety: moderate same-pitch repeats", repeatShare < 0.27, fmt ("%.0f%% of intervals are repeats (was ~35-40%%)", 100.0 * repeatShare));
     }
 
+
+    // ------------------------------------------------------------------ 15. local melody quality 2.0 (0.85.2)
+    {
+        int loops = 0;
+        int loopsWithSevereSpot = 0;
+        int totalSevereSpots = 0;
+        int totalLongScalarRuns = 0;
+        int totalLongSameRuns = 0;
+
+        for (int sd = 0; sd < 64; ++sd)
+        {
+            MidiForgeAudioProcessor a;
+            a.setFeedbackLogFile (juce::File());
+            a.setSeed (13000 + sd * 37);
+            auto mel = a.getVisibleNotes();
+            std::vector<int> pitches;
+            for (const auto& n : mel)
+                if (n.channel == 3)
+                    pitches.push_back (n.note);
+
+            if (pitches.size() < 4)
+                continue;
+
+            std::stable_sort (pitches.begin(), pitches.end());
+            int severe = 0;
+            int scalarRun = 1, scalarRuns = 0;
+            int sameRun = 1, sameRuns = 0;
+
+            for (size_t i = 1; i < pitches.size(); ++i)
+            {
+                const int d = pitches[i] - pitches[i - 1];
+                const int ad = std::abs (d);
+
+                if (ad >= 10)
+                {
+                    bool recovered = false;
+                    if (i + 1 < pitches.size())
+                    {
+                        const int next = pitches[i + 1] - pitches[i];
+                        recovered = ((d > 0 && next < 0) || (d < 0 && next > 0))
+                            && std::abs (next) <= 5;
+                    }
+                    if (! recovered) ++severe;
+                }
+
+                if (i >= 2)
+                {
+                    const int prev = pitches[i - 1] - pitches[i - 2];
+                    if (std::abs (prev) <= 2 && std::abs (d) <= 2 && prev != 0 && d != 0
+                        && ((prev > 0) == (d > 0)))
+                        ++scalarRun;
+                    else
+                    {
+                        if (scalarRun >= 5) ++scalarRuns;
+                        scalarRun = 1;
+                    }
+
+                    if (std::abs (prev) <= 2 && std::abs (d) <= 2 && prev != 0 && d != 0
+                        && ((prev > 0) != (d > 0)))
+                        ++sameRun;
+                    else
+                    {
+                        if (sameRun >= 5) ++sameRuns;
+                        sameRun = 1;
+                    }
+                }
+            }
+
+            if (scalarRun >= 5) ++scalarRuns;
+            if (sameRun >= 5) ++sameRuns;
+
+            if (severe > 0) ++loopsWithSevereSpot;
+            totalSevereSpots += severe;
+            totalLongScalarRuns += scalarRuns;
+            totalLongSameRuns += sameRuns;
+            ++loops;
+        }
+
+        report ("local quality: severe unrecovered leaps stay rare",
+                loops >= 48 && totalSevereSpots <= 8,
+                fmt ("%.0f loops, %.0f severe spots", (double) loops, (double) totalSevereSpots));
+        report ("local quality: long scalar walks stay controlled",
+                loops >= 48 && totalLongScalarRuns <= 20,
+                fmt ("%.0f long scalar runs", (double) totalLongScalarRuns));
+        report ("local quality: mechanical tiny zig-zags stay controlled",
+                loops >= 48 && totalLongSameRuns <= 20,
+                fmt ("%.0f long zig-zag runs", (double) totalLongSameRuns));
+        report ("local quality: no seed batch is dominated by severe local failures",
+                loops >= 48 && loopsWithSevereSpot <= 12,
+                fmt ("%.0f / %.0f loops with severe spots", (double) loopsWithSevereSpot, (double) loops));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
