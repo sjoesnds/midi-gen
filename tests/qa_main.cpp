@@ -2386,7 +2386,16 @@ int main()
             if (pitches.size() < 4)
                 continue;
 
-            std::stable_sort (pitches.begin(), pitches.end());
+            std::stable_sort (mel.begin(), mel.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            pitches.clear();
+            for (const auto& n : mel)
+                if (n.channel == 3)
+                    pitches.push_back (n.note);
             int severe = 0;
             int scalarRun = 1, scalarRuns = 0;
             int sameRun = 1, sameRuns = 0;
