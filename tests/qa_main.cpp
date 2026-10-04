@@ -562,6 +562,7 @@ int main()
         p.setSoundTarget (0);
         p.setDrumsEnabled (false);
         int structured = 0, aPrimeGood = 0, bContrastGood = 0, returnGood = 0, validLoops = 0;
+        int balancedContrastGood = 0;
         for (int loop = 0; loop < 45; ++loop)
         {
             p.magicRandomize();
@@ -579,8 +580,49 @@ int main()
             const double contrast = 1.0 - similarity (bar0, bar2);
             const double ret = similarity (bar0, bar3);
 
+            // 0.85 Phrase Contrast 2.0: B should not win merely by becoming
+            // maximally different. Check for a useful mix of rhythmic,
+            // directional and register contrast while retaining the motif.
+            const size_t bn = std::min (bar0.size(), bar2.size());
+            int rhythmMatches = 0;
+            int directionMatches = 0;
+            for (size_t i = 0; i < bn; ++i)
+            {
+                if (std::abs ((bar0[i].step % 16) - (bar2[i].step % 16)) <= 1)
+                    ++rhythmMatches;
+                if (i > 0)
+                {
+                    const int da = bar0[i].note - bar0[i - 1].note;
+                    const int db = bar2[i].note - bar2[i - 1].note;
+                    if (da != 0 && db != 0 && ((da > 0) == (db > 0)))
+                        ++directionMatches;
+                }
+            }
+
+            double registerContrast = 0.0;
+            if (!bar0.empty() && !bar2.empty())
+            {
+                double mean0 = 0.0, mean2 = 0.0;
+                for (const auto& n : bar0) mean0 += n.note;
+                for (const auto& n : bar2) mean2 += n.note;
+                mean0 /= (double) bar0.size();
+                mean2 /= (double) bar2.size();
+                registerContrast = std::min (1.0, std::abs (mean2 - mean0) / 10.0);
+            }
+
+            const double rhythmSimilarity =
+                (double) rhythmMatches / (double) std::max<size_t> (1, bn);
+            const double directionSimilarity =
+                (double) directionMatches / (double) std::max<size_t> (1, bn > 0 ? bn - 1 : 1);
+            const double balancedContrast =
+                0.40 * (1.0 - rhythmSimilarity)
+                + 0.35 * (1.0 - directionSimilarity)
+                + 0.25 * registerContrast;
+
             if (ap >= 0.42) ++aPrimeGood;
             if (contrast >= 0.10) ++bContrastGood;
+            if (balancedContrast >= 0.22 && balancedContrast <= 0.86)
+                ++balancedContrastGood;
             if (ret >= 0.42) ++returnGood;
             if (ap >= 0.42 && contrast >= 0.10 && ret >= 0.42)
                 ++structured;
@@ -596,6 +638,9 @@ int main()
         report ("B introduces controlled contrast",
                 validLoops >= 12 && (double) bContrastGood >= 0.53 * nv,
                 fmt ("%.0f / %.0f loops with material", (double) bContrastGood, (double) validLoops));
+        report ("B uses balanced rather than maximal contrast",
+                validLoops >= 12 && (double) balancedContrastGood >= 0.50 * nv,
+                fmt ("%.0f / %.0f loops in the useful contrast band", (double) balancedContrastGood, (double) validLoops));
         report ("A'' returns to the original identity",
                 validLoops >= 12 && (double) returnGood >= 0.44 * nv,
                 fmt ("%.0f / %.0f loops with material", (double) returnGood, (double) validLoops));
