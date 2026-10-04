@@ -343,6 +343,80 @@ int main()
                 fmt ("%.0f runs of 3+ identical notes", badRepeatRuns));
     }
 
+    // ------------------------------------------------------------------ 0.85 Musical Judge Calibration
+    // Regression checks for register position and complexity-class selection.
+    {
+        auto samplePopulation = [&] (float complexityValue, uint32_t seedBase)
+        {
+            double simpleShare = 0.0;
+            double meanPitch = 0.0;
+            int populatedBars = 0;
+            int simpleBars = 0;
+            int pitchSamples = 0;
+
+            p.setBars (4);
+            p.setSoundTarget (0);
+            p.setMelodyType (MidiForgeAudioProcessor::PhraseMelody);
+            p.setComplexity (complexityValue, false);
+
+            for (int seed = 0; seed < 32; ++seed)
+            {
+                p.setSeed ((int) (seedBase + (uint32_t) seed));
+                p.regenerate ();
+
+                std::array<int, 4> counts {};
+                std::vector<int> melody;
+                for (const auto& n : p.getVisibleNotes ())
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    melody.push_back (n.note);
+                    const int bar = n.step / 16;
+                    if (bar >= 0 && bar < 4)
+                        ++counts[(size_t) bar];
+                }
+
+                for (const int count : counts)
+                {
+                    if (count > 0)
+                    {
+                        ++populatedBars;
+                        if (count >= 2 && count <= 4)
+                            ++simpleBars;
+                    }
+                }
+
+                if (! melody.empty ())
+                {
+                    double total = 0.0;
+                    for (const int note : melody)
+                        total += note;
+                    meanPitch += total / (double) melody.size ();
+                    ++pitchSamples;
+                }
+            }
+
+            simpleShare = populatedBars > 0
+                ? (double) simpleBars / (double) populatedBars : 0.0;
+            const double averagePitch = pitchSamples > 0
+                ? meanPitch / (double) pitchSamples : 0.0;
+            return std::pair<double, double> { simpleShare, averagePitch };
+        };
+
+        const auto low = samplePopulation (0.15f, 7100u);
+        const auto high = samplePopulation (0.85f, 8100u);
+
+        report ("0.85 complexity control changes simple-phrase share",
+                low.first > high.first + 0.06,
+                fmt ("low complexity %.0f%% simple bars vs high %.0f%%",
+                     100.0 * low.first, 100.0 * high.first));
+
+        report ("0.85 default melody register stays grounded",
+                high.second < 75.5,
+                fmt ("high-complexity sample mean pitch %.1f", high.second));
+    }
+
     // ------------------------------------------------------------------ 0. Creative Range
     {
         const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
