@@ -4336,9 +4336,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         { 0,  2, -1,  2 }  // off-centre hook
     };
     const int simpleHookShape =
-        (int) (hash32 (identitySeed ^ 0xCATCH001u) % 8u);
+        (int) (hash32 (identitySeed ^ 0xCA7C001u) % 8u);
     const int simpleHookLength =
-        2 + (int) (hash32 (identitySeed ^ 0xCATCH002u) % 3u);
+        2 + (int) (hash32 (identitySeed ^ 0xCA7C002u) % 3u);
     const float simpleHookBlend =
         simpleCandidate ? 0.74f : 0.0f;
 
