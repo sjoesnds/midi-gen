@@ -446,6 +446,8 @@ int snapToScale(int midi) const;
 void registerLane (int part, int& lo, int& hi) const;
 // Unified melodic register contract used by all final melodic safety stages.
 // Returns the playable MIDI range and the maximum preferred leap for the active sound profile.
+// Role-aware melodic lane shared by the composer and post-processing stages.
+void melodyCoreLane (int& lo, int& hi) const;
 void melodyRegisterContract (int& lo, int& hi, int& maxLeap) const;
 bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
