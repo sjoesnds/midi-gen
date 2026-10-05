@@ -9026,8 +9026,23 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
         Section flat;
         flat.name="CANDIDATE "+juce::String(candidateIndex+1);
         flat.bars=0;
+
+        // 0.85.7 Character Integrity: preserve the latent melodic family
+        // assigned during generation when flatten() creates the candidate Section.
+        // If a future multi-section song mixes families, do not invent one identity.
+        int flattenedCharacter = -1;
+        bool mixedCharacters = false;
+
         for(const auto& sec:song.sections)
         {
+            if (sec.melodyCharacter >= 0)
+            {
+                if (flattenedCharacter < 0)
+                    flattenedCharacter = sec.melodyCharacter;
+                else if (flattenedCharacter != sec.melodyCharacter)
+                    mixedCharacters = true;
+            }
+
             const int sectionBarsBefore=flat.bars;
             flat.bars+=sec.bars;
             for(auto n:sec.notes)
@@ -9082,6 +9097,11 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
             }
         }
         juce::ignoreUnused(local);
+
+        // The current generator uses one section, so this preserves the exact
+        // generated character. Mixed multi-section songs have no single identity.
+        flat.melodyCharacter = mixedCharacters ? -1 : flattenedCharacter;
+
         removeDuplicateNotes(flat.notes);
         cleanMelodyLine(flat.notes);
         return flat;
