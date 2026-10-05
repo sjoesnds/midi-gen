@@ -116,6 +116,137 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     p.harmonyPersonality = pick (mix32 (h1 ^ h2 ^ 0x2545F491u), 8);
     p.durationStyle = pick (mix32 (h0 ^ h2 ^ 0x5E2D58D8u), 6);
 
+    // 0.86.x Mood Authority:
+    // Mood must choose the actual melodic vocabulary before the generic creative
+    // randomizer gets to shape the phrase. Previously contour / interval / rhythm /
+    // register families were almost fully identity-random, so a declared mood could
+    // easily lose to an unrelated melodic language.
+    auto pickFrom = [] (uint32_t seed, const int* values, int count) -> int
+    {
+        return count > 0 ? values[mix32 (seed) % (uint32_t) count] : 0;
+    };
+
+    static constexpr int moodContour[9][6] =
+    {
+        { 0, 1, 2, 3, 10, 12 }, // Neutral
+        { 9, 11, 15, 16, 17, 3 }, // Dark
+        { 2, 5, 9, 11, 15, 3 }, // Melancholic
+        { 1, 4, 12, 13, 14, 17 }, // Euphoric
+        { 6, 7, 12, 16, 17, 10 }, // Aggressive
+        { 3, 4, 5, 13, 14, 8 }, // Dreamy
+        { 0, 2, 3, 10, 13, 15 }, // Nostalgic
+        { 8, 9, 11, 15, 17, 6 }, // Mysterious
+        { 1, 6, 12, 14, 16, 17 }  // Energetic
+    };
+    static constexpr int moodInterval[9][6] =
+    {
+        { 0, 1, 2, 4, 6, 8 }, // Neutral
+        { 3, 7, 9, 10, 11, 4 }, // Dark
+        { 1, 4, 7, 9, 11, 0 }, // Melancholic
+        { 1, 2, 5, 6, 8, 10 }, // Euphoric
+        { 3, 5, 6, 7, 10, 11 }, // Aggressive
+        { 0, 1, 4, 7, 9, 2 }, // Dreamy
+        { 0, 1, 4, 9, 2, 6 }, // Nostalgic
+        { 3, 7, 9, 10, 11, 6 }, // Mysterious
+        { 2, 5, 6, 8, 10, 1 }  // Energetic
+    };
+    static constexpr int moodRhythm[9][6] =
+    {
+        { 0, 2, 4, 17, 22, 25 }, // Neutral
+        { 4, 5, 17, 18, 20, 24 }, // Dark
+        { 4, 5, 6, 22, 28, 30 }, // Melancholic
+        { 1, 3, 8, 14, 15, 23 }, // Euphoric
+        { 8, 9, 10, 11, 13, 24 }, // Aggressive
+        { 4, 5, 6, 22, 25, 29 }, // Dreamy
+        { 0, 2, 4, 5, 17, 21 }, // Nostalgic
+        { 2, 5, 13, 17, 20, 27 }, // Mysterious
+        { 1, 3, 8, 9, 14, 15 }  // Energetic
+    };
+    static constexpr int moodRepeat[9][6] =
+    {
+        { 0, 1, 2, 3, 4, 5 },
+        { 3, 4, 5, 6, 2, 1 },
+        { 4, 5, 6, 2, 3, 1 },
+        { 0, 1, 2, 3, 5, 4 },
+        { 0, 1, 2, 5, 6, 3 },
+        { 3, 4, 5, 6, 2, 1 },
+        { 2, 3, 4, 5, 6, 1 },
+        { 1, 2, 3, 5, 6, 0 },
+        { 0, 1, 2, 3, 5, 6 }
+    };
+    static constexpr int moodRegister[9][6] =
+    {
+        { 0, 1, 2, 3, 4, 5 },
+        { 2, 4, 6, 7, 2, 6 }, // darker / descending / sudden-peak
+        { 2, 4, 6, 7, 2, 4 }, // mostly falling / peak-release
+        { 1, 3, 5, 7, 1, 3 }, // rising / peak
+        { 5, 6, 7, 3, 5, 6 }, // wide orbit / sudden peak
+        { 3, 5, 7, 1, 3, 5 }, // floating / peak
+        { 0, 1, 3, 5, 0, 3 }, // familiar / gently rising
+        { 2, 6, 7, 4, 2, 6 }, // low / orbit / sudden peak
+        { 1, 3, 5, 6, 7, 1 }  // rising / peak / orbit
+    };
+    static constexpr int moodDuration[9][6] =
+    {
+        { 0, 1, 2, 3, 4, 5 },
+        { 2, 3, 4, 5, 2, 4 },
+        { 3, 4, 5, 2, 3, 5 },
+        { 0, 1, 2, 4, 5, 1 },
+        { 0, 1, 2, 4, 5, 0 },
+        { 3, 4, 5, 2, 3, 4 },
+        { 2, 3, 4, 5, 2, 3 },
+        { 2, 3, 5, 4, 2, 5 },
+        { 0, 1, 2, 4, 5, 1 }
+    };
+
+    const int safeMood = std::clamp (mood, 0, 8);
+    p.contourFamily = pickFrom (identity ^ 0xA01u, moodContour[safeMood], 6);
+    p.intervalFamily = pickFrom (identity ^ 0xA02u, moodInterval[safeMood], 6);
+    p.rhythmFamily = pickFrom (identity ^ 0xA03u, moodRhythm[safeMood], 6);
+    p.repetitionStyle = pickFrom (identity ^ 0xA04u, moodRepeat[safeMood], 6);
+    p.registerJourney = pickFrom (identity ^ 0xA05u, moodRegister[safeMood], 6);
+    p.durationStyle = pickFrom (identity ^ 0xA06u, moodDuration[safeMood], 6);
+
+    // Mood authority on continuous behavior. These are strong enough to be
+    // audible, but still leave room for genre / melody type / seed variation.
+    switch (safeMood)
+    {
+        case 1: // Dark
+            p.space = 0.62f; p.leapBias = 0.54f; p.repetition = 0.64f;
+            p.novelty = 0.54f; p.asymmetry = 0.62f; p.durationContrast = 0.68f;
+            break;
+        case 2: // Melancholic
+            p.space = 0.72f; p.leapBias = 0.24f; p.repetition = 0.72f;
+            p.novelty = 0.40f; p.asymmetry = 0.34f; p.durationContrast = 0.78f;
+            break;
+        case 3: // Euphoric
+            p.space = 0.32f; p.leapBias = 0.40f; p.repetition = 0.50f;
+            p.novelty = 0.62f; p.asymmetry = 0.50f; p.durationContrast = 0.54f;
+            break;
+        case 4: // Aggressive
+            p.space = 0.28f; p.leapBias = 0.72f; p.repetition = 0.42f;
+            p.novelty = 0.72f; p.asymmetry = 0.78f; p.durationContrast = 0.44f;
+            break;
+        case 5: // Dreamy
+            p.space = 0.80f; p.leapBias = 0.20f; p.repetition = 0.62f;
+            p.novelty = 0.46f; p.asymmetry = 0.28f; p.durationContrast = 0.86f;
+            break;
+        case 6: // Nostalgic
+            p.space = 0.58f; p.leapBias = 0.28f; p.repetition = 0.76f;
+            p.novelty = 0.34f; p.asymmetry = 0.24f; p.durationContrast = 0.60f;
+            break;
+        case 7: // Mysterious
+            p.space = 0.70f; p.leapBias = 0.52f; p.repetition = 0.48f;
+            p.novelty = 0.68f; p.asymmetry = 0.72f; p.durationContrast = 0.74f;
+            break;
+        case 8: // Energetic
+            p.space = 0.24f; p.leapBias = 0.58f; p.repetition = 0.46f;
+            p.novelty = 0.70f; p.asymmetry = 0.68f; p.durationContrast = 0.46f;
+            break;
+        default:
+            break;
+    }
+
     // Register language is intentionally expressed as a bias plus a journey shape.
     // This lets the widened pitch lane remain optional rather than mandatory.
     static constexpr int registerBiasTable[8] = { 0, 3, -3, 5, -5, 2, -2, 1 };
