@@ -458,7 +458,6 @@ if(d<bestDist){bestDist=d;best=n;}
 return juce::jlimit(0,127,best);
 }
 
-
 float MidiForgeAudioProcessor::melodyPleasantnessScore (const Section& section) const
 {
     std::vector<const NoteEvent*> melody;
@@ -1176,7 +1175,6 @@ void MidiForgeAudioProcessor::applyRhythmGrammar (Section& section, uint32_t ide
     cleanMelodyLine (section.notes);
 }
 
-
 void MidiForgeAudioProcessor::applyMelodyExpression (Section& section, uint32_t identity) const
 {
     // 0.67 Expressive Melody Engine:
@@ -1539,7 +1537,6 @@ float MidiForgeAudioProcessor::melodyExpressionScore (const Section& section) co
         + 0.13f * velocityShape
         + 0.10f * juce::jlimit (0.0f, 1.0f, (float) intervals / 12.0f));
 }
-
 
 void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t identity) const
 {
@@ -2167,7 +2164,6 @@ float MidiForgeAudioProcessor::harmonicIntelligenceScore (const Section& section
         + 0.16f * distributionFit
         + 0.10f * diversityFit);
 }
-
 
 void MidiForgeAudioProcessor::applyPhraseMemory4 (Section& section, uint32_t identity) const
 {
@@ -3582,7 +3578,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     dnaSync = juce::jlimit (0.0f, 1.0f, dnaSync + character.syncBias);
     dnaMotif = juce::jlimit (0.0f, 1.0f, dnaMotif + character.motifBias);
     dnaRegister = juce::jlimit (0.0f, 1.0f, dnaRegister + character.registerBias);
-
 
     // 0.83.0 Simple / Medium / Complex: complexity is now a real
     // composition class instead of a binary "simple vs everything else".
@@ -5466,163 +5461,6 @@ MidiForgeAudioProcessor::extractPhraseMotif (const Section& section, int phraseS
     return motif;
 }
 
-void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOffset,
-                                                    const PhraseMotif& motif) const
-{
-    if (motif.relativePitches.empty())
-        return;
-
-    const int role = barOffset & 3; // A, A', B, A''
-    if (role == 0)
-        return;
-
-    const bool simpleIntent = section.melodyComplexityClass == 0;
-
-    const int start = barOffset * 16;
-    const int end = start + 16;
-
-    std::vector<NoteEvent*> current;
-    for (auto& n : section.notes)
-        if (n.channel == 3 && n.step >= start && n.step < end)
-            current.push_back (&n);
-
-    if (current.empty())
-        return;
-
-    std::sort (current.begin(), current.end(),
-               [](const NoteEvent* a, const NoteEvent* b) { return a->step < b->step; });
-
-    const auto nearestMotifIndex = [&](size_t i) -> size_t
-    {
-        if (current.size() <= 1 || motif.relativePitches.size() <= 1)
-            return 0;
-        const double t = (double) i / (double) (current.size() - 1);
-        return (size_t) juce::jlimit (
-            0,
-            (int) motif.relativePitches.size() - 1,
-            juce::roundToInt (t * (double) (motif.relativePitches.size() - 1)));
-    };
-
-    const auto snapInMelodyLane = [&](int pitch) -> int
-    {
-        int lo = 62, hi = 86;
-        melodyCoreLane (lo, hi);
-        pitch = juce::jlimit (lo, hi, pitch);
-        return juce::jlimit (lo, hi, snapToScale (pitch));
-    };
-
-    const int firstPitch = current.front()->note;
-
-    for (size_t i = 0; i < current.size(); ++i)
-    {
-        NoteEvent& n = *current[i];
-        const size_t mi = nearestMotifIndex (i);
-        int target = firstPitch + motif.relativePitches[mi];
-
-        if (role == 2)
-        {
-            // B = contrast. Complex lines can invert the motif; simple lines
-            // keep the same contour and only move the answer slightly.
-            if (simpleIntent)
-            {
-                target = firstPitch + juce::roundToInt (
-                    0.35f * (float) motif.relativePitches[mi]);
-            }
-            else
-            {
-                target = firstPitch - motif.relativePitches[mi];
-                if (i > 0 && i + 1 < current.size())
-                    target += (i & 1u) ? -2 : 3;
-            }
-        }
-
-        const float strength = simpleIntent
-            ? (role == 1 ? 0.34f : role == 2 ? 0.12f : 0.40f)
-            : (role == 1 ? 0.58f : role == 2 ? 0.22f : 0.72f);
-        const int blended = juce::roundToInt ((float) n.note * (1.0f - strength)
-                                              + (float) target * strength);
-        n.note = snapInMelodyLane (blended);
-
-        if (role == 1)
-        {
-            // A' keeps the identity but changes sustain/accent detail.
-            if (mi < motif.lengths.size() && (i & 1u) == 0)
-                n.length = juce::jlimit (1, 4,
-                    juce::roundToInt (0.70f * (float) n.length
-                                      + 0.30f * (float) motif.lengths[mi]));
-            if ((i & 3u) == 1)
-                n.velocity = juce::jlimit (40, 118, n.velocity + 4);
-        }
-
-        if (role == 2 && i == current.size() / 2)
-        {
-            // B gets the phrase peak instead of being louder everywhere.
-            n.note = snapInMelodyLane (n.note + (simpleIntent ? 1 : 3));
-            n.velocity = juce::jlimit (40, 118, n.velocity + (simpleIntent ? 3 : 7));
-            n.length = juce::jmin (4, n.length + 1);
-        }
-    }
-
-    if (role == 3)
-    {
-        // A'' gets an actual answer/cadence. Resolve the final melodic note
-        // toward the current chord's root or third, choosing the closer option.
-        NoteEvent& last = *current.back();
-        const auto prog = progressionDegrees();
-        if (!prog.empty())
-        {
-            const int degree = prog[(size_t) (barOffset % (int) prog.size())];
-            int lo = 62, hi = 86;
-            melodyCoreLane (lo, hi);
-
-            auto inLane = [&](int p)
-            {
-                while (p < lo) p += 12;
-                while (p > hi) p -= 12;
-                return juce::jlimit (lo, hi, snapToScale (p));
-            };
-
-            const int root = inLane (degreeToPitch (degree, octave));
-            const int third = inLane (degreeToPitch (degree + 2, octave));
-
-            // 0.58.1: cadence is no longer mandatory on every loop. A controlled
-            // minority of phrases ends on a tense scale tone and lets the loop
-            // resolve on the next cycle instead of sounding permanently "nice".
-            const uint32_t cadenceHash = hash32 (generationSeed
-                ^ (uint32_t) (barOffset * 97 + melodyType * 31 + 0xCADA));
-            const float unresolvedChance = juce::jlimit (0.10f, 0.36f,
-                0.10f + 0.14f * dnaSurprise + 0.10f * ((cadenceHash >> 8) % 100u) / 100.0f);
-
-            if ((float) (cadenceHash % 1000u) / 1000.0f < unresolvedChance)
-            {
-                int tension = last.note;
-                int bestDist = 1000;
-                for (int td : { degree + 1, degree + 3, degree + 6 })
-                {
-                    const int raw = degreeToPitch (td, octave);
-                    for (int k = -2; k <= 2; ++k)
-                    {
-                        const int cand = inLane (raw + k * 12);
-                        if (std::abs (cand - last.note) < bestDist)
-                        {
-                            bestDist = std::abs (cand - last.note);
-                            tension = cand;
-                        }
-                    }
-                }
-                last.note = tension;
-                last.length = juce::jlimit (1, 3, juce::jmax (last.length, 1));
-            }
-            else
-            {
-                last.note = (std::abs(root - last.note) <= std::abs(third - last.note)) ? root : third;
-                last.length = juce::jlimit (2, 4, juce::jmax (last.length, 2));
-            }
-            last.velocity = juce::jlimit (40, 118, last.velocity + 3);
-        }
-    }
-}
-
 void MidiForgeAudioProcessor::addArp(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
 if(arpDensity<=0.001f)return;
@@ -6172,9 +6010,6 @@ float MidiForgeAudioProcessor::phraseContrastScore (const Section& section, uint
     return juce::jlimit (0.0f, 1.0f, score);
 }
 
-
-
-
 float MidiForgeAudioProcessor::localMelodyRhythmScore (const Section& section, uint32_t identity) const
 {
     std::vector<const NoteEvent*> melody;
@@ -6461,7 +6296,6 @@ float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, 
     const float jitter = (float) ((hash32 (identity ^ 0x7A15C2D1u) % 1000u)) / 100000.0f;
     return juce::jlimit (0.0f, 1.0f, localScore + jitter);
 }
-
 
 void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32_t identity) const
 {
@@ -7599,7 +7433,6 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
     removeDuplicateNotes (section.notes);
 }
 
-
 MidiForgeAudioProcessor::MelodyFeatures MidiForgeAudioProcessor::melodyFeatures (const Section& sec, uint32_t identity) const
 {
 
@@ -8233,7 +8066,6 @@ MidiForgeAudioProcessor::MelodyFeatures MidiForgeAudioProcessor::melodyFeatures 
                 + 0.12f * closure
                 + 0.10f * f.phraseArc);
         }
-
 
         // Taste Learning 2.0 features.
         if (!m.empty())
@@ -10089,7 +9921,6 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
     });
 }
 
-
 void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
 {
         const auto profile = soundProfileFor (soundTarget);
@@ -10976,7 +10807,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality -= 0.20f * sparsePenalty;
         }
 
-
         // 0.43 Musical Quality Judge 1.0:
         // Score the musical relationship of the whole loop instead of treating
         // melody features as mostly independent statistics.  This remains a
@@ -11355,7 +11185,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality += 0.20f * juce::jlimit (0.0f, 1.0f, musicalStatement);
             quality -= 0.065f * boringPenalty;
         }
-
 
         // 0.40 Taste ML: the features of the whole loop are collected here; the
         // model scores every candidate after the pool statistics are known (below).
@@ -11852,7 +11681,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
     likeCounts.fill(0);
     dislikeCounts.fill(0);
 }
-
 
 int MidiForgeAudioProcessor::getVariationMelodyCharacter (int index) const
 {
