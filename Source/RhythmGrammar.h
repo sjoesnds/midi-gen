@@ -256,7 +256,7 @@ private:
                               float energy,
                               double bpm,
                               uint32_t seed,
-                              int melodyType,
+                              int melodyType)
     {
         const uint32_t roll = hash32 (seed ^ 0x5F3759DFu) % 100u;
         const bool fast = bpm >= 170.0;
