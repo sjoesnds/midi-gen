@@ -62,12 +62,12 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     const float e = std::clamp (energy, 0.0f, 1.0f);
     const float c = std::clamp (complexity, 0.0f, 1.0f);
 
-    const uint32_t intentSeed = mix32 (identity ^ 0x72C0FFEEu);
-
     intent.nativeArchetype = std::clamp (nativeArchetype, 0, 7);
-    intent.language = CreativeRange::makePlan (type, safeMood, e, c, intentSeed);
+    // The caller owns the identity derivation. Keep it intact so this wrapper
+    // does not silently change seeded musical results.
+    intent.language = CreativeRange::makePlan (type, safeMood, e, c, identity);
     intent.grammar = ComposerGrammar::makePlan (
-        bars, e, c, type, safeMood, mix32 (intentSeed ^ 0xC0A70970u));
+        bars, e, c, type, safeMood, mix32 (identity ^ 0xC0A70970u));
 
     switch (safeMood)
     {
