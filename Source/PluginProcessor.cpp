@@ -1206,43 +1206,6 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
         section.bars, energy, complexity, melodyType, mood, genre,
         hash32 (identity ^ 0xC0719F0u));
 
-    std::vector<int> prosodyScalePitches;
-    prosodyScalePitches.reserve (56);
-    const auto prosodyScale = scaleSemitones();
-    for (int oct = 1; oct <= 8; ++oct)
-        for (int p : prosodyScale)
-        {
-            const int n = 12 * oct + rootPc + p;
-            if (n >= 24 && n <= 108)
-                prosodyScalePitches.push_back (n);
-        }
-    std::sort (prosodyScalePitches.begin(), prosodyScalePitches.end());
-    prosodyScalePitches.erase (
-        std::unique (prosodyScalePitches.begin(), prosodyScalePitches.end()),
-        prosodyScalePitches.end());
-
-    auto shiftScale = [&] (int midi, int steps)
-    {
-        if (steps == 0)
-            return snapToScale (midi);
-
-        const auto& scalePitches = prosodyScalePitches;
-        if (scalePitches.empty())
-            return juce::jlimit (24, 108, midi);
-
-        const int base = snapToScale (midi);
-        auto it = std::lower_bound (scalePitches.begin(), scalePitches.end(), base);
-        int idx = (int) std::distance (scalePitches.begin(), it);
-        if (idx >= (int) scalePitches.size())
-            idx = (int) scalePitches.size() - 1;
-        else if (*it != base && idx > 0
-                 && std::abs (scalePitches[(size_t) idx - 1] - base) <= std::abs (*it - base))
-            --idx;
-
-        idx = juce::jlimit (0, (int) scalePitches.size() - 1, idx + steps);
-        return scalePitches[(size_t) idx];
-    };
-
     for (size_t i = 0; i < melody.size(); ++i)
     {
         auto& n = section.notes[melody[i]];
@@ -1269,6 +1232,9 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
             composerState.tension,
             hash32 (identity ^ 0x71A11CEu));
 
+        // Prosody is intentionally pitch-neutral. The melodic author and
+        // phrase-development stages own contour and interval decisions; prosody
+        // only gives existing notes performance/function roles.
         switch (intent.role)
         {
             case midiforge::MelodicProsody::Anchor:
@@ -1289,35 +1255,19 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
                 break;
 
             case midiforge::MelodicProsody::Approach:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 4)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? intent.scaleMotion : -intent.scaleMotion);
                 n.length = juce::jmax (1, n.length);
                 break;
 
             case midiforge::MelodicProsody::Connect:
-                if (i + 1 < melody.size() && std::abs (nextInterval) >= 8)
-                    n.note = shiftScale (n.note,
-                        nextInterval > 0 ? 1 : -1);
                 break;
 
             case midiforge::MelodicProsody::Peak:
-                n.note = shiftScale (n.note, juce::jlimit (1, 2,
-                    1 + (composerState.registerLift > 4.0f ? 1 : 0)));
                 n.velocity = juce::jlimit (40, 122,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmax (1, n.length - 1);
                 break;
 
             case midiforge::MelodicProsody::Release:
-                if (i > 0)
-                {
-                    const int previous = section.notes[melody[i - 1]].note;
-                    if (std::abs (n.note - previous) >= 2)
-                        n.note = shiftScale (n.note, n.note > previous ? -1 : 1);
-                    else if (n.note > previous)
-                        n.note = shiftScale (n.note, -1);
-                }
                 n.velocity = juce::jlimit (35, 118,
                     n.velocity + juce::roundToInt (intent.velocityBias * 92.0f));
                 n.length = juce::jmin (6, n.length + 1);
@@ -1587,71 +1537,81 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint3
         const bool late = local >= 12;
         const bool firstOfBar = (k == 0 || section.notes[melody[k - 1]].step / 16 != bar);
 
+        const bool chordTone = isChordTone (bar, n.note);
+
+        // Harmony is a correction layer, not a second melody author. Only a
+        // genuinely non-chord note on a structural location receives pitch
+        // gravity, and the destination is limited to a small local correction.
         float targetWeight = 0.0f;
-        if (strong)
-            targetWeight = firstOfBar ? 0.68f : 0.46f;
-        else if (longNote)
-            targetWeight = 0.34f;
-        else
-            targetWeight = 0.10f;
+        if (! chordTone)
+        {
+            if (firstOfBar && strong)      targetWeight = 0.34f;
+            else if (strong)               targetWeight = 0.28f;
+            else if (longNote)             targetWeight = 0.20f;
+            else if (late)                 targetWeight = 0.18f;
+            else                           targetWeight = 0.0f;
+        }
 
         // Keep some harmonic tension in the B bar and on deliberately weak events.
-        if ((bar & 3) == 2 && !firstOfBar && !longNote)
+        if ((bar & 3) == 2 && !firstOfBar)
             targetWeight *= 0.72f;
         if (complexity > 0.70f && !strong)
             targetWeight *= 0.72f;
 
-        int target = nearestChordPitch (bar, n.note, firstOfBar || strong);
+        int target = n.note;
+        if (! chordTone && targetWeight > 0.0f)
+            target = nearestChordPitch (bar, n.note, firstOfBar || strong);
 
-        // Late notes are allowed to point into the next harmony. This is the
-        // main anticipation mechanism: the note can remain slightly tense while
-        // its destination is clearly implied before the bar changes.
-        if (late && bar + 1 < section.bars)
+        // Late notes may point toward the next harmony, but only through the same
+        // small local correction budget.
+        if (! chordTone && late && bar + 1 < section.bars)
         {
             const int nextTarget = nearestChordPitch (bar + 1, n.note, false);
-            const float anticipation = ((bar & 3) == 3) ? 0.78f : 0.56f;
+            const float anticipation = ((bar & 3) == 3) ? 0.70f : 0.50f;
             const int blend = juce::roundToInt (
                 (1.0f - anticipation) * (float) target
                 + anticipation * (float) nextTarget);
             target = juce::jlimit (34, 108, blend);
-            targetWeight = juce::jmax (targetWeight, 0.24f);
+            targetWeight = juce::jmax (targetWeight, 0.18f);
         }
 
-        // At a phrase seam, prioritize a smooth destination instead of a random
-        // octave jump between bars.
-        if (firstOfBar && k > 0)
+        // At a phrase seam, prioritise a smooth destination, still only when the
+        // current note is genuinely outside the active chord.
+        if (! chordTone && firstOfBar && k > 0)
         {
             const int previous = section.notes[melody[k - 1]].note;
             const int voiceTarget = nearestChordPitch (bar, previous, true);
             target = juce::roundToInt (
                 0.48f * (float) target
                 + 0.52f * (float) voiceTarget);
-            targetWeight = juce::jmax (targetWeight, 0.42f);
+            targetWeight = juce::jmax (targetWeight, 0.26f);
         }
 
-        // Only rewrite the note when the destination is musically needed. This
-        // preserves color/passing tones instead of erasing the expressive layer.
-        if (!isChordTone (bar, n.note) || strong || longNote || late)
+        if (! chordTone && targetWeight > 0.0f)
         {
+            const int correction = juce::jlimit (-4, 4, target - n.note);
+            const int limitedTarget = n.note + correction;
             const int blended = juce::roundToInt (
                 (1.0f - targetWeight) * (float) n.note
-                + targetWeight * (float) target);
+                + targetWeight * (float) limitedTarget);
             n.note = foldIntoLane (snapToScale (blended), 34, 108);
         }
 
-        // A non-chord tone followed quickly by a chord tone is a useful passing
-        // gesture. Make the following destination a little more intentional.
+        // A nearby double non-chord passage can receive a tiny directed nudge,
+        // but never a full jump to the chord tone.
         if (k + 1 < melody.size())
         {
             auto& next = section.notes[melody[k + 1]];
             const int nextBar = next.step / 16;
-            if (nextBar == bar && next.step - n.step <= 3 && !isChordTone (bar, n.note)
-                && !isChordTone (bar, next.note))
+            if (nextBar == bar && next.step - n.step <= 3
+                && !isChordTone (bar, n.note) && !isChordTone (bar, next.note))
             {
                 const int resolution = nearestChordPitch (bar, next.note, false);
+                const int correction = juce::jlimit (-3, 3, resolution - next.note);
+                const int limitedTarget = next.note + correction;
                 next.note = foldIntoLane (
                     snapToScale (juce::roundToInt (
-                        0.35f * (float) next.note + 0.65f * (float) resolution)),
+                        0.60f * (float) next.note + 0.40f * (float) limitedTarget)),
                     34, 108);
             }
         }
