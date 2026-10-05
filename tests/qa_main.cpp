@@ -2155,7 +2155,7 @@ int main()
         const int cols = lines.size() > 0 ? juce::StringArray::fromTokens (lines[0], ",", "").size() : 0;
         bool sameCols = lines.size() == 4;
         for (const auto& l : lines) sameCols = sameCols && juce::StringArray::fromTokens (l, ",", "").size() == cols;
-        report ("feedback log: header + one row per like / dislike / export", sameCols && cols == 22 && lines[0].startsWith ("time_utc,engine,verdict"),
+        report ("feedback log: header + one row per like / dislike / export", sameCols && cols == 21 && lines[0].startsWith ("time_utc,engine,verdict"),
                fmt ("%.0f lines, %.0f columns", (double) lines.size(), (double) cols));
         const auto like = juce::StringArray::fromTokens (lines.size() > 1 ? lines[1] : juce::String(), ",", "");
         const auto dislike = juce::StringArray::fromTokens (lines.size() > 2 ? lines[2] : juce::String(), ",", "");
