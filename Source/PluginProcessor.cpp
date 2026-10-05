@@ -2815,6 +2815,29 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int registerProfile = melodyIntent.registerProfile;
     const int rhythmicLanguage = melodyIntent.rhythmicLanguage;
 
+    // Preserve the stable per-bar/phrase identities used by the existing melody
+    // grammar. These are derived from the same unified intent identity rather than
+    // introducing a second musical decision system.
+    const uint32_t seed = hash32 (
+        generationSeed
+        ^ (uint32_t) variationSalt * 0x9e3779b9u
+        ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
+        ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u);
+    const int loopBar = barOffset % juce::jmax (1, bars);
+    const int cycle = loopBar % 4;
+    const int phraseCell = (barOffset / 4) % 4;
+    const int phraseIdentity = (int) (
+        hash32 (seed ^ (uint32_t) (phraseCell + 1) * 0x27d4eb2du) % 4u);
+
+    const uint32_t loopSeed = hash32 (
+        generationSeed
+        ^ (uint32_t) variationSalt * 0x9e3779b9u
+        ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u
+        ^ 0x7a3c19e5u);
+    const uint32_t identitySeed = (cycle == 2)
+        ? hash32 (loopSeed ^ 0xB2B2B2B2u ^ (uint32_t) (barOffset / 4) * 0x27d4eb2du)
+        : loopSeed;
+
     s.melodyCharacter = melodyCharacter;
     s.melodyIntent = melodyIntent;
     s.hasMelodyIntent = true;
