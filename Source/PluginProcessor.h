@@ -234,6 +234,7 @@ struct Section {
     int sourceArchetype = -1;   // 0.79: MAGIC archetype the loop came from (for the feedback log)
     int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
     int melodyCharacter = -1;   // 0.85.5: latent melodic behavior family; not exposed as a UI label
+    int melodyComplexityClass = -1; // 0.86: 0=simple, 1=medium, 2=complex; one intent for the whole loop
     std::vector<NoteEvent> notes;
 };
 struct SongData {
