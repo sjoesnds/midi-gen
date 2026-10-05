@@ -181,12 +181,16 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
 
     // Strong positions carry more harmonic responsibility than weak positions.
     // Weak notes are allowed to be colorful; the line should still feel anchored.
+    const float contractedLeap = (float) std::clamp (preferredMaxLeap, 5, 14);
+    const float targetMaxLeap = complexityClass == Complex
+        ? std::min (12.0f, contractedLeap + 2.0f)
+        : contractedLeap;
+
     out.structuralFit =
           0.42f * strongChordRatio
         + 0.22f * registerFit
         + 0.16f * fit (stepwiseRatio, complexityClass == Complex ? 0.52f : 0.66f, 0.38f)
-        + 0.20f * fit ((float) std::min (24, maxLeap),
-                       complexityClass == Complex ? 10.0f : 7.0f, 4.5f);
+        + 0.20f * fit ((float) std::min (24, maxLeap), targetMaxLeap, 4.5f);
 
     // Genericity = repeated bars with nearly identical onset skeletons and
     // directional motion. Simple phrases are allowed to repeat more.
