@@ -38,7 +38,7 @@ def wilson(likes, n, z=1.96):
     return centre, half
 
 
-DIMENSIONS = ["archetype", "transform", "genre", "sound", "mood", "melody_type", "scale", "bars", "engine"]
+DIMENSIONS = ["archetype", "transform", "sound", "mood", "melody_type", "scale", "bars", "engine"]
 
 
 def main():
