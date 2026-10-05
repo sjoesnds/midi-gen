@@ -47,8 +47,7 @@ ComposerGrammar::Plan ComposerGrammar::makePlan (int bars,
                                                  float complexity,
                                                  int melodyType,
                                                  int mood,
-                                                 int genre,
-                                                 uint32_t identity)
+                                                                                                  uint32_t identity)
 {
     Plan plan;
     plan.bars = std::max (1, bars);
