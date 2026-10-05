@@ -162,7 +162,7 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     if (mood == 3 || mood == 7) p.leapBias += 0.06f;
     if (mood == 4 || mood == 6) p.repetition -= 0.04f;
 
-    // No genre conditioning. Creativity comes from the language profile,
+    // No named-style conditioning. Creativity comes from the language profile,
     // identity, mood, role, energy and complexity.
 
     p.novelty = std::clamp (p.novelty, 0.10f, 0.94f);
