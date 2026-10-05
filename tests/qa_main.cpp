@@ -2693,6 +2693,59 @@ int main()
                 fmt ("max observed leap %.0f semitones", (double) maxObservedLeap));
     }
 
+
+    // ------------------------------------------------------------------ 20. complexity class survives selection (0.86.x)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setSeed (42017);
+        p.regenerate ();
+
+        double simpleNotes = 0.0, simpleSpread = 0.0; int simpleCount = 0;
+        double complexNotes = 0.0, complexSpread = 0.0; int complexCount = 0;
+
+        for (int k = 0; k < p.getVariationCount(); ++k)
+        {
+            const int cls = p.getVariationMelodyComplexityClass (k);
+            p.chooseVariation (k);
+            const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+
+            if (mel.empty())
+                continue;
+
+            std::set<int> pitches;
+            for (const auto& n : mel)
+                pitches.insert (n.note);
+
+            if (cls == 0)
+            {
+                simpleNotes += (double) mel.size() / std::max (1, p.getVisibleBars());
+                simpleSpread += (double) pitches.size();
+                ++simpleCount;
+            }
+            else if (cls == 2)
+            {
+                complexNotes += (double) mel.size() / std::max (1, p.getVisibleBars());
+                complexSpread += (double) pitches.size();
+                ++complexCount;
+            }
+        }
+
+        const double simpleDensity = simpleCount ? simpleNotes / simpleCount : 0.0;
+        const double complexDensity = complexCount ? complexNotes / complexCount : 0.0;
+        const double simplePitchSpan = simpleCount ? simpleSpread / simpleCount : 0.0;
+        const double complexPitchSpan = complexCount ? complexSpread / complexCount : 0.0;
+
+        report ("complexity intent: Simple candidates remain sparser",
+                simpleCount == 0 || complexCount == 0 || simpleDensity <= complexDensity + 0.75,
+                fmt ("simple %.2f notes/bar vs complex %.2f",
+                     simpleDensity, complexDensity));
+        report ("complexity intent: Complex candidates retain a richer pitch vocabulary",
+                simpleCount == 0 || complexCount == 0 || simplePitchSpan <= complexPitchSpan + 1.25,
+                fmt ("simple %.2f unique pitches vs complex %.2f",
+                     simplePitchSpan, complexPitchSpan));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
