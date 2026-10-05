@@ -67,67 +67,67 @@ public:
                 break;
 
             case (int) VariationMode::Close:
-                score = 0.28f * t.groove
+                score = 0.30f * t.groove
                       + 0.22f * t.rhythm
-                      + 0.18f * t.density
-                      + 0.12f * inv (t.space)
-                      + 0.10f * t.loop
-                      + 0.10f * t.phraseArc;
+                      + 0.18f * t.loop
+                      + 0.12f * t.motif
+                      + 0.10f * inv (t.space)
+                      + 0.08f * t.phraseArc;
                 break;
 
             case (int) VariationMode::Rhythmic:
-                score = 0.34f * t.space
-                      + 0.28f * inv (t.density)
-                      + 0.14f * t.context
-                      + 0.10f * t.motif
-                      + 0.08f * t.loop
-                      + 0.06f * inv (t.groove);
+                score = 0.34f * t.rhythm
+                      + 0.24f * t.groove
+                      + 0.16f * t.phraseArc
+                      + 0.12f * t.context
+                      + 0.08f * t.memory
+                      + 0.06f * t.density;
                 break;
 
             case (int) VariationMode::Contrast:
-                score = 0.30f * inv (t.reg)
-                      + 0.22f * t.tension
-                      + 0.18f * inv (t.density)
-                      + 0.10f * t.surprise
-                      + 0.10f * t.memory
-                      + 0.10f * t.context;
+                score = 0.28f * t.tension
+                      + 0.22f * t.surprise
+                      + 0.18f * inv (t.reg)
+                      + 0.14f * inv (t.density)
+                      + 0.10f * inv (t.motif)
+                      + 0.08f * t.context;
                 break;
 
             case (int) VariationMode::Register:
-                score = 0.24f * t.reg
+                score = 0.34f * t.reg
                       + 0.22f * t.leap
-                      + 0.20f * t.density
-                      + 0.14f * t.phraseArc
-                      + 0.10f * t.tension
-                      + 0.10f * t.motif;
+                      + 0.16f * t.phraseArc
+                      + 0.12f * t.tension
+                      + 0.10f * t.surprise
+                      + 0.06f * t.motif;
                 break;
 
             case (int) VariationMode::Motif:
-                score = 0.34f * t.surprise
-                      + 0.22f * t.leap
-                      + 0.16f * inv (t.motif)
-                      + 0.12f * t.context
-                      + 0.10f * t.tension
-                      + 0.06f * inv (t.memory);
+                score = 0.34f * t.motif
+                      + 0.24f * t.memory
+                      + 0.18f * t.loop
+                      + 0.12f * t.phraseArc
+                      + 0.07f * t.development
+                      + 0.05f * t.rhythm;
                 break;
 
             case (int) VariationMode::Experimental:
-                score = 0.20f * t.surprise
-                      + 0.18f * t.groove
-                      + 0.18f * t.rhythm
-                      + 0.14f * t.leap
-                      + 0.12f * t.density
-                      + 0.10f * t.loop
-                      + 0.08f * t.tension;
+                score = 0.34f * t.surprise
+                      + 0.22f * t.leap
+                      + 0.16f * t.context
+                      + 0.12f * inv (t.motif)
+                      + 0.10f * t.tension
+                      + 0.06f * t.development;
                 break;
 
             case (int) VariationMode::Wildcard:
-                score = 0.30f * t.space
-                      + 0.24f * inv (t.density)
-                      + 0.20f * inv (t.reg)
-                      + 0.10f * t.tension
-                      + 0.09f * t.context
-                      + 0.07f * t.memory;
+                score = 0.22f * t.surprise
+                      + 0.18f * t.context
+                      + 0.16f * t.space
+                      + 0.14f * t.tension
+                      + 0.12f * t.groove
+                      + 0.10f * t.motif
+                      + 0.08f * t.development;
                 break;
 
             default:
