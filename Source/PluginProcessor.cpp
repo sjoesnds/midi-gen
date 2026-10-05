@@ -8357,7 +8357,7 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
         });
 
     const auto plan = midiforge::MelodyIntent::makePlan (
-        section.bars, melodyType, mood, energy, complexity, identity, 0).language;
+        sec.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     int minPitch = 127, maxPitch = 0;
     int leapCount = 0;
