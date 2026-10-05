@@ -10492,10 +10492,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
     std::vector<Candidate> selected;
     selected.reserve(8);
     std::vector<bool> used(candidates.size(),false);
-    std::array<bool,8> usedArchetypes {};
 
-    // 0.59.1 Diversity Gate: keep one winner per archetype, but require the
-    // candidate to differ in both note-level identity and behavioral fingerprint.
+    // Diversity Gate: choose by actual musical identity and behavior. The old
+    // one-winner-per-archetype rule has been removed because the archetype bucket is
+    // a bookkeeping label, not an independent melodic author.
     // A hard floor is attempted first; if a slot would otherwise become empty,
     // the gate relaxes rather than returning fewer than eight variations.
     // 0.63 Melodic Memory 3.0: selected variations become an explicit
@@ -10523,7 +10523,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // prevents near-clones from occupying multiple variation slots.
         for (size_t i = 0; i < candidates.size(); ++i)
         {
-            if (used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
+            if (used[i]) continue;
             const float diversity = minDiversityToSelected (candidates[i], selected);
             if (diversity < diversityFloor) continue;
 
@@ -10597,7 +10597,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         if (best < 0) break;
         used[(size_t) best] = true;
-        usedArchetypes[(size_t) candidates[(size_t) best].archetype] = true;
         selected.push_back (std::move (candidates[(size_t) best]));
     }
 
