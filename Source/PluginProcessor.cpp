@@ -6557,62 +6557,69 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
         && phraseState.loopQuality > 0.72f
         && phraseState.density > 0.20f && phraseState.density < 0.74f;
 
-    // Context is now a deterministic weighted choice, not an argmax. A
-    // strongly indicated strategy dominates, but close alternatives can still
-    // win sometimes, which keeps the phrase vocabulary alive without making
-    // the decision random in the old sense.
+    // Context should choose the repair/development need, not merely bias a
+    // roulette wheel. Each strategy starts near zero; only a measured deficit
+    // earns weight. Randomness is reserved for genuinely close alternatives.
     std::array<float, 8> strategyWeight {};
-    strategyWeight[RepeatAlter] = 0.34f
-        + 1.34f * identityDeficit
-        + 0.42f * (1.0f - phraseState.phraseMemory);
-    strategyWeight[RhythmicReduction] = 0.32f
-        + 2.05f * juce::jmax (0.0f, phraseState.density - 0.62f)
-        + 0.50f * juce::jmax (0.0f, 0.42f - phraseState.space);
-    strategyWeight[RhythmicExpansion] = 0.30f
-        + 1.95f * juce::jmax (0.0f, 0.38f - phraseState.density)
-        + 0.50f * juce::jmax (0.0f, phraseState.space - 0.68f);
-    strategyWeight[IntervalExpansion] = 0.28f
-        + 1.80f * juce::jmax (0.0f, 0.22f - phraseState.leap)
-        + 0.55f * juce::jmax (0.0f, 0.30f - phraseState.surprise);
-    strategyWeight[Inversion] = 0.26f
-        + 1.14f * juce::jmax (0.0f, 0.34f - phraseState.contour)
-        + 0.30f * juce::jmax (0.0f, 0.34f - phraseState.variety);
-    strategyWeight[Fragmentation] = 0.25f
-        + 1.20f * juce::jmax (0.0f, copyPressure - 0.78f)
-        + 0.72f * juce::jmax (0.0f, phraseState.density - 0.56f);
-    strategyWeight[CallResponse] = 0.30f
-        + 1.55f * juce::jmax (0.0f, 0.54f - phraseState.phraseArc)
-        + 0.90f * juce::jmax (0.0f, 0.46f - phraseState.tensionArc);
-    strategyWeight[Return] = 0.28f
-        + 1.30f * juce::jmax (0.0f, 0.50f - phraseState.loopQuality)
-        + 0.86f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
+    strategyWeight[RepeatAlter] = 0.035f
+        + 1.55f * identityDeficit
+        + 0.62f * (1.0f - phraseState.phraseMemory);
+    strategyWeight[RhythmicReduction] = 0.018f
+        + 2.55f * juce::jmax (0.0f, phraseState.density - 0.62f)
+        + 0.70f * juce::jmax (0.0f, 0.42f - phraseState.space);
+    strategyWeight[RhythmicExpansion] = 0.018f
+        + 2.45f * juce::jmax (0.0f, 0.38f - phraseState.density)
+        + 0.70f * juce::jmax (0.0f, phraseState.space - 0.68f);
+    strategyWeight[IntervalExpansion] = 0.018f
+        + 2.15f * juce::jmax (0.0f, 0.22f - phraseState.leap)
+        + 0.65f * juce::jmax (0.0f, 0.30f - phraseState.surprise);
+    strategyWeight[Inversion] = 0.018f
+        + 1.45f * juce::jmax (0.0f, 0.34f - phraseState.contour)
+        + 0.42f * juce::jmax (0.0f, 0.34f - phraseState.variety);
+    strategyWeight[Fragmentation] = 0.018f
+        + 1.75f * juce::jmax (0.0f, copyPressure - 0.78f)
+        + 0.90f * juce::jmax (0.0f, phraseState.density - 0.56f);
+    strategyWeight[CallResponse] = 0.018f
+        + 1.85f * juce::jmax (0.0f, 0.54f - phraseState.phraseArc)
+        + 1.10f * juce::jmax (0.0f, 0.46f - phraseState.tensionArc);
+    strategyWeight[Return] = 0.018f
+        + 1.65f * juce::jmax (0.0f, 0.50f - phraseState.loopQuality)
+        + 1.00f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
+
+    int selectedStrategy = RepeatAlter;
 
     if (phraseAlreadyCoherent)
     {
-        for (int strategyIndex = 1; strategyIndex < 8; ++strategyIndex)
-            strategyWeight[(size_t) strategyIndex] *= 0.56f;
-        strategyWeight[RepeatAlter] += 0.44f;
+        selectedStrategy = RepeatAlter;
     }
-
-    float totalWeight = 0.0f;
-    for (auto& w : strategyWeight)
+    else
     {
-        w = juce::jmax (0.05f, w);
-        totalWeight += w;
-    }
+        std::array<int, 8> ranking { 0, 1, 2, 3, 4, 5, 6, 7 };
+        std::stable_sort (ranking.begin(), ranking.end(),
+            [&] (int a, int b)
+            {
+                if (strategyWeight[(size_t) a] != strategyWeight[(size_t) b])
+                    return strategyWeight[(size_t) a] > strategyWeight[(size_t) b];
+                return a < b;
+            });
 
-    const float roll = (float) (mix32 (h ^ 0xC84A31D5u) % 10000u) / 10000.0f;
-    float cursor = roll * totalWeight;
-    int selectedStrategy = RepeatAlter;
-    for (int strategyIndex = 0; strategyIndex < 8; ++strategyIndex)
-    {
-        cursor -= strategyWeight[(size_t) strategyIndex];
-        if (cursor <= 0.0f)
+        const int primary = ranking[0];
+        const int secondary = ranking[1];
+        selectedStrategy = primary;
+
+        // Only near-ties get randomness. A clearly diagnosed phrase deficit is
+        // handled by the corresponding strategy every time.
+        const float primaryWeight = strategyWeight[(size_t) primary];
+        const float secondaryWeight = strategyWeight[(size_t) secondary];
+        const bool nearTie = secondaryWeight > primaryWeight * 0.86f;
+        if (nearTie)
         {
-            selectedStrategy = strategyIndex;
-            break;
+            const float roll = (float) (mix32 (h ^ 0xC84A31D5u) % 10000u) / 10000.0f;
+            if (roll < 0.22f)
+                selectedStrategy = secondary;
         }
     }
+
     const auto strategy = (DevelopmentStrategy) selectedStrategy;
 
     // Harmonic Intelligence 2.0: development targets are blended toward the
