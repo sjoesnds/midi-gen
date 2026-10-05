@@ -434,7 +434,11 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     lo = juce::jlimit (0, 127, lo);
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
-    maxLeap = juce::jlimit (4, 9, profile.maxLeap > 0 ? profile.maxLeap : 9);
+    // 0.87 Style / Safety split: this contract is a hard validity ceiling,
+    // not a melodic-style rule. Generation and judging decide whether a loop
+    // should be stepwise, moderate, or expressive; safety only prevents absurd
+    // register jumps that cross the whole playable lane in one move.
+    maxLeap = 12;
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
@@ -666,13 +670,9 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
 
-    // 0.86 Unified Melody Intent: do not roll a second unrelated "simple"
-    // decision here. The generation class is the single source of intent.
-    const int complexityClass = juce::jlimit (0, 2, section.melodyComplexityClass < 0 ? 1 : section.melodyComplexityClass);
-    const int maxLeap =
-        complexityClass == 0 ? juce::jmin (7, contractLeap)
-        : complexityClass == 1 ? juce::jmin (8, contractLeap)
-        : contractLeap;
+    // 0.87 Style / Safety split: Pleasantness must not reinterpret the
+    // loop's composition intent. It only applies the hard safety ceiling.
+    const int maxLeap = contractLeap;
 
     auto pitchClass = [] (int n)
     {
@@ -810,13 +810,10 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
 
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
-    // 0.86 Unified Melody Intent: Foundation follows the same loop-level
-    // complexity class chosen by addMelody. It no longer rolls its own style.
-    const int complexityClass = juce::jlimit (0, 2, section.melodyComplexityClass < 0 ? 1 : section.melodyComplexityClass);
-    const int maxLeap =
-        complexityClass == 0 ? juce::jmin (7, contractLeap)
-        : complexityClass == 1 ? juce::jmin (8, contractLeap)
-        : contractLeap;
+    // 0.87 Style / Safety split: Foundation validates scale/register and
+    // applies only the common safety ceiling. It must not flatten stylistic
+    // differences between Simple, Medium and Complex melodies.
+    const int maxLeap = contractLeap;
     const auto scale = scaleSemitones();
 
     auto pitchClass = [] (int n)
