@@ -4,12 +4,13 @@
 
 **Current version: 0.97.0**
 
-### 0.97.0 — Unified Melody Decision
+### 0.97.0 — Creator-First Melody Discovery
 - Adds a single melody decision/evaluation layer above the existing Melody Intent and Judge stack.
 - Complexity is evaluated as a real budget: Simple / Medium / Complex now receive different density, repetition, rhythm and interval expectations instead of only changing note counts.
 - Strong structural positions are scored separately from weak positions, with stronger harmonic anchoring where the phrase naturally carries weight.
 - Generic bar-copy behaviour is measured and softly penalized for medium/complex material while simple hooks retain room for intentional repetition.
-- The layer is ranking/evaluation only; it does not create a second melody author and does not add UI controls.
+- **Creator-first output:** the eight final slots now remain eight independently discovered candidates from the search bank. The generator no longer takes those ideas and automatically fans them back out through a second eight-mode transformation pass.
+- Locked layers still behave as before; generation-time foundation/repair and the full judge stack remain upstream. No second stylistic rewrite is applied after candidate selection.
 - Headless QA covers deterministic classification, complexity-budget separation and structural scoring.
 
 ### 0.96.0 — Architecture Cleanup & Reliability
