@@ -394,10 +394,28 @@ void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
         case PhraseMelody:     targetSpan = 36; break;
     }
 
-    targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 6.0f);
-        targetSpan = juce::jlimit (22, 44, targetSpan);
+    targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 8.0f);
+    targetSpan = juce::jlimit (24, 48, targetSpan);
 
-    const int centre = (baseLo + baseHi) / 2;
+    // Register is varied at the phrase-identity level instead of by a visible
+    // "range" control. Most melodies stay centered, while a minority deliberately
+    // lives a little lower or higher. This gives us real register variety without
+    // forcing every melody to span the entire playable lane.
+    const uint32_t placementHash = hash32 (
+        generationSeed
+        ^ (uint32_t) (melodyType + 1) * 0xC2B2AE35u
+        ^ 0x4D454C52u);
+    const uint32_t placementRoll = placementHash % 100u;
+    const int centreShift =
+        placementRoll < 24u ? -7
+        : placementRoll >= 84u ? 5
+        : 0;
+
+    const int nominalCentre = (baseLo + baseHi) / 2;
+    const int centre = juce::jlimit (
+        baseLo + targetSpan / 2,
+        baseHi - targetSpan / 2,
+        nominalCentre + centreShift);
     const int half = targetSpan / 2;
     lo = centre - half;
     hi = lo + targetSpan;
@@ -434,7 +452,13 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     // not a melodic-style rule. Generation and judging decide whether a loop
     // should be stepwise, moderate, or expressive; safety only prevents absurd
     // register jumps that cross the whole playable lane in one move.
-    maxLeap = 12;
+    // Ordinary generation stays within 9 semitones. A wider 12-semitone jump
+    // is reserved for explicit high-complexity / high-leap settings so the
+    // safety contract does not accidentally turn every loop into a wide-interval loop.
+    const bool expressiveIntent = complexity >= 0.80f
+        && leapChance >= 0.45f
+        && (melodyType == RiffMelody || melodyType == CounterMelody || melodyType == PhraseMelody);
+    maxLeap = expressiveIntent ? 12 : 9;
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
@@ -8371,6 +8395,42 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
                 {
                     n.velocity = juce::jlimit (26, 122, n.velocity + ((h & 1u) ? 7 : -7));
                 }
+            }
+        }
+
+        // Final sound-profile timing contract. Transformations are allowed to
+        // reshape the phrase, but they must not erase the instrument's articulation
+        // identity (e.g. Pad becoming staccato or Synth Lead becoming dry).
+        {
+            const auto prof = soundProfileFor (soundTarget);
+            std::vector<size_t> mel;
+            for (size_t i = 0; i < source.notes.size(); ++i)
+                if (source.notes[i].channel == 3)
+                    mel.push_back (i);
+
+            std::stable_sort (mel.begin(), mel.end(),
+                [&] (size_t a, size_t b)
+                {
+                    if (source.notes[a].step != source.notes[b].step)
+                        return source.notes[a].step < source.notes[b].step;
+                    return source.notes[a].note < source.notes[b].note;
+                });
+
+            for (size_t i = 0; i < mel.size(); ++i)
+            {
+                auto& n = source.notes[mel[i]];
+                const int nextStep = (i + 1 < mel.size())
+                    ? source.notes[mel[i + 1]].step
+                    : ((n.step / 16) + 1) * 16;
+                const int gap = juce::jmax (1, nextStep - n.step);
+                const float legato = juce::jlimit (0.0f, 1.0f, prof.legato < 0.0f ? melodyLength : prof.legato);
+                const int sustained = 1 + juce::roundToInt (legato * (float) (gap - 1));
+                const int minLen = juce::jmin (prof.minLen, gap);
+                const int maxLen = juce::jmin (prof.maxLen, gap);
+                n.length = juce::jlimit (
+                    juce::jmax (1, minLen),
+                    juce::jmax (juce::jmax (1, minLen), maxLen),
+                    juce::jmax (n.length, sustained));
             }
         }
 
