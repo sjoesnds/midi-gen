@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "MelodyIntent.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
@@ -2768,91 +2769,49 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool soundCloud = leadStyleSoundCloud;
     const bool hook = hookMode;
 
-    // 0.22 Phrase Memory + Humanization: Musical DNA is coordinated across open-ended creative axes.
-    // dimension; mood, melody role and energy/complexity shape the composition language.
-    float moodSpace = 0.0f, moodLeap = 0.0f, moodDensity = 0.0f, moodTension = 0.0f;
-    switch (mood)
-    {
-        case DarkMood:        moodSpace=.08f; moodLeap=.10f; moodDensity=-.04f; moodTension=.24f; break;
-        case MelancholicMood: moodSpace=.16f; moodLeap=-.05f; moodDensity=-.08f; moodTension=.18f; break;
-        case EuphoricMood:    moodSpace=-.10f; moodLeap=.10f; moodDensity=.10f; moodTension=-.08f; break;
-        case AggressiveMood:  moodSpace=-.08f; moodLeap=.24f; moodDensity=.14f; moodTension=.12f; break;
-        case DreamyMood:      moodSpace=.24f; moodLeap=-.10f; moodDensity=-.12f; moodTension=.04f; break;
-        case NostalgicMood:   moodSpace=.08f; moodLeap=-.02f; moodDensity=-.02f; moodTension=.10f; break;
-        case MysteriousMood:  moodSpace=.18f; moodLeap=.12f; moodDensity=-.06f; moodTension=.22f; break;
-        case EnergeticMood:   moodSpace=-.14f; moodLeap=.16f; moodDensity=.18f; moodTension=-.02f; break;
-        default: break;
-    }
-    const float typeSpace[]   = {-.04f,.16f,-.02f,.18f,.02f,.10f,.28f,.04f};
-    const float typeDensity[] = {.04f,-.10f,.06f,-.08f,.12f,-.04f,-.18f,.02f};
-    const float typeLeap[]    = {.02f,.04f,.18f,-.02f,.08f,.12f,.06f,.10f};
-    const float typeMotif[]   = {.16f,.12f,.10f,.18f,.04f,.08f,.14f,.10f};
-    const float roleSpace = typeSpace[juce::jlimit(0,7,melodyType)];
-    const float roleDensity = typeDensity[juce::jlimit(0,7,melodyType)];
-    const float roleLeap = typeLeap[juce::jlimit(0,7,melodyType)];
-    const float roleMotif = typeMotif[juce::jlimit(0,7,melodyType)];
+    // 0.86.2 Unified Melody Intent:
+    // One deterministic plan owns the language, macro phrase grammar, latent
+    // character and simple/medium/complex probability. Downstream code consumes
+    // this plan instead of independently rolling competing melodic identities.
+    const int nativeArchetype =
+        ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
 
-    const auto creativeRange = midiforge::CreativeRange::makePlan (
-        melodyType, mood, e, complexity,
-        hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x72C0FFEEu));
+    const uint32_t intentIdentity = hash32 (
+        generationSeed
+        ^ (uint32_t) (variationSalt + 1) * 0x72C0FFEEu);
 
-    // Creative DNA is derived directly from the chosen melodic language.
-    // Identity, mood, melody role, energy and complexity shape behavior without named style templates.
-    float dnaSpace = juce::jlimit (0.0f, 1.0f,
-        0.28f + 0.58f * creativeRange.durationContrast);
-    float dnaLeap = creativeRange.leapBias;
-    float dnaSync = juce::jlimit (0.0f, 1.0f,
-        0.16f + 0.06f * (float) (creativeRange.rhythmFamily % 12));
-    float dnaDensity = juce::jlimit (0.0f, 1.0f,
-        0.32f + 0.34f * (1.0f - creativeRange.repetition)
-        + 0.16f * creativeRange.asymmetry);
-    float dnaRegister = juce::jlimit (0.0f, 1.0f,
-        0.50f + 0.05f * creativeRange.registerBias);
-    float dnaMotif = creativeRange.repetition;
-    const int dnaRhythmBias = juce::jmax (0, creativeRange.rhythmFamily % 8);
+    const auto melodyIntent = midiforge::MelodyIntent::makePlan (
+        bars, melodyType, mood, energy, complexity,
+        intentIdentity, nativeArchetype);
 
-    // Generation identity is part of the musical seed.  Previously the melody
-    // seed used to depend on narrow style state, so repeated GENERATE calls could rebuild the
-    // exact same melody when the UI seed was unchanged.
-    // Era is no longer a musical control. Keep one fixed modern context under the hood.
-    constexpr float kModernSpaceBias = 0.04f;
-    dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + kModernSpaceBias);
-    dnaLeap = juce::jlimit(0.0f, 1.0f, dnaLeap + moodLeap + roleLeap);
-    dnaDensity = juce::jlimit(0.0f, 1.0f, dnaDensity + moodDensity + roleDensity);
-    dnaMotif = juce::jlimit(0.0f, 1.0f, dnaMotif + roleMotif);
+    const auto& creativeRange = melodyIntent.language;
+    const auto& composerPlan = melodyIntent.grammar;
+    const auto& character = melodyIntent.character;
+    const int melodyCharacter = melodyIntent.characterIndex;
 
-    const uint32_t seed = hash32(generationSeed
-                                 ^ (uint32_t) variationSalt * 0x9e3779b9u
-                                 ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
-                                 ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u);
-    const int loopBar = barOffset % juce::jmax(1, bars);
-    const int cycle = loopBar % 4;
-    const int phraseCell = (barOffset / 4) % 4;
-    const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
+    const float moodTension = melodyIntent.moodTension;
 
-    // 0.38 Loop identity: rhythm, motif and contour grammar are decided once per
-    // loop (A) and once per phrase for the contrast bar (B).  Bars of the same
-    // role therefore repeat instead of being re-rolled every bar - this is what
-    // makes a hook recognisable.  Small per-bar variation still comes from `seed`.
-    const uint32_t loopSeed = hash32(generationSeed
-                                     ^ (uint32_t) variationSalt * 0x9e3779b9u
-                                     ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u
-                                     ^ 0x7a3c19e5u);
-    const uint32_t identitySeed = (cycle == 2)
-        ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset / 4) * 0x27d4eb2du)
-        : loopSeed;
+    float dnaSpace = melodyIntent.dnaSpace;
+    float dnaLeap = melodyIntent.dnaLeap;
+    float dnaSync = melodyIntent.dnaSync;
+    float dnaDensity = melodyIntent.dnaDensity;
+    float dnaRegister = melodyIntent.dnaRegister;
+    float dnaMotif = melodyIntent.dnaMotif;
+    const int dnaRhythmBias = melodyIntent.dnaRhythmBias;
 
-    // 0.70 Composer Grammar: one macro plan coordinates the existing engines.
-    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        bars, energy, complexity, melodyType, mood,
-        hash32 (loopSeed ^ 0xC0A70970u));
-    const int composerPhrase = barOffset / 4;
-    const auto composerState = composerPlan.stateFor (composerPhrase);
+    const float simpleProbability = melodyIntent.simpleProbability;
+    const float complexProbability = melodyIntent.complexProbability;
+
+    const auto composerState = composerPlan.stateFor (barOffset / 4);
+
+    s.melodyCharacter = melodyCharacter;
 
     e = juce::jlimit (0.0f, 1.0f,
         0.68f * e + 0.32f * composerState.tension);
 
-    // These are soft macro targets; creative DNA remains the primary language.
+    // Composer grammar is now a component of the intent rather than a second
+    // random roll at this call site. It shapes the bar softly without becoming
+    // another independent melody author.
     dnaSpace = juce::jlimit (0.0f, 1.0f,
         dnaSpace + (composerState.space - 0.50f) * 0.16f);
     dnaDensity = juce::jlimit (0.0f, 1.0f,
@@ -2864,72 +2823,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     melodyCoreLane (melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody);
-    // 0.81 Simple Melody Class: roughly half the search space is intentionally
-    // composed with a compact 2-4 note vocabulary. This is different from merely
-    // lowering density: the pitch contour, rhythm size and leap language also
-    // become simpler, so the final bank can contain genuinely memorable melodies.
-    // Native archetype: build the melody for the same archetype that this
-    // MAGIC candidate will later be judged/selected under. variationSalt is c+1
-    // during candidate search, while 0 remains a safe default for normal calls.
-    const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
-
-    // 0.85.5 Latent Melody Character Engine:
-    // The visible mood/type controls describe context, while this hidden
-    // profile chooses the *kind of melodic behavior* for the candidate itself.
-    // It changes several musical axes together so two loops can share the same
-    // harmonic setting yet still feel fundamentally different.
-    struct MelodicCharacter
-    {
-        float spaceBias;
-        float densityBias;
-        float leapBias;
-        float syncBias;
-        float motifBias;
-        float sustainBias;
-        float repetitionBias;
-        float registerBias;
-        float contrastBias;
-        int contourBias;
-        int intervalBias;
-        int rhythmBias;
-        int registerJourneyBias;
-        int tensionBias;
-    };
-
-    static constexpr MelodicCharacter characterPool[] =
-    {
-        { 0.26f, -0.16f, -0.10f, -0.12f, 0.16f, 0.24f, 0.24f, -0.08f, -0.08f,  0,  0,  4, 0, 0 },
-        {-0.10f,  0.18f,  0.04f,  0.18f, 0.08f, -0.20f, 0.10f,  0.04f,  0.12f,  5,  3, 7, 5, 2 },
-        { 0.14f, -0.06f, -0.08f, -0.02f, 0.34f, 0.08f, 0.42f, -0.02f, -0.10f,  1,  0, 0, 0, 0 },
-        { 0.20f, -0.12f, -0.14f, -0.08f, 0.08f, 0.30f, 0.18f,  0.02f,  0.02f,  3,  1, 4, 2, 1 },
-        { 0.12f, -0.02f,  0.02f,  0.26f, 0.02f, 0.02f, 0.06f,  0.00f,  0.22f, 10, 8, 9, 5, 4 },
-        {-0.02f,  0.10f,  0.16f,  0.02f, 0.12f,-0.02f, 0.00f,  0.12f,  0.28f, 13, 6, 2, 4, 6 },
-        { 0.08f, -0.02f,  0.10f, -0.04f, 0.18f, 0.10f, 0.06f, -0.10f, -0.02f,  9, 7, 5, 2, 1 },
-        {-0.04f,  0.08f,  0.28f,  0.18f, -0.08f,-0.08f,-0.06f,  0.16f,  0.30f,  7,10, 8, 6, 6 },
-        { 0.30f, -0.20f, -0.12f, -0.18f, -0.06f, 0.34f, 0.12f,  0.18f, -0.16f, 14, 2, 4, 7, 0 },
-        {-0.12f,  0.22f,  0.18f,  0.22f, 0.04f,-0.18f, 0.02f,  0.04f,  0.14f,  4, 9, 6, 1, 5 },
-        { 0.24f, -0.18f, -0.04f, -0.12f, 0.12f, 0.38f, 0.26f,  0.10f, -0.12f, 11, 4, 3, 3, 0 },
-        {-0.16f,  0.20f,  0.24f,  0.24f, -0.02f,-0.22f,-0.08f, -0.02f,  0.20f, 16,11,10, 6, 7 }
-    };
-
-    const int characterRotation = (int) (
-        hash32 (generationSeed
-                ^ (uint32_t) melodyType * 0x85ebca6bu
-                ^ 0xC4A11CE5u)
-        % (uint32_t) (sizeof (characterPool) / sizeof (characterPool[0])));
-    const int melodyCharacter =
-        (nativeArchetype + characterRotation)
-        % (int) (sizeof (characterPool) / sizeof (characterPool[0]));
-    const auto& character = characterPool[melodyCharacter];
-    s.melodyCharacter = melodyCharacter;
-
-    dnaSpace = juce::jlimit (0.0f, 1.0f, dnaSpace + character.spaceBias);
-    dnaDensity = juce::jlimit (0.0f, 1.0f, dnaDensity + character.densityBias);
-    dnaLeap = juce::jlimit (0.0f, 1.0f, dnaLeap + character.leapBias);
-    dnaSync = juce::jlimit (0.0f, 1.0f, dnaSync + character.syncBias);
-    dnaMotif = juce::jlimit (0.0f, 1.0f, dnaMotif + character.motifBias);
-    dnaRegister = juce::jlimit (0.0f, 1.0f, dnaRegister + character.registerBias);
-
     // 0.83.0 Simple / Medium / Complex: complexity is now a real
     // composition class instead of a binary "simple vs everything else".
     // The middle class remains the default because most useful melodies live
