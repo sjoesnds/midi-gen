@@ -2790,7 +2790,7 @@ int main()
                      simplePitchSpan, complexPitchSpan));
     }
 
-    // ------------------------------------------------------------------ 21. broad melody-core benchmark (0.86.3)
+    // ------------------------------------------------------------------ 21. broad melody-core benchmark (0.87)
     // This intentionally measures the final musical result across several sound
     // contexts instead of checking one hand-picked seed. It is a regression gate
     // for tonal safety, register spread, complexity reachability, variation family
@@ -2911,7 +2911,7 @@ int main()
                 fmt ("mean Lead length %.2f", leadLength));
     }
 
-    // ------------------------------------------------------------------ 22. BPM adaptation benchmark (0.86.3)
+    // ------------------------------------------------------------------ 22. BPM adaptation benchmark (0.87)
     {
         const int bpms[] = { 80, 120, 160, 200, 220 };
         double density[5] {};
@@ -2952,6 +2952,144 @@ int main()
         report ("BPM adaptation: density remains a bounded musical adjustment",
                 minDensity > 0.0 && maxDensity / minDensity < 2.10,
                 fmt ("density ratio %.2f", minDensity > 0.0 ? maxDensity / minDensity : 999.0));
+    }
+
+
+    // ------------------------------------------------------------------ 23. authored MIDI invariants (0.87)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setSeed (73001);
+
+        p.setHumanize (0.0f);
+        p.setHumanizeEnabled (false);
+        p.regenerate ();
+        const auto clean = p.getVisibleNotes();
+
+        p.setHumanize (1.0f);
+        p.setHumanizeEnabled (true);
+        p.regenerate ();
+        const auto liveEnabled = p.getVisibleNotes();
+
+        bool identical = clean.size() == liveEnabled.size();
+        if (identical)
+        {
+            for (size_t i = 0; i < clean.size(); ++i)
+            {
+                const auto& a = clean[i];
+                const auto& b = liveEnabled[i];
+                if (a.step != b.step || a.length != b.length || a.note != b.note
+                    || a.velocity != b.velocity || a.channel != b.channel)
+                {
+                    identical = false;
+                    break;
+                }
+            }
+        }
+
+        report ("humanize separation: authored MIDI is invariant",
+                identical,
+                fmt ("clean notes %.0f, live-humanize notes %.0f",
+                     (double) clean.size(), (double) liveEnabled.size()));
+    }
+
+    // ------------------------------------------------------------------ 24. variation thoughts are materially distinct (0.87)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setSeed (74017);
+        p.regenerate ();
+
+        std::set<std::string> melodyFingerprints;
+        double pairDistance = 0.0;
+        int comparedPairs = 0;
+
+        std::vector<std::vector<Note>> melodies;
+        melodies.reserve (8);
+
+        for (int k = 0; k < p.getVariationCount(); ++k)
+        {
+            p.chooseVariation (k);
+            auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+            melodies.push_back (mel);
+
+            std::string fingerprint;
+            for (const auto& n : mel)
+                fingerprint += std::to_string (n.step) + ":" + std::to_string (n.note) + ";";
+            melodyFingerprints.insert (fingerprint);
+        }
+
+        for (size_t a = 0; a < melodies.size(); ++a)
+        {
+            for (size_t b = a + 1; b < melodies.size(); ++b)
+            {
+                const size_t n = std::min (melodies[a].size(), melodies[b].size());
+                int different = std::abs ((int) melodies[a].size() - (int) melodies[b].size());
+                for (size_t i = 0; i < n; ++i)
+                {
+                    if (melodies[a][i].step != melodies[b][i].step
+                        || melodies[a][i].note != melodies[b][i].note)
+                        ++different;
+                }
+                pairDistance += (double) different;
+                ++comparedPairs;
+            }
+        }
+
+        const double meanPairDistance =
+            comparedPairs > 0 ? pairDistance / (double) comparedPairs : 0.0;
+
+        report ("variation thoughts: the eight slots are not cosmetic duplicates",
+                melodyFingerprints.size() >= 6 && meanPairDistance >= 2.0,
+                fmt ("%.0f unique fingerprints, mean pair distance %.2f",
+                     (double) melodyFingerprints.size(), meanPairDistance));
+    }
+
+    // ------------------------------------------------------------------ 25. phrase identity reaches A -> A' -> B -> A'' (0.87)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setBars (4);
+        p.setSeed (75031);
+        p.regenerate ();
+        p.chooseVariation (0);
+
+        const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+        std::array<std::vector<int>, 4> barPitches;
+        std::array<int, 4> counts {};
+
+        for (const auto& n : mel)
+        {
+            const int bar = juce::jlimit (0, 3, n.step / 16);
+            barPitches[(size_t) bar].push_back (n.note);
+            ++counts[(size_t) bar];
+        }
+
+        auto meanPitch = [] (const std::vector<int>& v) -> double
+        {
+            if (v.empty()) return 0.0;
+            double sum = 0.0;
+            for (int pch : v) sum += pch;
+            return sum / (double) v.size();
+        };
+
+        const double a = meanPitch (barPitches[0]);
+        const double ap = meanPitch (barPitches[1]);
+        const double b = meanPitch (barPitches[2]);
+        const double app = meanPitch (barPitches[3]);
+
+        const bool identityReturns =
+            !barPitches[0].empty() && !barPitches[1].empty()
+            && !barPitches[2].empty() && !barPitches[3].empty()
+            && std::abs (app - a) <= 8.0
+            && (std::abs (b - a) >= 0.75 || counts[2] != counts[0])
+            && (std::abs (ap - a) >= 0.25 || counts[1] != counts[0]);
+
+        report ("phrase identity: A/A'/B/A'' is structurally present",
+                identityReturns,
+                fmt ("bar means %.1f / %.1f / %.1f / %.1f, counts %d/%d/%d/%d",
+                     a, ap, b, app,
+                     counts[0], counts[1], counts[2], counts[3]));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
