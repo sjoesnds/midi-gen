@@ -28,6 +28,7 @@ target_sources(MidiForge PRIVATE
     Source/MidiForgeState.cpp
     Source/MidiForgeTaste.cpp
     Source/PluginProcessor.h
+    Source/MidiForgeShared.h
     Source/RhythmGrammar.cpp
     Source/RhythmGrammar.h
     Source/ComposerGrammar.cpp
