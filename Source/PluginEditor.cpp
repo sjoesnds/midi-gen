@@ -146,7 +146,7 @@ setSize(1120, 850);
 setResizable(true, true);
 setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.97.0", juce::dontSendNotification);
+versionLabel.setText("v0.97.1", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -576,6 +576,8 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     drawFieldLabel (g, root, "Key");
     drawFieldLabel (g, scale, "Scale");
     drawFieldLabel (g, bars, "Bars");
+    drawSliderLabel (g, swing, "Swing");
+    drawSliderLabel (g, humanize, "Humanize");
 }
 
 void MidiForgeAudioProcessorEditor::resized()
