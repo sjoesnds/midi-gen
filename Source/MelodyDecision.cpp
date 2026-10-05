@@ -1,11 +1,8 @@
 #include "MelodyDecision.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <numeric>
 #include <set>
-#include <tuple>
 
 namespace
 {
@@ -79,7 +76,6 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     const float notesPerBar = (float) ordered.size() / (float) safeBars;
     const float density = std::clamp ((notesPerBar - 1.5f) / 7.0f, 0.0f, 1.0f);
 
-    std::set<int> onsetSet;
     std::set<int> intervalMagnitudeSet;
     std::set<int> rhythmClassSet;
     int stepwise = 0;
@@ -90,15 +86,13 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     float registerMean = 0.0f;
 
     int previous = ordered.front().note;
-    int previousStep = ordered.front().step;
+    int maxLeap = 0;
 
     std::vector<std::vector<int>> barOnsets ((size_t) safeBars);
-    std::vector<std::vector<int>> barDirections ((size_t) safeBars);
 
     for (const auto& n : ordered)
     {
         registerMean += (float) n.note;
-        onsetSet.insert (n.step % 16);
         rhythmClassSet.insert (n.step % 8);
 
         const int bar = std::clamp (n.step / 16, 0, safeBars - 1);
@@ -122,16 +116,10 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
             const int delta = n.note - previous;
             const int absDelta = std::abs (delta);
             intervalMagnitudeSet.insert (std::min (24, absDelta));
-            if (delta != 0)
-            {
-                ++stepwise;
-                barDirections[(size_t) bar].push_back (delta > 0 ? 1 : -1);
-            }
+            maxLeap = std::max (maxLeap, absDelta);
         }
 
         previous = n.note;
-        previousStep = n.step;
-        (void) previousStep;
     }
 
     registerMean /= (float) ordered.size();
@@ -142,9 +130,11 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     int intervalCount = 0;
     if (ordered.size() >= 2)
     {
+        stepwise = 0;
         for (size_t i = 1; i < ordered.size(); ++i)
         {
             const int d = std::abs (ordered[i].note - ordered[i - 1].note);
+            maxLeap = std::max (maxLeap, d);
             if (d > 0 && d <= 7) ++stepwise;
             if (d > 0) ++intervalCount;
         }
@@ -195,7 +185,7 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
           0.42f * strongChordRatio
         + 0.22f * registerFit
         + 0.16f * fit (stepwiseRatio, complexityClass == Complex ? 0.52f : 0.66f, 0.38f)
-        + 0.20f * fit ((float) std::min (12, preferredMaxLeap > 0 ? preferredMaxLeap : 9),
+        + 0.20f * fit ((float) std::min (24, maxLeap),
                        complexityClass == Complex ? 10.0f : 7.0f, 4.5f);
 
     // Genericity = repeated bars with nearly identical onset skeletons and
