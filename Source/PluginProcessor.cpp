@@ -280,23 +280,16 @@ if(progression==Emotional)return{5,3,0,4};
 if(progression==CinematicProg)return{0,3,4,5};
 if(progression==JazzLike)return{1,4,0,3};
 if(progression==Looping)return{0,5,3,4};
-switch(genre){
-case Trap:return{0,5,2,6};
-case House:return{0,4,5,3};
-case Techno:return{0,5,3,4};
-case BoomBap:return{0,5,3,4};
-case Ambient:return{0,3,5,4};
-case Cinematic:return{0,3,4,5};
-case RnB:return{1,4,0,5};
-case GenrePop:return{0,4,5,3};
-case Drill:return{0,5,3,6};
-case DnB:return{0,5,3,4};
-case Jersey:return{0,5,3,4};
-case Afro:return{0,3,4,5};
-case Hyperpop:return{0,4,5,3};
-case Experimental:return{0,2,5,3};
-case Lofi:return{0,5,3,4};
-default:return{0,5,3,4};
+switch (creativeTextureFamily (generationSeed))
+{
+case 0: return {0,5,2,6};
+case 1: return {0,4,5,3};
+case 2: return {0,5,3,4};
+case 3: return {0,5,3,6};
+case 4: return {0,3,4,5};
+case 5: return {1,4,0,5};
+case 6: return {0,2,5,3};
+default: return {0,5,3,4};
 }
 }
 // 0.38 Register lanes ---------------------------------------------------
