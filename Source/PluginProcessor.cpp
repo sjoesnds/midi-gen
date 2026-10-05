@@ -5617,11 +5617,9 @@ if(melodyEnabled)
     if(solo) add808(section,bar,targetEnergy,r,variationSalt);
     else addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
 
-    if(!solo && (bar % 4) != 0)
-    {
-        const PhraseMotif phraseMotif = extractPhraseMotif(section, bar - (bar % 4));
-        applyHumanPhraseRole(section, bar, phraseMotif);
-    }
+    // Phrase development is handled once after the complete four-bar cell
+    // exists. The legacy per-bar rewriter used to overwrite too much of the
+    // melodic language produced by addMelody().
 }
 if(arpEnabled && !solo)
 addArp(section,bar,deg,targetEnergy,r);
@@ -7439,7 +7437,15 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
             continue;
 
         const int firstNote = section.notes[notes.front()].note;
-        const float roleBlend = role == 1 ? 0.64f : role == 2 ? 0.86f : 0.74f;
+
+        // Motif Development is a development layer, not the phrase writer.
+        // Keep addMelody()'s contour authoritative and only bend it enough to
+        // establish a readable A -> A' -> B -> A'' relationship.
+        const bool simpleIntent = section.melodyComplexityClass == 0;
+        const float roleBlend =
+            simpleIntent
+                ? (role == 1 ? 0.28f : role == 2 ? 0.42f : 0.34f)
+                : (role == 1 ? 0.38f : role == 2 ? 0.52f : 0.42f);
 
         for (size_t i = 0; i < notes.size(); ++i)
         {
@@ -7503,7 +7509,9 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
 
             const int activeBar = phraseStartBar + role;
             const int chordNear = nearestChordTone (activeBar, desired);
-            const float harmonyBlend = role == 3 ? 0.42f : role == 2 ? 0.16f : 0.28f;
+            const float harmonyBlend = simpleIntent
+                ? (role == 3 ? 0.24f : role == 2 ? 0.08f : 0.14f)
+                : (role == 3 ? 0.30f : role == 2 ? 0.10f : 0.18f);
             desired = juce::roundToInt (
                 (float) desired * (1.0f - harmonyBlend)
                 + (float) chordNear * harmonyBlend);
@@ -7515,7 +7523,8 @@ void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phras
             {
                 const int loopTarget = nearestChordTone (activeBar, rootAtBar (phraseStartBar));
                 desired = juce::roundToInt (
-                    0.42f * (float) desired + 0.58f * (float) loopTarget);
+                    (simpleIntent ? 0.24f : 0.34f) * (float) desired
+                    + (simpleIntent ? 0.76f : 0.66f) * (float) loopTarget);
             }
 
             desired = juce::jlimit (30, 108, snapToScale (desired));
