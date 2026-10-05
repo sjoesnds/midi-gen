@@ -2235,8 +2235,6 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
 {
     static constexpr const char* archetypes[8] = { "HOOK", "GROOVE", "HARMONY", "MOTIF", "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD" };
     static constexpr const char* transforms[9] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK", "SIMILAR" };
-    static constexpr const char* genres[16] = { "Universal", "Trap", "House", "Techno", "BoomBap", "Ambient", "Cinematic", "RnB",
-                                                "Pop", "Drill", "DnB", "Jersey", "Afro", "Hyperpop", "Experimental", "Lofi" };
     static constexpr const char* scales[12] = { "Major", "Minor", "Dorian", "Phrygian", "HarmonicMinor", "MelodicMinor", "Pentatonic", "Lydian", "Mixolydian", "Locrian", "HarmonicMajor", "Blues" };
     static constexpr const char* sounds[8] = { "Piano", "Pluck", "SynthLead", "Bell", "Pad", "Brass", "808", "Guitar" };
     static constexpr const char* moods[9] = { "Neutral", "Dark", "Melancholic", "Euphoric", "Aggressive", "Dreamy", "Nostalgic", "Mysterious", "Energetic" };
