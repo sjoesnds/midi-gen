@@ -3367,64 +3367,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         positions.push_back(x);
     }
 
-    // 0.89 Musical Memory: A' and A'' should remember the original A rhythm
-    // as a gesture. B remains the contrast bar. This only blends a few onset
-    // positions; the current bar's chosen rhythm and density stay authoritative.
-    if (barOffset > 0 && cycle != 2)
-    {
-        std::vector<int> phraseRhythm;
-        for (const auto& ev : s.notes)
-        {
-            if (ev.channel == 3 && ev.step >= 0 && ev.step < 16)
-                phraseRhythm.push_back (ev.step);
-        }
-        std::sort (phraseRhythm.begin(), phraseRhythm.end());
-        phraseRhythm.erase (
-            std::unique (phraseRhythm.begin(), phraseRhythm.end()),
-            phraseRhythm.end());
-
-        if (phraseRhythm.size() >= 2 && positions.size() >= 2)
-        {
-            const float memoryChance =
-                cycle == 1 ? 0.68f : 0.54f;
-            const uint32_t memoryHash = hash32 (
-                identitySeed ^ 0xA89E10F1u ^ (uint32_t) cycle * 0x27D4EB2Du);
-
-            if ((float) (memoryHash % 1000u) / 1000.0f < memoryChance)
-            {
-                const int count = juce::jmin (
-                    (int) positions.size(), (int) phraseRhythm.size());
-
-                for (int i = 0; i < count; ++i)
-                {
-                    const uint32_t h = hash32 (
-                        memoryHash ^ (uint32_t) (i + 1) * 0x9E3779B9u);
-                    if ((h % 100u) >= (cycle == 1 ? 72u : 58u))
-                        continue;
-
-                    int target = phraseRhythm[(size_t) i];
-                    if ((h & 3u) == 0u)
-                        target = juce::jlimit (0, 15, target + ((h & 8u) ? 1 : -1));
-
-                    if (std::find (positions.begin(), positions.end(), target) == positions.end())
-                        positions[(size_t) i] = target;
-                }
-
-                std::sort (positions.begin(), positions.end());
-                positions.erase (
-                    std::unique (positions.begin(), positions.end()),
-                    positions.end());
-
-                if (positions.size() < 2)
-                {
-                    positions.clear();
-                    for (int i = 0; i < count; ++i)
-                        positions.push_back (phraseRhythm[(size_t) i]);
-                }
-            }
-        }
-    }
-
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
@@ -3660,6 +3602,61 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 chosen[pickIndex] = shifted;
                 std::sort (chosen.begin(), chosen.end());
                 chosen.erase (std::unique (chosen.begin(), chosen.end()), chosen.end());
+            }
+        }
+    }
+
+    // 0.89 Musical Memory: A' and A'' remember the original A rhythm
+    // after the complexity-specific rhythm language has been selected.
+    if (barOffset > 0 && cycle != 2 && chosen.size() >= 2)
+    {
+        std::vector<int> phraseRhythm;
+        for (const auto& ev : s.notes)
+            if (ev.channel == 3 && ev.step >= 0 && ev.step < 16)
+                phraseRhythm.push_back (ev.step);
+
+        std::sort (phraseRhythm.begin(), phraseRhythm.end());
+        phraseRhythm.erase (
+            std::unique (phraseRhythm.begin(), phraseRhythm.end()),
+            phraseRhythm.end());
+
+        if (phraseRhythm.size() >= 2)
+        {
+            const float memoryChance = cycle == 1 ? 0.68f : 0.54f;
+            const uint32_t memoryHash = hash32 (
+                identitySeed ^ 0xA89E10F1u ^ (uint32_t) cycle * 0x27D4EB2Du);
+
+            if ((float) (memoryHash % 1000u) / 1000.0f < memoryChance)
+            {
+                const int count = juce::jmin (
+                    (int) chosen.size(), (int) phraseRhythm.size());
+
+                for (int i = 0; i < count; ++i)
+                {
+                    const uint32_t h = hash32 (
+                        memoryHash ^ (uint32_t) (i + 1) * 0x9E3779B9u);
+                    if ((h % 100u) >= (cycle == 1 ? 72u : 58u))
+                        continue;
+
+                    int target = phraseRhythm[(size_t) i];
+                    if ((h & 3u) == 0u)
+                        target = juce::jlimit (0, 15, target + ((h & 8u) ? 1 : -1));
+
+                    if (std::find (chosen.begin(), chosen.end(), target) == chosen.end())
+                        chosen[(size_t) i] = target;
+                }
+
+                std::sort (chosen.begin(), chosen.end());
+                chosen.erase (
+                    std::unique (chosen.begin(), chosen.end()),
+                    chosen.end());
+
+                if (chosen.size() < 2)
+                {
+                    chosen.clear();
+                    for (int i = 0; i < count; ++i)
+                        chosen.push_back (phraseRhythm[(size_t) i]);
+                }
             }
         }
     }
