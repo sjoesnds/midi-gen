@@ -304,7 +304,7 @@ namespace taste
             if (o == nullptr || (int) o->getProperty ("dim") != kDim) return false;
             auto* jw = o->getProperty ("w").getArray();
             auto* jws = o->getProperty ("ws").getArray();
-            if (jw == nullptr || jws == nullptr || jwg == nullptr
+            if (jw == nullptr || jws == nullptr
                 || jw->size() != kDim || jws->size() % kDim != 0 || jws->size() / kDim < 1
                 || jws->size() / kDim > kSounds)
                 return false;
