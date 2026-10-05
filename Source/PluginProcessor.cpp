@@ -3519,6 +3519,62 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // during candidate search, while 0 remains a safe default for normal calls.
     const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
 
+    // 0.85.5 Latent Melody Character Engine:
+    // The existing genre/mood/type controls describe context, while this hidden
+    // profile chooses the *kind of melodic behavior* for the candidate itself.
+    // It changes several musical axes together so two loops can share the same
+    // harmonic setting yet still feel fundamentally different.
+    struct MelodicCharacter
+    {
+        float spaceBias;
+        float densityBias;
+        float leapBias;
+        float syncBias;
+        float motifBias;
+        float sustainBias;
+        float repetitionBias;
+        float registerBias;
+        float contrastBias;
+        int contourBias;
+        int intervalBias;
+        int rhythmBias;
+        int registerJourneyBias;
+        int tensionBias;
+    };
+
+    static constexpr MelodicCharacter characterPool[] =
+    {
+        { 0.26f, -0.16f, -0.10f, -0.12f, 0.16f, 0.24f, 0.24f, -0.08f, -0.08f,  0,  0,  4, 0, 0 },
+        {-0.10f,  0.18f,  0.04f,  0.18f, 0.08f, -0.20f, 0.10f,  0.04f,  0.12f,  5,  3, 7, 5, 2 },
+        { 0.14f, -0.06f, -0.08f, -0.02f, 0.34f, 0.08f, 0.42f, -0.02f, -0.10f,  1,  0, 0, 0, 0 },
+        { 0.20f, -0.12f, -0.14f, -0.08f, 0.08f, 0.30f, 0.18f,  0.02f,  0.02f,  3,  1, 4, 2, 1 },
+        { 0.12f, -0.02f,  0.02f,  0.26f, 0.02f, 0.02f, 0.06f,  0.00f,  0.22f, 10, 8, 9, 5, 4 },
+        {-0.02f,  0.10f,  0.16f,  0.02f, 0.12f,-0.02f, 0.00f,  0.12f,  0.28f, 13, 6, 2, 4, 6 },
+        { 0.08f, -0.02f,  0.10f, -0.04f, 0.18f, 0.10f, 0.06f, -0.10f, -0.02f,  9, 7, 5, 2, 1 },
+        {-0.04f,  0.08f,  0.28f,  0.18f, -0.08f,-0.08f,-0.06f,  0.16f,  0.30f,  7,10, 8, 6, 6 },
+        { 0.30f, -0.20f, -0.12f, -0.18f, -0.06f, 0.34f, 0.12f,  0.18f, -0.16f, 14, 2, 4, 7, 0 },
+        {-0.12f,  0.22f,  0.18f,  0.22f, 0.04f,-0.18f, 0.02f,  0.04f,  0.14f,  4, 9, 6, 1, 5 },
+        { 0.24f, -0.18f, -0.04f, -0.12f, 0.12f, 0.38f, 0.26f,  0.10f, -0.12f, 11, 4, 3, 3, 0 },
+        {-0.16f,  0.20f,  0.24f,  0.24f, -0.02f,-0.22f,-0.08f, -0.02f,  0.20f, 16,11,10, 6, 7 }
+    };
+
+    const int melodyCharacter = (int)
+        ((nativeArchetype * 3
+          + (hash32 (generationSeed
+                     ^ (uint32_t) (variationSalt + 17) * 0x9e3779b9u
+                     ^ (uint32_t) melodyType * 0x85ebca6bu) % 3u))
+         % (int) (sizeof (characterPool) / sizeof (characterPool[0])));
+    const auto& character = characterPool[melodyCharacter];
+    s.melodyCharacter = melodyCharacter;
+
+    dnaSpace = juce::jlimit (0.0f, 1.0f, dnaSpace + character.spaceBias);
+    dnaDensity = juce::jlimit (0.0f, 1.0f, dnaDensity + character.densityBias);
+    dnaLeap = juce::jlimit (0.0f, 1.0f, dnaLeap + character.leapBias);
+    dnaSync = juce::jlimit (0.0f, 1.0f, dnaSync + character.syncBias);
+    dnaMotif = juce::jlimit (0.0f, 1.0f, dnaMotif + character.motifBias);
+    dnaRegister = juce::jlimit (0.0f, 1.0f, dnaRegister + character.registerBias);
+
+
     // 0.83.0 Simple / Medium / Complex: complexity is now a real
     // composition class instead of a binary "simple vs everything else".
     // The middle class remains the default because most useful melodies live
@@ -3740,12 +3796,18 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         melodyType, mood, genre, e, complexity,
         hash32 (identitySeed ^ 0x72C0FFEEu));
 
-    const int phraseStyle = creativeRange.contourFamily;
-    const int intervalLanguage = creativeRange.intervalFamily;
-    const int tensionProfile = (int)(hash32(identitySeed ^ 0x7f4a7c15u
-                                             ^ (uint32_t) creativeRange.harmonyPersonality) % 8u);
-    const int registerProfile = creativeRange.registerJourney;
-    const int rhythmicLanguage = creativeRange.rhythmFamily;
+    const int phraseStyle =
+        (creativeRange.contourFamily + character.contourBias) % 18;
+    const int intervalLanguage =
+        (creativeRange.intervalFamily + character.intervalBias) % 12;
+    const int tensionProfile =
+        (int) ((hash32(identitySeed ^ 0x7f4a7c15u
+                        ^ (uint32_t) creativeRange.harmonyPersonality) % 8u
+               + (uint32_t) character.tensionBias) % 8u;
+    const int registerProfile =
+        (creativeRange.registerJourney + character.registerJourneyBias) % 8;
+    const int rhythmicLanguage =
+        creativeRange.rhythmFamily + character.rhythmBias;
 
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
@@ -3764,6 +3826,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         : juce::jlimit(0.04f, 0.92f,
             leapChance
             + 0.16f * poolTension
+            + 0.10f * character.leapBias
             + (complexCandidate ? 0.12f : 0.0f)
             + 0.10f * ((intervalLanguage == 2 || intervalLanguage == 5 || intervalLanguage == 7) ? 1.0f : 0.0f)
             + 0.05f * dnaLeap);
@@ -3782,7 +3845,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         + 0.22f * dnaMotif
         + 0.18f * poolTension
         + 0.10f * (1.0f - dnaSurprise)
-        + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f))
+        + 0.07f * ((phraseStyle >= 6) ? 1.0f : 0.0f)
+        + 0.12f * character.motifBias
+        + 0.06f * character.contrastBias)
         * (simpleCandidate ? 0.58f : (complexCandidate ? 1.08f : 1.0f)));
 
     // 0.58.4 Phrase Tension Engine: tension is now an explicit four-bar target,
@@ -4056,7 +4121,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Keep the core rhythm locked to the 1/8-note grid (even 16th-step
     // positions). Off-grid 16th-note syncopation is allowed only for
     // deliberately syncopated archetypes, and only as a small accent.
-    const bool allowsOffGrid = dnaSync > 0.55f || creativeRange.asymmetry > 0.66f
+    const bool allowsOffGrid = dnaSync > 0.55f || character.syncBias > 0.14f
+        || creativeRange.asymmetry > 0.66f
         || nativeArchetype == 1 || nativeArchetype == 5
         || rhythmType == 0 || rhythmType == 3 || rhythmType == 5
         || fastTempo > 0.58f;
@@ -4086,6 +4152,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const float density = juce::jlimit(0.16f, 0.95f, prof.densityMul *
         (0.64f + 0.30f * melodyDensity + 0.12f * e
         + 0.16f * (dnaDensity - 0.50f) - 0.10f * (dnaSpace - 0.50f)
+        + 0.09f * character.densityBias
+        - 0.12f * character.spaceBias
         - 0.60f * (pauseChance - 0.10f)
         - tempoSpaceBonus)
         * tempoDensityMul
@@ -4610,6 +4678,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 default: break;                                                   // centered
             }
             journey += creativeRange.registerBias * (0.25f + 0.75f * pos) / 2.0f;
+            journey += character.registerBias * (0.20f + 0.80f * pos) * 1.35f;
             d += juce::roundToInt (journey);
         }
 
@@ -4641,8 +4710,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 ? motifSpineStrength
                 : cycle == 0 ? motifSpineStrength * 1.10f
                 : cycle == 1 ? motifSpineStrength * 0.92f
-                : cycle == 2 ? motifSpineStrength * 0.52f
-                : motifSpineStrength * 0.98f;
+                : cycle == 2 ? motifSpineStrength * juce::jlimit (0.34f, 0.76f,
+                    0.52f + character.contrastBias * 0.24f)
+                : juce::jlimit (0.70f, 1.10f,
+                    motifSpineStrength * (0.98f + character.repetitionBias * 0.22f));
         const int motifAnchor = motifDegree(motifIndex);
         d = juce::roundToInt (
             (1.0f - roleMotifStrength) * (float) d
@@ -4746,7 +4817,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         // whole bar inside the melody lane.
         int bestK = 0; float bestCost = 1.0e9f;
         const float laneCentre = 0.5f * (float)(melLo + melHi)
-            + creativeRange.registerBias * 2.0f;
+            + creativeRange.registerBias * 2.0f
+            + character.registerBias * 4.5f;
         for (int k = -4; k <= 4; ++k)
         {
             float cost = 0.0f;
@@ -4900,7 +4972,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             const float anchorRoll = (float)(ah % 1000u) / 1000.0f;
             const float harmonyPersonalityBias =
                 (creativeRange.harmonyPersonality <= 1 ? -0.10f
-                 : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f);
+                 : creativeRange.harmonyPersonality >= 6 ? 0.12f : 0.0f)
+                + character.contrastBias * 0.06f;
             const float tensionChance = juce::jlimit(0.04f, 0.84f,
                 0.06f
                 + 0.42f * poolTension
