@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "MidiForgeShared.h"
 
 #include <algorithm>
 #include <cmath>
