@@ -2825,7 +2825,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
     // 0.70 Composer Grammar: one macro plan coordinates the existing engines.
     const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        bars, energy, complexity, melodyType, mood, ,
+        bars, energy, complexity, melodyType, mood,
         hash32 (loopSeed ^ 0xC0A70970u));
     const int composerPhrase = barOffset / 4;
     const auto composerState = composerPlan.stateFor (composerPhrase);
@@ -3135,10 +3135,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // The plan expands the *creative* search space rather than simply adding pitch
     // randomness: contour, interval vocabulary, rhythm family, repetition behavior,
     // register journey, harmonic color and duration language are selected together.
-    const auto creativeRange = midiforge::CreativeRange::makePlan (
-        melodyType, mood, , e, complexity,
-        hash32 (identitySeed ^ 0x72C0FFEEu));
-
     // CreativeRange owns the discrete melodic language. Character is a soft
     // behavioral flavor layered on top; it must not independently replace the
     // contour, interval, rhythm or register grammar selected above.
@@ -8813,7 +8809,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
     const int barsN = juce::jmax (1, section.bars);
     const auto& features = inputs.features;
     const auto grammar = midiforge::ComposerGrammar::makePlan (
-        barsN, energy, complexity, melodyType, mood, , identity);
+        barsN, energy, complexity, melodyType, mood, identity);
 
     std::vector<int> counts ((size_t) barsN, 0);
     std::vector<float> meanPitch ((size_t) barsN, 0.0f);
@@ -11604,7 +11600,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
         if (i.getNumBytesRemaining() < 1) return false; out = i.readBool(); return true;
     };
 
-    { int legacyGenre = 0; readIntClamped (rootPc,0,11); readIntClamped (legacyGenre,0,15); } readIntClamped (scale,0,11);
+    { int discardedSlot = 0; readIntClamped (rootPc,0,11); readIntClamped (discardedSlot,0,15); } readIntClamped (scale,0,11);
     readIntClamped (progression,0,6); readIntClamped (rhythm,0,3); readIntClamped (bars,1,16);
     readIntRaw(seed); readIntClamped(octave,2,6); readIntClamped(sectionMode,(int)Loop,(int)SongExtended);
     readFloatClamped(chordDensity,0.0f,1.0f); readFloatClamped(bassDensity,0.0f,1.0f);
