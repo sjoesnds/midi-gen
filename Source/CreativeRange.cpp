@@ -113,7 +113,7 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
         11  // Phrase
     };
 
-    const int preferred = preferredLanguageByType[juce::jlimit (0, 7, melodyType)];
+    const int preferred = preferredLanguageByType[std::clamp (melodyType, 0, 7)];
     const bool usePreferred =
         unit (mix32 (h0 ^ (uint32_t) (melodyType + 17) * 0x45d9f3bu)) < 0.62f;
 
