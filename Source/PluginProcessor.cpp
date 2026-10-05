@@ -5302,6 +5302,49 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
         return score;
     };
 
+    auto decisionEvaluation = [&] ()
+    {
+        const int barsN = juce::jmax (1, section.bars);
+        std::vector<std::vector<int>> chordPcs ((size_t) barsN);
+        for (const auto& n : section.notes)
+        {
+            if (n.channel != 1)
+                continue;
+            const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+            auto& pcs = chordPcs[(size_t) bar];
+            const int pc = pitchClass (n.note);
+            if (std::find (pcs.begin(), pcs.end(), pc) == pcs.end())
+                pcs.push_back (pc);
+        }
+
+        std::vector<midiforge::MelodyDecision::NoteView> noteViews;
+        noteViews.reserve (melody.size());
+        for (const auto index : melody)
+        {
+            const auto& n = section.notes[index];
+            const int bar = juce::jlimit (0, barsN - 1, n.step / 16);
+            const int pc = pitchClass (n.note);
+            const bool chordTone = std::find (
+                chordPcs[(size_t) bar].begin(),
+                chordPcs[(size_t) bar].end(), pc)
+                != chordPcs[(size_t) bar].end();
+            noteViews.push_back ({ n.step, n.length, n.note, chordTone });
+        }
+
+        const auto complexityClass =
+            (midiforge::MelodyDecision::ComplexityClass)
+            juce::jlimit (0, 2, section.melodyComplexityClass);
+
+        const float centreBias = section.hasMelodyIntent
+            ? juce::jlimit (0.30f, 0.68f, 0.34f + 0.30f * section.melodyIntent.dnaRegister)
+            : 0.50f;
+        const float centre = (float) laneLo
+            + centreBias * (float) juce::jmax (1, laneHi - laneLo);
+
+        return midiforge::MelodyDecision::evaluate (
+            noteViews, section.bars, complexityClass, centre, maxLeap);
+    };
+
     // Pick the worst two internal spots. Never rewrite the opening or the final
     // two notes here; phrase identity and closure have dedicated judges/passes.
     std::vector<int> targets;
@@ -5327,9 +5370,11 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
         const size_t idx = melody[(size_t) i];
         const int original = section.notes[idx].note;
 
+        const auto initialDecision = decisionEvaluation();
         float bestScore =
-            0.72f * localMelodyQualityScore (section, identity ^ (uint32_t) i)
-            + 0.28f * melodyPleasantnessScore (section);
+            0.58f * localMelodyQualityScore (section, identity ^ (uint32_t) i)
+            + 0.20f * melodyPleasantnessScore (section)
+            + 0.22f * initialDecision.score;
         int bestPitch = original;
 
         const int prev = section.notes[melody[(size_t) i - 1]].note;
@@ -5349,7 +5394,12 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
                 localMelodyQualityScore (section, identity ^ (uint32_t) (i * 0x9e3779b9u));
             const float pleasant =
                 melodyPleasantnessScore (section);
-            const float score = 0.72f * local + 0.28f * pleasant;
+            const float decision =
+                decisionEvaluation().score;
+            const float score =
+                0.58f * local
+                + 0.20f * pleasant
+                + 0.22f * decision;
 
             const bool improves = score > bestScore + 0.018f;
             if (improves)
