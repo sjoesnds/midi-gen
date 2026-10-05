@@ -3246,6 +3246,189 @@ int main()
                      (double) complexityHits[2]));
     }
 
+
+    // ------------------------------------------------------------------ 27. workflow / editor safety preflight (0.95)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setBars (4);
+        p.setSeed (97001);
+        p.regenerate ();
+        p.chooseVariation (0);
+
+        const int totalSteps = p.getVisibleBars() * 16;
+        auto baseline = p.getVisibleNotes();
+
+        // Editor-side edits must never create notes outside the active loop.
+        p.addVisibleNote (9999, 64, 9999, 100, 3);
+        p.editVisibleNote (0, 9999, 40, 9999, 90);
+        auto edited = p.getVisibleNotes();
+
+        int outOfBounds = 0;
+        for (const auto& n : edited)
+            if (n.step < 0 || n.step >= totalSteps || n.length < 1 || n.step + n.length > totalSteps)
+                ++outOfBounds;
+
+        report ("workflow safety: piano-roll edits stay inside loop bounds",
+                outOfBounds == 0,
+                fmt ("%.0f invalid note bounds", (double) outOfBounds));
+
+        // Export must produce an actual non-empty MIDI file every time.
+        int exportFailures = 0;
+        int parsedFailures = 0;
+        for (int i = 0; i < 32; ++i)
+        {
+            p.setSeed (97100 + i * 17);
+            p.regenerate ();
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                .getChildFile ("mf_workflow_" + juce::String (i) + ".mid");
+
+            if (! p.exportMidiFileTo (file) || ! file.existsAsFile() || file.getSize() <= 0)
+                ++exportFailures;
+            else
+            {
+                const auto parsed = readMidi (file);
+                if (! parsed.ok)
+                    ++parsedFailures;
+            }
+            file.deleteFile();
+        }
+
+        report ("workflow safety: exported MIDI files are non-empty",
+                exportFailures == 0,
+                fmt ("%.0f export failures", (double) exportFailures));
+        report ("workflow safety: exported MIDI files parse correctly",
+                parsedFailures == 0,
+                fmt ("%.0f parse failures", (double) parsedFailures));
+
+        // Save edited MIDI state and restore it into a fresh processor.
+        p.setSeed (97231);
+        p.regenerate ();
+        p.chooseVariation (0);
+        auto editable = p.getVisibleNotes();
+        if (! editable.empty())
+        {
+            editable.front().note = p.snapPitchToScale (
+                juce::jlimit (0, 127, editable.front().note + 2));
+            editable.front().length = juce::jmax (1, editable.front().length);
+            p.replaceVisibleNotes (editable);
+        }
+
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+
+        MidiForgeAudioProcessor restored;
+        restored.setFeedbackLogFile (juce::File());
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        const auto restoredNotes = restored.getVisibleNotes();
+
+        bool restoredSame = restoredNotes.size() == p.getVisibleNotes().size();
+        if (restoredSame)
+        {
+            const auto source = p.getVisibleNotes();
+            for (size_t i = 0; i < source.size(); ++i)
+            {
+                const auto& a = source[i];
+                const auto& b = restoredNotes[i];
+                if (a.step != b.step || a.length != b.length || a.note != b.note
+                    || a.velocity != b.velocity || a.channel != b.channel)
+                {
+                    restoredSame = false;
+                    break;
+                }
+            }
+        }
+
+        report ("workflow safety: edited MIDI survives save/load",
+                restoredSame,
+                fmt ("%.0f notes restored", (double) restoredNotes.size()));
+    }
+
+    // ------------------------------------------------------------------ 28. Taste is a ranker, not a control mutator (0.95)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.resetTaste ();
+        p.setSeed (98001);
+        p.setMelodyDensity (0.61f, false);
+        p.setEnergy (0.63f, false);
+        p.setComplexity (0.57f, false);
+        p.regenerate ();
+        p.chooseVariation (0);
+
+        const float densityBefore = p.getMelodyDensity();
+        const float energyBefore = p.getEnergy();
+        const float complexityBefore = p.getComplexity();
+        const auto notesBefore = p.getVisibleNotes();
+
+        p.likeVariation (0);
+        p.dislikeVariation (1);
+
+        const bool controlsStable =
+            std::abs (p.getMelodyDensity() - densityBefore) < 0.0001f
+            && std::abs (p.getEnergy() - energyBefore) < 0.0001f
+            && std::abs (p.getComplexity() - complexityBefore) < 0.0001f;
+
+        const auto notesAfter = p.getVisibleNotes();
+        bool notesStable = notesBefore.size() == notesAfter.size();
+        if (notesStable)
+            for (size_t i = 0; i < notesBefore.size(); ++i)
+            {
+                const auto& a = notesBefore[i];
+                const auto& b = notesAfter[i];
+                if (a.step != b.step || a.length != b.length || a.note != b.note
+                    || a.velocity != b.velocity || a.channel != b.channel)
+                {
+                    notesStable = false;
+                    break;
+                }
+            }
+
+        report ("Taste isolation: LIKE / DISLIKE does not rewrite generation controls",
+                controlsStable,
+                fmt ("density %.2f->%.2f energy %.2f->%.2f complexity %.2f->%.2f",
+                     densityBefore, p.getMelodyDensity(),
+                     energyBefore, p.getEnergy(),
+                     complexityBefore, p.getComplexity()));
+
+        report ("Taste isolation: feedback does not mutate current MIDI",
+                notesStable,
+                fmt ("%.0f notes before / %.0f after",
+                     (double) notesBefore.size(), (double) notesAfter.size()));
+    }
+
+    // ------------------------------------------------------------------ 29. deterministic editor stress batch (0.95)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        int invalid = 0;
+        int empty = 0;
+
+        for (int cycle = 0; cycle < 256; ++cycle)
+        {
+            p.setSeed (99000 + cycle * 41);
+            p.regenerate ();
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+                if (notes.empty()) ++empty;
+
+                const int bars = std::max (1, p.getVisibleBars());
+                const int total = bars * 16;
+                for (const auto& n : notes)
+                    if (n.step < 0 || n.step >= total || n.length < 1 || n.step + n.length > total
+                        || n.note < 0 || n.note > 127 || n.velocity < 1 || n.velocity > 127)
+                        ++invalid;
+            }
+        }
+
+        report ("stress batch: 256 generation cycles stay structurally valid",
+                invalid == 0 && empty == 0,
+                fmt ("%.0f invalid notes / %.0f empty variation snapshots",
+                     (double) invalid, (double) empty));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
