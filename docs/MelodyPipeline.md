@@ -1,6 +1,6 @@
 # Melody Pipeline Contract
 
-This document defines the active melody-generation ownership rules for the 0.95.x development cycle.
+This document defines the active melody-generation ownership rules for the 0.96.x development cycle.
 
 ## Core rule
 
