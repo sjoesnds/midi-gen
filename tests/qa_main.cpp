@@ -3078,6 +3078,20 @@ int main()
         const double b = meanPitch (barPitches[2]);
         const double app = meanPitch (barPitches[3]);
 
+        auto onsetMask = [&] (int bar)
+        {
+            int mask = 0;
+            for (const auto& n : mel)
+                if (n.step / 16 == bar)
+                    mask |= (1 << (n.step % 16));
+            return mask;
+        };
+
+        const int rhythmA = onsetMask (0);
+        const int rhythmAP = onsetMask (1);
+        const int rhythmB = onsetMask (2);
+        const int rhythmAPP = onsetMask (3);
+
         const bool identityReturns =
             !barPitches[0].empty() && !barPitches[1].empty()
             && !barPitches[2].empty() && !barPitches[3].empty()
@@ -3085,11 +3099,26 @@ int main()
             && (std::abs (b - a) >= 0.75 || counts[2] != counts[0])
             && (std::abs (ap - a) >= 0.25 || counts[1] != counts[0]);
 
+        const int sharedAPBits = __builtin_popcount ((unsigned) (rhythmA & rhythmAP));
+        const int sharedBBits = __builtin_popcount ((unsigned) (rhythmA & rhythmB));
+        const int sharedAPPBits = __builtin_popcount ((unsigned) (rhythmA & rhythmAPP));
+        const int rhythmABits = __builtin_popcount ((unsigned) rhythmA);
+
+        const bool rhythmicMemory =
+            rhythmABits >= 2
+            && sharedAPBits >= juce::jmax (1, rhythmABits / 2)
+            && sharedAPPBits >= juce::jmax (1, rhythmABits / 2);
+
         report ("phrase identity: A/A'/B/A'' is structurally present",
                 identityReturns,
                 fmt ("bar means %.1f / %.1f / %.1f / %.1f, counts %d/%d/%d/%d",
                      a, ap, b, app,
                      counts[0], counts[1], counts[2], counts[3]));
+
+        report ("phrase memory: A rhythm returns through A' and A''",
+                rhythmicMemory,
+                fmt ("A=%d, A' shared=%d, B shared=%d, A'' shared=%d",
+                     rhythmABits, sharedAPBits, sharedBBits, sharedAPPBits));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
