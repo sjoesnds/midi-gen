@@ -2,6 +2,7 @@
 
 #include "CreativeRange.h"
 #include "ComposerGrammar.h"
+#include "MotifSemantics.h"
 
 #include <cstdint>
 
@@ -33,6 +34,7 @@ struct MelodyIntent
 
     CreativeRange::Plan language {};
     ComposerGrammar::Plan grammar {};
+    MotifSemantics::Plan motif {};
     Character character {};
 
     int characterIndex = 0;
