@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "MelodyIntent.h"
+#include "MelodyDecision.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
@@ -2494,14 +2495,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // re-roll the complexity class for each bar.
     if (s.melodyComplexityClass < 0)
     {
-        const uint32_t complexityRoll = hash32 (loopSeed ^ 0xA11CE55u) % 1000u;
-        s.melodyComplexityClass =
-            complexityRoll < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f)
-                ? 0
-                : complexityRoll < (uint32_t) juce::roundToInt (
-                      (simpleProbability + complexProbability) * 1000.0f)
-                    ? 2
-                    : 1; // 0 = Simple, 1 = Medium, 2 = Complex
+        const auto decisionClass = midiforge::MelodyDecision::classify (
+            complexity, simpleProbability, complexProbability, loopSeed ^ 0xA11CE55u);
+        s.melodyComplexityClass = (int) decisionClass;
     }
 
     const int melodyComplexityClass = juce::jlimit (0, 2, s.melodyComplexityClass);
@@ -9897,6 +9893,72 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality -= 0.14f * (0.40f - localMelodyRhythm);
         if (localMelodyQuality < 0.30f)
             quality -= 0.10f * (0.30f - localMelodyQuality);
+        // 0.97 Unified Melody Decision: evaluate the finished phrase against
+        // one composition budget. Existing local/global judges remain authoritative;
+        // this layer only decides whether the candidate actually matches the intent
+        // that created it, and penalises generic bar-copy behaviour.
+        {
+            std::vector<midiforge::MelodyDecision::NoteView> decisionNotes;
+            decisionNotes.reserve (flat.notes.size());
+            std::vector<std::vector<int>> decisionChordPcs ((size_t) juce::jmax (1, flat.bars));
+            for (const auto& ev : flat.notes)
+            {
+                if (ev.channel == 1)
+                {
+                    const int b = juce::jlimit (0, juce::jmax (1, flat.bars) - 1, ev.step / 16);
+                    auto& pcs = decisionChordPcs[(size_t) b];
+                    const int pc = (ev.note % 12 + 12) % 12;
+                    if (std::find (pcs.begin(), pcs.end(), pc) == pcs.end())
+                        pcs.push_back (pc);
+                }
+            }
+
+            int decisionLo = 40, decisionHi = 96, decisionMaxLeap = 9;
+            melodyRegisterContract (decisionLo, decisionHi, decisionMaxLeap);
+            const float decisionCentre = 0.50f * (float) (decisionLo + decisionHi);
+
+            for (const auto& ev : flat.notes)
+            {
+                if (ev.channel != 3)
+                    continue;
+                const int bar = juce::jlimit (0, juce::jmax (1, flat.bars) - 1, ev.step / 16);
+                const int pc = (ev.note % 12 + 12) % 12;
+                const bool chordTone = std::find (
+                    decisionChordPcs[(size_t) bar].begin(),
+                    decisionChordPcs[(size_t) bar].end(), pc)
+                    != decisionChordPcs[(size_t) bar].end();
+
+                decisionNotes.push_back ({ ev.step, ev.length, ev.note, chordTone });
+            }
+
+            const auto complexityClass =
+                (midiforge::MelodyDecision::ComplexityClass)
+                juce::jlimit (0, 2, flat.melodyComplexityClass);
+
+            const auto decision = midiforge::MelodyDecision::evaluate (
+                decisionNotes,
+                flat.bars,
+                complexityClass,
+                decisionCentre,
+                decisionMaxLeap);
+
+            quality += 0.16f * decision.score;
+            quality += 0.045f * decision.complexityFit;
+            quality += 0.040f * decision.structuralFit;
+            quality += 0.030f * decision.memorability;
+
+            // Genericity is not a problem for a deliberately simple hook,
+            // but repeated bar skeletons should stop dominating medium/complex
+            // candidates merely because they are globally pleasant.
+            const float genericAllowance =
+                complexityClass == midiforge::MelodyDecision::Simple ? 0.72f : 0.45f;
+            if (decision.genericity > genericAllowance)
+                quality -= 0.12f * (decision.genericity - genericAllowance);
+
+            if (decision.score < 0.34f)
+                quality -= 0.08f * (0.34f - decision.score);
+        }
+
         const float pleasantness = melodyPleasantnessScore (flat);
         // 0.86.x: pleasantness is now a soft safety preference, not a dominant
         // musical preference. Otherwise stepwise / polite candidates can beat
