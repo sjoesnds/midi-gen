@@ -4822,10 +4822,12 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 if (!deliberateLeap && !wideIntervalLanguage)   // preserve wide motion only for the languages that asked for it
                     delta -= scaleCount * (int)std::lround((double)delta / (double)scaleCount);
             }
-            // Weak beats prefer thirds over skips (strong beats keep their harmonic anchor).
+            // Weak beats may prefer compact motion, but do not erase the
+            // language's interval identity. This is only a light polish pass.
             if ((chosen[i] % 4) != 0 && melodyType != OstinatoMelody && melodyType != ArpMelody
                 && std::abs(delta) >= 3 && std::abs(delta) <= 4
-                && (hash32(identitySeed ^ (uint32_t)(i * 71 + 29)) % 100u) < 35u)
+                && creativeRange.leapBias < 0.58f
+                && (hash32(identitySeed ^ (uint32_t)(i * 71 + 29)) % 100u) < 12u)
                 delta = (delta > 0) ? 2 : -2;
             dPlan[i] = dPlan[i - 1] + delta;
         }
@@ -4927,21 +4929,28 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
             }
         }
 
-        // Composition profiles: each generation has a different balance of
-        // anchor / contrast / register / repetition.  These are musical rules,
-        // not random pitch noise, and they are intentionally subtle.
+        // Composition profiles are an accent layer, not a second melody writer.
+        // Only expressive language families are allowed to use these extra pitch
+        // gestures; hooks, vocal lines, minimal phrases and emotional lines keep
+        // the contour chosen by the main language intact.
         const int profile = (int)(hash32(identitySeed ^ 0x9e3779b9u) % 8u);
-        if (!simpleCandidate && profile == 1 && (i & 1u) == 0)
+        const bool allowProfileMutation =
+            !simpleCandidate
+            && (nativeArchetype == 5
+                || nativeArchetype == 7
+                || creativeRange.novelty > 0.68f
+                || creativeRange.leapBias > 0.62f);
+        if (allowProfileMutation && profile == 1 && (i & 1u) == 0)
             note = juce::jlimit(melLo, melHi, snapToScale(note + ((i % 3 == 0) ? 2 : -2)));
-        else if (profile == 2 && i == chosen.size() / 2)
+        else if (allowProfileMutation && profile == 2 && i == chosen.size() / 2)
             note = juce::jlimit(melLo, melHi, snapToScale(note + 5));
-        else if (profile == 3 && (i % 3 == 1))
+        else if (allowProfileMutation && profile == 3 && (i % 3 == 1))
             note = juce::jlimit(melLo, melHi, snapToScale(note - 5));
-        else if (profile == 4 && (i == 0 || i + 1 == chosen.size()))
+        else if (allowProfileMutation && profile == 4 && (i == 0 || i + 1 == chosen.size()))
             note = juce::jlimit(melLo, melHi, snapToScale(note + (i == 0 ? -3 : 3)));
-        else if (profile == 5 && i % 4 == 2)
+        else if (allowProfileMutation && profile == 5 && i % 4 == 2)
             note = juce::jlimit(melLo, melHi, snapToScale(note + 7));
-        else if (profile == 6 && i % 4 == 3)
+        else if (allowProfileMutation && profile == 6 && i % 4 == 3)
             note = juce::jlimit(melLo, melHi, snapToScale(note - 7));
 
         // Reuse a previous-bar contour at controlled strength.  The B bar
@@ -5316,7 +5325,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                 const int priorNote = generated.back();
                 const int semanticLeap = std::abs (note - priorNote);
                 const int semanticMaxLeap = juce::jmin (
-                    9,
+                    12,
                     prof.maxLeap > 0 ? juce::jmax (5, prof.maxLeap) : 7);
                 if (semanticLeap > semanticMaxLeap)
                 {
@@ -5422,6 +5431,8 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
     if (role == 0)
         return;
 
+    const bool simpleIntent = section.melodyComplexityClass == 0;
+
     const int start = barOffset * 16;
     const int end = start + 16;
 
@@ -5465,14 +5476,24 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
 
         if (role == 2)
         {
-            // B = contrast. Invert the motif contour around its anchor and
-            // push the middle toward a higher-tension register.
-            target = firstPitch - motif.relativePitches[mi];
-            if (i > 0 && i + 1 < current.size())
-                target += (i & 1u) ? -2 : 3;
+            // B = contrast. Complex lines can invert the motif; simple lines
+            // keep the same contour and only move the answer slightly.
+            if (simpleIntent)
+            {
+                target = firstPitch + juce::roundToInt (
+                    0.35f * (float) motif.relativePitches[mi]);
+            }
+            else
+            {
+                target = firstPitch - motif.relativePitches[mi];
+                if (i > 0 && i + 1 < current.size())
+                    target += (i & 1u) ? -2 : 3;
+            }
         }
 
-        const float strength = (role == 1 ? 0.58f : role == 2 ? 0.22f : 0.72f);
+        const float strength = simpleIntent
+            ? (role == 1 ? 0.34f : role == 2 ? 0.12f : 0.40f)
+            : (role == 1 ? 0.58f : role == 2 ? 0.22f : 0.72f);
         const int blended = juce::roundToInt ((float) n.note * (1.0f - strength)
                                               + (float) target * strength);
         n.note = snapInMelodyLane (blended);
@@ -5491,8 +5512,8 @@ void MidiForgeAudioProcessor::applyHumanPhraseRole (Section& section, int barOff
         if (role == 2 && i == current.size() / 2)
         {
             // B gets the phrase peak instead of being louder everywhere.
-            n.note = snapInMelodyLane (n.note + 3);
-            n.velocity = juce::jlimit (40, 118, n.velocity + 7);
+            n.note = snapInMelodyLane (n.note + (simpleIntent ? 1 : 3));
+            n.velocity = juce::jlimit (40, 118, n.velocity + (simpleIntent ? 3 : 7));
             n.length = juce::jmin (4, n.length + 1);
         }
     }
@@ -5859,9 +5880,9 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
                     targetPitch += (plan.answerCell & 1) ? 2 : -2;
             }
 
-            const float pitchBlend = role == 1 ? 0.74f
-                                    : role == 2 ? 0.36f
-                                    : 0.86f;
+            const float pitchBlend = simpleIntent
+                ? (role == 1 ? 0.44f : role == 2 ? 0.18f : 0.52f)
+                : (role == 1 ? 0.74f : role == 2 ? 0.36f : 0.86f);
 
             n.note = safePitch (juce::roundToInt (
                 (float) n.note * (1.0f - pitchBlend)
@@ -5892,16 +5913,20 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
             // B deliberately mutates a second semantic component and increases
             // contrast without abandoning the original idea.
             applyAxis (current, plan.primaryMutation,
-                       juce::jlimit (0.42f, 0.92f, plan.contrastStrength), role);
-            applyAxis (current, plan.secondaryMutation,
-                       juce::jlimit (0.30f, 0.80f, plan.contrastStrength * 0.82f), role);
+                       juce::jlimit (0.24f, 0.62f,
+                           plan.contrastStrength * (simpleIntent ? 0.50f : 1.0f)), role);
+            if (! simpleIntent)
+                applyAxis (current, plan.secondaryMutation,
+                           juce::jlimit (0.22f, 0.62f, plan.contrastStrength * 0.72f), role);
         }
         else
         {
             // A'' restores the semantic core and gives the loop a fresh ending
             // gesture instead of cloning A literally.
-            applyAxis (current, 4, plan.returnStrength, role);
-            if (plan.primaryMutation == 0)
+            applyAxis (current, 4,
+                       simpleIntent ? juce::jmin (0.52f, plan.returnStrength * 0.62f)
+                                     : plan.returnStrength, role);
+            if (plan.primaryMutation == 0 && ! simpleIntent)
                 applyAxis (current, 0, 0.34f, role);
         }
     }
