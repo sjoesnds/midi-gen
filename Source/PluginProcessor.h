@@ -313,7 +313,7 @@ struct PhraseMotif
 // so it never has to survive piano-roll edits.
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
-void applyHumanPerformance (Section& section) const;
+
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
