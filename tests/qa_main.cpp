@@ -2911,6 +2911,49 @@ int main()
                 fmt ("mean Lead length %.2f", leadLength));
     }
 
+    // ------------------------------------------------------------------ 22. BPM adaptation benchmark (0.86.3)
+    {
+        const int bpms[] = { 80, 120, 160, 200, 220 };
+        double density[5] {};
+
+        for (int bi = 0; bi < 5; ++bi)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setTestHostBpm ((double) bpms[bi]);
+
+            double noteSum = 0.0;
+            int samples = 0;
+            for (int seed = 0; seed < 12; ++seed)
+            {
+                p.setTestHostBpm ((double) bpms[bi]);
+                p.setSeed (61000 + bi * 1000 + seed * 29);
+                p.chooseVariation (0);
+                const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+                noteSum += (double) mel.size() / (double) std::max (1, p.getVisibleBars());
+                ++samples;
+            }
+            density[bi] = samples > 0 ? noteSum / (double) samples : 0.0;
+        }
+
+        const double minDensity = *std::min_element (density, density + 5);
+        const double maxDensity = *std::max_element (density, density + 5);
+        const double fastDensity = 0.5 * (density[3] + density[4]);
+        const double midDensity = density[1];
+
+        report ("BPM adaptation: generation stays populated across tempo range",
+                minDensity > 0.5,
+                fmt ("densities 80/120/160/200/220 = %.2f / %.2f / %.2f / %.2f / %.2f",
+                     density[0], density[1], density[2], density[3], density[4]));
+        report ("BPM adaptation: fast tempos do not collapse into the old 150-160 ceiling",
+                midDensity > 0.0 && fastDensity >= midDensity * 0.78,
+                fmt ("120 BPM %.2f vs 200-220 BPM %.2f notes/bar",
+                     midDensity, fastDensity));
+        report ("BPM adaptation: density remains a bounded musical adjustment",
+                minDensity > 0.0 && maxDensity / minDensity < 2.10,
+                fmt ("density ratio %.2f", minDensity > 0.0 ? maxDensity / minDensity : 999.0));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
