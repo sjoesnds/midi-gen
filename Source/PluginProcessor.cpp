@@ -123,7 +123,6 @@ pendingEvents.clear();
 pendingEvents.reserve (4096);
 }
 void MidiForgeAudioProcessor::setRoot(int v){rootPc=juce::jlimit(0,11,v);regenerate();}
-void MidiForgeAudioProcessor::setGenre(int v){genre=juce::jlimit(0,15,v);regenerate();}
 void MidiForgeAudioProcessor::setScale(int v){scale=juce::jlimit(0,11,v);regenerate();}
 void MidiForgeAudioProcessor::setMood(int v){mood=juce::jlimit(0,8,v);regenerate();}
 void MidiForgeAudioProcessor::setMelodyType(int v){melodyType=juce::jlimit(0,7,v);regenerate();}
@@ -397,9 +396,7 @@ void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
     }
 
     targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 6.0f);
-    if (genre == Experimental || genre == Cinematic)
-        targetSpan += 3;
-    targetSpan = juce::jlimit (22, 44, targetSpan);
+        targetSpan = juce::jlimit (22, 44, targetSpan);
 
     const int centre = (baseLo + baseHi) / 2;
     const int half = targetSpan / 2;
@@ -1203,7 +1200,7 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
         });
 
     const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        section.bars, energy, complexity, melodyType, mood, genre,
+        section.bars, energy, complexity, melodyType, mood,
         hash32 (identity ^ 0xC0719F0u));
 
     for (size_t i = 0; i < melody.size(); ++i)
@@ -1304,7 +1301,7 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
         return 0.45f;
 
     const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        section.bars, energy, complexity, melodyType, mood, genre,
+        section.bars, energy, complexity, melodyType, mood,
         hash32 (generationSeed ^ 0xC0719F0u));
 
     int approachGood = 0, approachCount = 0;
@@ -1842,7 +1839,7 @@ float MidiForgeAudioProcessor::phraseMemory4Score (const Section& section) const
             const float direct = contourFit (reference[(size_t) localBar], cur, false);
             const float inverse = contourFit (reference[(size_t) localBar], cur, true);
             const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-                section.bars, energy, complexity, melodyType, mood, genre,
+                section.bars, energy, complexity, melodyType, mood,
                 hash32 (generationSeed ^ 0xC0A70970u));
             const auto composerState = composerPlan.stateFor (phrase);
             const bool expectedInverse =
@@ -1893,7 +1890,7 @@ float MidiForgeAudioProcessor::composerGrammarScore (const Section& section) con
         return 0.52f;
 
     const auto plan = midiforge::ComposerGrammar::makePlan (
-        section.bars, energy, complexity, melodyType, mood, genre,
+        section.bars, energy, complexity, melodyType, mood,
         hash32 (generationSeed ^ 0xC0A70970u));
 
     struct PhraseObs
@@ -2192,7 +2189,7 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
     taste::Vec z;
     for (size_t i = 0; i < (size_t) taste::kDim; ++i)
         z[i] = juce::jlimit(-3.0f, 3.0f, (x[i] - tasteMean[i]) / tasteStd[i]);
-    tasteModel.update(z, soundTarget, genre, likeTarget, weight);
+    tasteModel.update(z, soundTarget, likeTarget, weight);
 }
 
 void MidiForgeAudioProcessor::resetTaste()
@@ -2266,7 +2263,6 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
     row.add (juce::String (slot + 1));
     row.add (nameOf (transforms, 9, transform));
     row.add (nameOf (archetypes, 8, archetype));
-    row.add (nameOf (genres, 16, genre));
     row.add (nameOf (moods, 9, mood));
     row.add (nameOf (melodyTypes, 8, melodyType));
     row.add (nameOf (sounds, 8, soundTarget));
@@ -2291,7 +2287,7 @@ void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
     if (! out.openedOk()) return;
     out.setPosition (feedbackFile.getSize());
     if (needHeader)
-        out << "time_utc,engine,verdict,slot,transform,archetype,genre,mood,melody_type,sound,era,scale,progression,bars,bpm,complexity,energy,melody_density,melody_notes,total_notes,generation_seed,dna_seed\n";
+        out << "time_utc,engine,verdict,slot,transform,archetype,mood,melody_type,sound,era,scale,progression,bars,bpm,complexity,energy,melody_density,melody_notes,total_notes,generation_seed,dna_seed\n";
     out << row.joinIntoString (",") << "\n";
 }
 
@@ -2861,7 +2857,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     int melLo = 62, melHi = 86;
     melodyCoreLane (melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
-    const bool sparseAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
+    const bool sparseAllowed = (melodyType == SparseLeadMelody);
     // 0.81 Simple Melody Class: roughly half the search space is intentionally
     // composed with a compact 2-4 note vocabulary. This is different from merely
     // lowering density: the pitch contour, rhythm size and leap language also
@@ -3112,7 +3108,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         (melodyType == HookMelody || melodyType == VocalLikeMelody) ? 0.10f
         : (melodyType == SparseLeadMelody ? -0.08f : 0.0f);
     const float contextGapBias =
-        (melodyType == SparseLeadMelody || genre == Ambient) ? 0.16f : 0.06f;
+        (melodyType == SparseLeadMelody) ? 0.16f : 0.06f;
 
     auto contextStepWeight = [&](int step) -> float
     {
@@ -4882,7 +4878,7 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
         ^ 0x73A11CE5u);
 
     const auto plan = midiforge::MotifSemantics::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const bool simpleIntent = section.melodyComplexityClass == 0;
 
@@ -5225,7 +5221,7 @@ float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
     };
 
     const auto plan = midiforge::MotifSemantics::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const float aPrime = similarity (a, ap);
     const float contrastSimilarity = similarity (a, b);
@@ -5840,7 +5836,7 @@ float MidiForgeAudioProcessor::closureJudgeScore (const Section& section, uint32
     }
 
     const auto plan = midiforge::LoopClosure::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const int totalSteps = section.bars * 16;
     const int finalBarStart = (section.bars - 1) * 16;
@@ -5941,7 +5937,7 @@ void MidiForgeAudioProcessor::applyLoopClosure (Section& section, uint32_t ident
         });
 
     const auto plan = midiforge::LoopClosure::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const int totalSteps = section.bars * 16;
     const int finalBarStart = (section.bars - 1) * 16;
@@ -6153,7 +6149,7 @@ float MidiForgeAudioProcessor::loopClosureScore (const Section& section, uint32_
         previous = last;
 
     const auto plan = midiforge::LoopClosure::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const int seamDistance = std::abs (last->note - first->note);
     const float seamFit = 1.0f - juce::jlimit (0.0f, 1.0f,
@@ -6850,7 +6846,7 @@ MidiForgeAudioProcessor::MelodyFeatures MidiForgeAudioProcessor::melodyFeatures 
                 : (melodyType == SparseLeadMelody ? 0.28f : 0.39f);
             const float syncFit = 1.0f
                 - juce::jlimit (0.0f, 1.0f, std::abs (syncRatio - targetSync) / 0.48f);
-            const float gapTarget = (melodyType == SparseLeadMelody || genre == Ambient) ? 0.58f : 0.44f;
+            const float gapTarget = (melodyType == SparseLeadMelody) ? 0.58f : 0.44f;
             const float gapFit = 1.0f
                 - juce::jlimit (0.0f, 1.0f, std::abs (gapRatio - gapTarget) / 0.52f);
 
@@ -8432,7 +8428,7 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
         });
 
     const auto plan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     int minPitch = 127, maxPitch = 0;
     int leapCount = 0;
@@ -8937,7 +8933,7 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
     }
 
     const auto creativePlan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, genre, energy, complexity, identity);
+        melodyType, mood, energy, complexity, identity);
 
     const float actualNovelty = juce::jlimit (
         0.0f, 1.0f, 0.55f * features.variety + 0.45f * features.surprise);
@@ -9316,7 +9312,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         "HOOK", "GROOVE", "HARMONY", "MOTIF",
         "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD"
     };
-    const bool sparseTypeAllowed = (melodyType == SparseLeadMelody || genre == Ambient);
+    const bool sparseTypeAllowed = (melodyType == SparseLeadMelody);
     const auto judgeProf = soundProfileFor(soundTarget);
 
 #ifdef MIDIFORGE_HEADLESS
@@ -10439,7 +10435,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 taste::Vec z;
                 for (size_t i = 0; i < (size_t) taste::kDim; ++i)
                     z[i] = juce::jlimit(-3.0f, 3.0f, (tasteFeatures[c][i] - tasteMean[i]) / tasteStd[i]);
-                const float p = tasteModel.predict(z, soundTarget, genre);
+                const float p = tasteModel.predict(z, soundTarget);
                 const float recent = tasteModel.recentPreference (z);
                 candidates[c].quality += gain * (2.0f * p - 1.0f);
                 // Taste ML 2.0: short-term preference memory is deliberately
@@ -10826,8 +10822,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     }
 
     // Global musical identity. These affect all layers coherently.
-    genre = pick(16);
-    mood = pick(9);
+        mood = pick(9);
     melodyType = pick(8);
     rhythm = pick(4);
     static constexpr int barChoices[] = {1,2,4,8,16};
@@ -11592,7 +11587,7 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     waitForGeneration();
     juce::MemoryOutputStream o(dest, false);
     o.writeInt (kStateMagic); o.writeInt (kStateVersion);
-    o.writeInt(rootPc);o.writeInt(genre);o.writeInt(scale);o.writeInt(progression);
+    o.writeInt(rootPc);o.writeInt(0); /* legacy genre slot */ o.writeInt(scale);o.writeInt(progression);
     o.writeInt(rhythm);o.writeInt(bars);o.writeInt(seed);o.writeInt(octave);o.writeInt(sectionMode);
     o.writeFloat(chordDensity);o.writeFloat(bassDensity);o.writeFloat(melodyDensity);o.writeFloat(arpDensity);
     o.writeFloat(swing);o.writeFloat(humanize);o.writeFloat(complexity);
@@ -11628,7 +11623,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     else
         i.setPosition (0);
 
-    rootPc = 0; genre = Universal; scale = Minor; progression = AutoProg;
+    rootPc = 0; scale = Minor; progression = AutoProg;
     rhythm = Straight; bars = 4; seed = 1337; octave = 4; sectionMode = Loop;
     chordDensity = 0.9f; bassDensity = 0.8f; melodyDensity = 0.62f; arpDensity = 0.25f;
     swing = 0.0f; humanize = 0.15f; complexity = 0.55f;
@@ -11660,7 +11655,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
         if (i.getNumBytesRemaining() < 1) return false; out = i.readBool(); return true;
     };
 
-    readIntClamped (rootPc,0,11); readIntClamped (genre,0,15); readIntClamped (scale,0,11);
+    { int legacyGenre = 0; readIntClamped (rootPc,0,11); readIntClamped (legacyGenre,0,15); } readIntClamped (scale,0,11);
     readIntClamped (progression,0,6); readIntClamped (rhythm,0,3); readIntClamped (bars,1,16);
     readIntRaw(seed); readIntClamped(octave,2,6); readIntClamped(sectionMode,(int)Loop,(int)SongExtended);
     readFloatClamped(chordDensity,0.0f,1.0f); readFloatClamped(bassDensity,0.0f,1.0f);
