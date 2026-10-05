@@ -5,6 +5,7 @@
 #include "ComposerGrammar.h"
 #include "CreativeRange.h"
 #include "MelodyIntent.h"
+#include "MelodyDecision.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
 #include "ComposerJudge.h"
