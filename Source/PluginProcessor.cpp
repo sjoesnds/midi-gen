@@ -210,7 +210,7 @@ void MidiForgeAudioProcessor::setMelodyDensity(float v, bool regenerateNow){melo
 void MidiForgeAudioProcessor::setArpDensity(float v, bool regenerateNow){arpDensity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setSwing(float v){swing=juce::jlimit(0.f,.75f,v);realtimeSwing.store(swing);}
 void MidiForgeAudioProcessor::setHumanize(float v){humanize=juce::jlimit(0.f,1.f,v);realtimeHumanize.store(humanize);}
-void MidiForgeAudioProcessor::setHumanizeEnabled(bool on){if(humanizeEnabled==on)return;humanizeEnabled=on;realtimeHumanizeEnabled.store(on);regenerate();}
+void MidiForgeAudioProcessor::setHumanizeEnabled(bool on){if(humanizeEnabled==on)return;humanizeEnabled=on;realtimeHumanizeEnabled.store(on);}
 void MidiForgeAudioProcessor::setComplexity(float v, bool regenerateNow){complexity=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setMelodyLength(float v, bool regenerateNow){melodyLength=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
 void MidiForgeAudioProcessor::setPauseChance(float v, bool regenerateNow){pauseChance=juce::jlimit(0.f,1.f,v);if(regenerateNow)regenerate();}
@@ -2182,7 +2182,6 @@ void MidiForgeAudioProcessor::likeVariation(int vi)
     ++likedFeatureN;
     trainTaste(vi, 1.0f, 1.0f);
     savePreferences();
-    applyLearnedWeights();
 }
 
 void MidiForgeAudioProcessor::dislikeVariation(int vi)
@@ -2202,7 +2201,6 @@ void MidiForgeAudioProcessor::dislikeVariation(int vi)
     ++dislikedFeatureN;
     trainTaste(vi, 0.0f, 1.0f);
     savePreferences();
-    applyLearnedWeights();
 }
 
 void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
@@ -2248,23 +2246,10 @@ int MidiForgeAudioProcessor::getLikeCount(int vi) const { return (vi >= 0 && vi 
 int MidiForgeAudioProcessor::getDislikeCount(int vi) const { return (vi >= 0 && vi < 8) ? dislikeCounts[(size_t)vi] : 0; }
 int MidiForgeAudioProcessor::getVariationScore(int vi) const { return getLikeCount(vi) - getDislikeCount(vi); }
 
-void MidiForgeAudioProcessor::applyLearnedWeights()
-{
-    float dirD = 0, dirE = 0, dirC = 0; int w = 0;
-    if (likedN > 0 && disN > 0) { dirD = likedD - disD; dirE = likedE - disE; dirC = likedC - disC; w = juce::jmin(likedN, disN); }
-    else if (likedN > 0) { dirD = likedD - melodyDensity; dirE = likedE - energy; dirC = likedC - complexity; w = likedN; }
-    else if (disN > 0) { dirD = melodyDensity - disD; dirE = energy - disE; dirC = complexity - disC; w = disN; }
-    if (w <= 0) return;
-    const float g = 0.15f * juce::jlimit(0.f, 1.f, (float)w / 6.f);
-    melodyDensity = juce::jlimit(0.f, 1.f, melodyDensity + dirD * g);
-    energy = juce::jlimit(0.f, 1.f, energy + dirE * g);
-    complexity = juce::jlimit(0.f, 1.f, complexity + dirC * g);
-}
-
 void MidiForgeAudioProcessor::logFeedback (int vi, const char* verdict) const
 {
     static constexpr const char* archetypes[8] = { "HOOK", "GROOVE", "HARMONY", "MOTIF", "MINIMAL", "WEIRD", "EMOTIONAL", "WILDCARD" };
-    static constexpr const char* transforms[9] = { "ORIGINAL", "TIGHT", "SPARSE", "DARK", "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK", "SIMILAR" };
+    static constexpr const char* transforms[9] = { "ORIGINAL", "CLOSE", "RHYTHMIC", "CONTRAST", "REGISTER", "MOTIF", "EXPERIMENTAL", "WILDCARD", "SIMILAR" };
     static constexpr const char* scales[12] = { "Major", "Minor", "Dorian", "Phrygian", "HarmonicMinor", "MelodicMinor", "Pentatonic", "Lydian", "Mixolydian", "Locrian", "HarmonicMajor", "Blues" };
     static constexpr const char* sounds[8] = { "Piano", "Pluck", "SynthLead", "Bell", "Pad", "Brass", "808", "Guitar" };
     static constexpr const char* moods[9] = { "Neutral", "Dark", "Melancholic", "Euphoric", "Aggressive", "Dreamy", "Nostalgic", "Mysterious", "Energetic" };
@@ -11540,6 +11525,23 @@ void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio, juce
         }
     }
 
+    // Piano-roll audition requests are UI-only and are consumed by the audio thread
+    // without touching the generated variation bank.
+    const uint32_t requestedPreview = previewCounter.load (std::memory_order_acquire);
+    if (requestedPreview != consumedPreviewCounter)
+    {
+        consumedPreviewCounter = requestedPreview;
+        const NoteEvent preview {
+            0,
+            previewLengthSteps.load (std::memory_order_relaxed),
+            previewPitch.load (std::memory_order_relaxed),
+            previewVelocity.load (std::memory_order_relaxed),
+            3,
+            false
+        };
+        emitNote (preview, out, 0, 0, 0);
+    }
+
     const int numSamples = audio.getNumSamples();
     const juce::int64 blockEnd = samplePosition + numSamples;
     for (int pass = 0; pass < 2; ++pass)
@@ -11800,38 +11802,54 @@ return midiFile;
 }
 bool MidiForgeAudioProcessor::exportMidiFileTo (const juce::File& file) const
 {
-auto midiFile = buildMidiFile (0);
-file.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
-if (auto stream = file.createOutputStream())
-return midiFile.writeTo (*stream);
-return false;
+    auto midiFile = buildMidiFile (0);
+    file.deleteFile();
+    if (auto stream = file.createOutputStream())
+    {
+        const bool written = midiFile.writeTo (*stream);
+        return written && file.existsAsFile() && file.getSize() > 0;
+    }
+    return false;
 }
 bool MidiForgeAudioProcessor::exportMidiFileToChannel (const juce::File& file, int channel) const
 {
-auto midiFile = buildMidiFile (channel);
-file.deleteFile();   // 0.45.1
-if (auto stream = file.createOutputStream())
-return midiFile.writeTo (*stream);
-return false;
+    auto midiFile = buildMidiFile (channel);
+    file.deleteFile();
+    if (auto stream = file.createOutputStream())
+    {
+        const bool written = midiFile.writeTo (*stream);
+        return written && file.existsAsFile() && file.getSize() > 0;
+    }
+    return false;
 }
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFile() const
 {
-auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-.getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
-exportMidiFileTo (file);
-logFeedback (-1, "drag_all");
-return file;
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
+    if (! exportMidiFileTo (file) || ! file.existsAsFile() || file.getSize() <= 0)
+        return {};
+    logFeedback (-1, "drag_all");
+    return file;
 }
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForChannel (int channel) const
 {
-static const char* names[6] = { "All", "Chords", "Bass", "Melody", "Arp", "Drums" };
-auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-.getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 5, channel)])
-+ "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
-exportMidiFileToChannel (file, channel);
-logFeedback (-1, "drag_part");
-return file;
+    static const char* names[6] = { "All", "Chords", "Bass", "Melody", "Arp", "Drums" };
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 5, channel)])
+                       + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
+    if (! exportMidiFileToChannel (file, channel) || ! file.existsAsFile() || file.getSize() <= 0)
+        return {};
+    logFeedback (-1, "drag_part");
+    return file;
 }
+void MidiForgeAudioProcessor::previewNote (int midiNote, int velocity, int lengthSteps)
+{
+    previewPitch.store (juce::jlimit (0, 127, midiNote), std::memory_order_relaxed);
+    previewVelocity.store (juce::jlimit (1, 127, velocity), std::memory_order_relaxed);
+    previewLengthSteps.store (juce::jlimit (1, 8, lengthSteps), std::memory_order_relaxed);
+    previewCounter.fetch_add (1u, std::memory_order_release);
+}
+
 std::vector<MidiForgeAudioProcessor::VisibleNote> MidiForgeAudioProcessor::getVisibleNotes() const
 {
 const juce::ScopedLock sl (activeNotesLock);
@@ -11871,7 +11889,10 @@ void MidiForgeAudioProcessor::syncEditedNotesToSelectedVariation (const std::vec
 
 bool MidiForgeAudioProcessor::addVisibleNote (int step, int note, int length, int velocity, int channel)
 {
-    VisibleNote created { juce::jmax (0, step), juce::jmax (1, length),
+    const int totalSteps = juce::jmax (16, activeBars * 16);
+    const int safeStep = juce::jlimit (0, totalSteps - 1, step);
+    const int safeLength = juce::jlimit (1, juce::jmax (1, totalSteps - safeStep), length);
+    VisibleNote created { safeStep, safeLength,
                           juce::jlimit (0, 127, note), juce::jlimit (1, 127, velocity),
                           juce::jlimit (1, 5, channel) };
     std::vector<VisibleNote> snapshot;
@@ -11895,9 +11916,10 @@ bool MidiForgeAudioProcessor::editVisibleNote (int index, int step, int note, in
         if (index < 0 || index >= static_cast<int> (activeNotes.size()))
             return false;
         auto& n = activeNotes[static_cast<size_t> (index)];
-        n.step = juce::jmax (0, step);
+        const int totalSteps = juce::jmax (16, activeBars * 16);
+        n.step = juce::jlimit (0, totalSteps - 1, step);
         n.note = juce::jlimit (0, 127, note);
-        n.length = juce::jmax (1, length);
+        n.length = juce::jlimit (1, juce::jmax (1, totalSteps - n.step), length);
         n.velocity = juce::jlimit (1, 127, velocity);
         snapshot.reserve (activeNotes.size());
         for (const auto& item : activeNotes)
@@ -11934,8 +11956,9 @@ void MidiForgeAudioProcessor::replaceVisibleNotes (const std::vector<VisibleNote
         activeNotes.clear();
         for (const auto& n : notes)
         {
-            const auto step = juce::jlimit (0, juce::jmax (0, activeBars * 16 - 1), n.step);
-            const auto length = juce::jmax (1, n.length);
+            const auto totalSteps = juce::jmax (16, activeBars * 16);
+            const auto step = juce::jlimit (0, totalSteps - 1, n.step);
+            const auto length = juce::jlimit (1, juce::jmax (1, totalSteps - step), n.length);
             const auto note = juce::jlimit (0, 127, n.note);
             const auto velocity = juce::jlimit (1, 127, n.velocity);
             const auto channel = juce::jlimit (1, 5, n.channel);
