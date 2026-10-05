@@ -1,4 +1,82 @@
 #include "PluginEditor.h"
+namespace
+{
+constexpr juce::uint32 kBg        = 0xff0a0d12;
+constexpr juce::uint32 kCard     = 0xff121720;
+constexpr juce::uint32 kCard2    = 0xff171d27;
+constexpr juce::uint32 kBorder   = 0xff27303c;
+constexpr juce::uint32 kText     = 0xffeef2f7;
+constexpr juce::uint32 kMuted    = 0xff7f8b99;
+constexpr juce::uint32 kAccent   = 0xffe7a24b;
+constexpr juce::uint32 kAccent2  = 0xff6ca9ff;
+constexpr juce::uint32 kSuccess  = 0xff63c88b;
+
+static void styleCombo (juce::ComboBox& c)
+{
+    c.setColour (juce::ComboBox::backgroundColourId, juce::Colour (kCard2));
+    c.setColour (juce::ComboBox::outlineColourId, juce::Colour (kBorder));
+    c.setColour (juce::ComboBox::textColourId, juce::Colour (kText));
+    c.setColour (juce::ComboBox::arrowColourId, juce::Colour (kMuted));
+}
+
+static void styleSlider (juce::Slider& s)
+{
+    s.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff27303a));
+    s.setColour (juce::Slider::trackColourId, juce::Colour (kAccent));
+    s.setColour (juce::Slider::thumbColourId, juce::Colour (kText));
+    s.setColour (juce::Slider::textBoxTextColourId, juce::Colour (kText));
+    s.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff0f141b));
+    s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (kBorder));
+}
+
+static void styleTextButton (juce::TextButton& b, juce::Colour normal = juce::Colour (kCard2))
+{
+    b.setColour (juce::TextButton::buttonColourId, normal);
+    b.setColour (juce::TextButton::buttonOnColourId, normal.brighter (0.10f));
+    b.setColour (juce::TextButton::textColourOffId, juce::Colour (kText));
+    b.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+}
+
+static void styleToggle (juce::ToggleButton& b)
+{
+    b.setColour (juce::ToggleButton::textColourId, juce::Colour (kText));
+    b.setColour (juce::ToggleButton::tickColourId, juce::Colour (kAccent));
+    b.setColour (juce::ToggleButton::tickDisabledColourId, juce::Colour (kMuted));
+}
+
+static void drawCard (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title,
+                      juce::Colour accent = juce::Colour (kBorder))
+{
+    const auto r = area.toFloat();
+    g.setColour (juce::Colour (kCard));
+    g.fillRoundedRectangle (r, 10.0f);
+    g.setColour (accent.withAlpha (0.75f));
+    g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
+    g.setColour (juce::Colour (kMuted));
+    g.setFont (juce::FontOptions (10.0f));
+    g.drawText (title.toUpperCase(), area.getX() + 12, area.getY() + 6, area.getWidth() - 24, 12,
+                juce::Justification::left, false);
+}
+
+static void drawSliderLabel (juce::Graphics& g, const juce::Slider& s, const juce::String& text)
+{
+    const auto r = s.getBounds();
+    g.setColour (juce::Colour (kMuted));
+    g.setFont (juce::FontOptions (9.0f));
+    g.drawText (text.toUpperCase(), r.getX(), r.getY() - 1, r.getWidth() - 62, 11,
+                juce::Justification::left, false);
+}
+
+static void drawFieldLabel (juce::Graphics& g, const juce::Component& c, const juce::String& text)
+{
+    const auto r = c.getBounds();
+    g.setColour (juce::Colour (kMuted));
+    g.setFont (juce::FontOptions (9.0f));
+    g.drawText (text.toUpperCase(), r.getX(), r.getY() - 13, r.getWidth(), 11,
+                juce::Justification::left, false);
+}
+}
+
 static void setupSlider(juce::Slider& s,double mn,double mx,double step,double val,
 juce::AudioProcessorEditor* owner)
 {
@@ -44,7 +122,7 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
         activeDragFile = juce::File();
         return;
     }
-    owner.processor.noteKeptVariation();
+    // Dragging a MIDI file is an output action only; it never trains Taste ML.
 
     // The actual button is the OLE source. Using the editor itself can make the
     // VST3 wrapper become the source window inside FL Studio.
@@ -64,11 +142,11 @@ void MidiForgeAudioProcessorEditor::DragHandle::mouseDrag (const juce::MouseEven
 MidiForgeAudioProcessorEditor::MidiForgeAudioProcessorEditor(MidiForgeAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p)
 {
-setSize(900,800);
+setSize(1120, 850);
 setResizable(true, true);
-setResizeLimits(980, 720, 1400, 1100);
+setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.77.0", juce::dontSendNotification);
+versionLabel.setText("v0.86.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -77,16 +155,85 @@ tempoLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0
 tempoLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(tempoLabel);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
-title.setFont (juce::Font (31.0f, juce::Font::bold));
-sectionLabel.setText("COMPOSITION ENGINE",juce::dontSendNotification);
-sectionLabel.setFont (juce::Font (12.0f));
-addAndMakeVisible(title);addAndMakeVisible(sectionLabel);
+title.setFont (juce::Font (30.0f, juce::Font::bold));
+sectionLabel.setText("GENERATIVE MELODY STUDIO  /  FAST IDEA -> EDIT -> DRAG",juce::dontSendNotification);
+sectionLabel.setFont (juce::FontOptions (11.0f));
+sectionLabel.setColour (juce::Label::textColourId, juce::Colour (kMuted));
+addAndMakeVisible(title);
+addAndMakeVisible(sectionLabel);
+
+for (auto* c : { &root, &scale, &progression, &rhythm, &mode, &bars, &octave,
+                 &arpRate, &variationBox, &moodBox, &melodyTypeBox, &eraBox, &soundBox,
+                 &articBox, &chordBox, &pianoGridBox })
+    styleCombo (*c);
+
+for (auto* s : { &chordDensity, &bassDensity, &melodyDensity, &arpDensity, &swing, &humanize,
+                 &complexity, &motifStrength, &variationAmount, &fillAmount, &energy,
+                 &melodyLength, &pauseChance, &leapChance, &ghostChance })
+    styleSlider (*s);
+
+for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &quantizeButton,
+                 &resetViewButton, &phraseButton, &barButton, &transposeDownButton,
+                 &transposeUpButton, &snapScaleButton, &humanizeSelectionButton,
+                 &duplicateButton, &reverseButton, &doubleTimeButton, &halfTimeButton,
+                 &rotateButton, &normalizeVelocityButton, &frameSelectionButton,
+                 &mutateButton, &evolveButton, &similarButton, &drumViewBtn, &likeBtn, &dislikeBtn,
+                 &resetTasteBtn, &undoBtn, &redoBtn, &clearBtn })
+    styleTextButton (*b);
+
+for (auto* b : { &chords, &bass, &melody, &arp, &drums, &extensions, &inversions,
+                 &hookModeButton, &soundCloudButton, &humanizeModeButton,
+                 &lockChordsBtn, &lockBassBtn, &lockMelodyBtn, &lockArpBtn,
+                 &autoNextBtn, &tasteToggleBtn })
+    styleToggle (*b);
+
+generate.setColour (juce::TextButton::buttonColourId, juce::Colour (kAccent));
+generate.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kAccent).brighter (0.12f));
+generate.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+generate.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+generate.setButtonText ("MAGIC");
+generate.setTooltip ("Randomize the musical DNA and generate a fresh set of melodies.");
+newSeed.setTooltip ("Keep the current musical direction but reroll the seed.");
+applyVariation.setTooltip ("Commit the selected variation as the active loop.");
+similarButton.setTooltip ("Generate close relatives of the selected loop.");
+exportMidi.setTooltip ("Save the active loop as a standard MIDI file.");
+
+root.setTooltip ("Root note / key center");
+scale.setTooltip ("Scale / mode");
+progression.setTooltip ("Chord progression style");
+rhythm.setTooltip ("Rhythmic vocabulary");
+bars.setTooltip ("Phrase length in bars");
+octave.setTooltip ("Starting octave");
+moodBox.setTooltip ("Emotional color");
+melodyTypeBox.setTooltip ("Melody archetype");
+soundBox.setTooltip ("Target instrument / register");
+articBox.setTooltip ("Optional performance articulation");
+chordBox.setTooltip ("Chord voicing behavior");
+arpRate.setTooltip ("Arpeggio rate");
+
+chordDensity.setTooltip ("Chord movement density");
+bassDensity.setTooltip ("Bass movement density");
+melodyDensity.setTooltip ("Melody note density");
+arpDensity.setTooltip ("Arpeggio density");
+motifStrength.setTooltip ("How strongly the central motif survives mutations");
+variationAmount.setTooltip ("How far variations are allowed to drift");
+fillAmount.setTooltip ("Phrase fill / activity");
+energy.setTooltip ("Overall energy curve");
+melodyLength.setTooltip ("Typical note length");
+pauseChance.setTooltip ("Probability of intentional space");
+leapChance.setTooltip ("Large interval probability");
+ghostChance.setTooltip ("Quiet ghost-note activity");
+swing.setTooltip ("Groove swing");
+humanize.setTooltip ("Optional human timing / velocity amount");
+complexity.setTooltip ("Simple -> complex melody bias");
+mutateButton.setTooltip ("Make a controlled variation of the current loop.");
+evolveButton.setTooltip ("Push the current loop into a new developmental state.");
+likeBtn.setTooltip ("Teach Taste ML that this variation works.");
+dislikeBtn.setTooltip ("Reject this variation and advance.");
+
 root.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"},1);
 root.setSelectedId(p.getRoot()+1); root.onChange=[this]{processor.setRoot(root.getSelectedId()-1);}; addAndMakeVisible(root);
-genre.addItemList({"Universal","Trap","House","Techno","Boom Bap","Ambient","Cinematic",
-                    "R&B","Pop","Drill","DnB","Jersey","Afro","Hyperpop","Experimental","Lo-Fi"},1);
-genre.setSelectedId(p.getGenre()+1); genre.onChange=[this]{processor.setGenre(genre.getSelectedId()-1);}; addAndMakeVisible(genre);
-scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic"},1);
+scale.addItemList({"Major","Minor","Dorian","Phrygian","Harmonic Minor","Melodic Minor","Pentatonic","Lydian","Mixolydian","Locrian","Harmonic Major","Blues"},1);
 scale.setSelectedId(p.getScale()+1); scale.onChange=[this]{processor.setScale(scale.getSelectedId()-1);}; addAndMakeVisible(scale);
 progression.addItemList({"Auto","Pop","Dark","Emotional","Cinematic","Jazz-like","Looping"},1);
 progression.setSelectedId(p.getProgression()+1); progression.onChange=[this]{processor.setProgression(progression.getSelectedId()-1);}; addAndMakeVisible(progression);
@@ -244,7 +391,16 @@ generate.setButtonText("MAGIC");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
-generate.onClick=[this]{ processor.magicRandomize(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
+generate.onClick=[this]{
+    if (processor.isGenerating())
+        magicPending = true;
+    else
+    {
+        processor.magicRandomize();
+        busyOverlay.sync();
+        pianoRoll.resetEditHistory();
+    }
+};
 newSeed.onClick=[this]{ processor.rerollSameDNA(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
 applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
 exportMidi.onClick=[this]{
@@ -267,7 +423,6 @@ const auto result = chooser.getResult();
 if (result == juce::File{})
 return;
 const bool ok = safeThis->processor.exportMidi(result);
-if (ok) safeThis->processor.noteKeptVariation();
 juce::AlertWindow::showMessageBoxAsync(
 ok ? juce::MessageBoxIconType::InfoIcon
 : juce::MessageBoxIconType::WarningIcon,
@@ -376,148 +531,211 @@ tasteLabel.setText(t, juce::dontSendNotification);
 }
 void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
 {
-g.fillAll(juce::Colour(0xff0d1015));
-g.setColour(juce::Colour(0xff252a33));
-g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(10.f),12.f,1.f);
-g.setColour(juce::Colours::white);
-g.setFont(12.f);
-g.drawFittedText("SOURCE / HARMONY",20,82,860,18,juce::Justification::left,1);
-g.drawFittedText("PART DENSITY / MUSICAL DNA",20,146,860,18,juce::Justification::left,1);
-g.drawFittedText("MOTIF / ARRANGEMENT",20,234,860,18,juce::Justification::left,1);
-g.drawFittedText("MELODY",20,322,860,18,juce::Justification::left,1);
-g.drawFittedText("FEEL",20,410,860,18,juce::Justification::left,1);
-g.drawFittedText(drumView ? "DRUMS  -  one row per instrument: click a step to add / remove a hit, M = mute, DRAG = only that instrument" : "LOOP EDITOR 3.0  -  Alt-drag marquee / phrase+bar select / DUP REV 2X HALF ROT VEL FRAME",20,452,860,18,juce::Justification::left,1);
-g.drawFittedText("VARIATIONS / LEARNING",20,668,860,18,juce::Justification::left,1);
+    g.fillAll (juce::Colour (kBg));
+
+    const int W = getWidth();
+    const int margin = 18;
+    const int innerW = W - margin * 2;
+
+    g.setColour (juce::Colour (kCard));
+    g.fillRoundedRectangle (juce::Rectangle<float> (margin, 12, innerW, 54), 12.0f);
+    g.setColour (juce::Colour (kBorder));
+    g.drawRoundedRectangle (juce::Rectangle<float> (margin, 12, innerW, 54), 12.0f, 1.0f);
+
+    g.setColour (juce::Colour (kAccent));
+    g.fillRoundedRectangle (juce::Rectangle<float> (margin + 14, 24, 4, 30), 2.0f);
+    g.setColour (juce::Colour (kText));
+    g.setFont (juce::FontOptions (9.0f));
+    g.drawText ("MIDI", margin + 28, 20, 36, 12, juce::Justification::left, false);
+
+    drawCard (g, { margin, 76, innerW, 106 }, "01  SOURCE / MUSICAL IDENTITY", juce::Colour (kAccent).withAlpha (0.35f));
+    drawCard (g, { margin, 188, innerW, 64 }, "02  GENERATE / CHOOSE", juce::Colour (kAccent).withAlpha (0.45f));
+    drawCard (g, { margin, 260, innerW, 54 }, "03  PARTS / CHARACTER", juce::Colour (kAccent2).withAlpha (0.35f));
+    drawCard (g, { margin, 322, innerW, 254 }, "04  PIANO ROLL / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
+    drawCard (g, { margin, 584, innerW, 148 }, "05  DETAIL / MUSICAL DNA", juce::Colour (kAccent).withAlpha (0.28f));
+    drawCard (g, { margin, 740, innerW, 92 }, "06  KEEP / LEARN / EXPORT", juce::Colour (kSuccess).withAlpha (0.24f));
+
+    drawFieldLabel (g, root, "Key");
+    drawFieldLabel (g, scale, "Scale");
+    drawFieldLabel (g, progression, "Progression");
+    drawFieldLabel (g, rhythm, "Rhythm");
+    drawFieldLabel (g, bars, "Bars");
+    drawFieldLabel (g, octave, "Octave");
+    drawFieldLabel (g, moodBox, "Mood");
+    drawFieldLabel (g, melodyTypeBox, "Melody");
+    drawFieldLabel (g, eraBox, "Era");
+    drawFieldLabel (g, soundBox, "Sound");
+    drawFieldLabel (g, articBox, "Articulation");
+    drawFieldLabel (g, chordBox, "Chords");
+    drawFieldLabel (g, arpRate, "Arp Rate");
+
+    drawSliderLabel (g, chordDensity, "Chord Density");
+    drawSliderLabel (g, bassDensity, "Bass Density");
+    drawSliderLabel (g, melodyDensity, "Melody Density");
+    drawSliderLabel (g, arpDensity, "Arp Density");
+    drawSliderLabel (g, motifStrength, "Motif");
+    drawSliderLabel (g, variationAmount, "Variation");
+    drawSliderLabel (g, fillAmount, "Fill");
+    drawSliderLabel (g, energy, "Energy");
+    drawSliderLabel (g, melodyLength, "Note Length");
+    drawSliderLabel (g, pauseChance, "Space");
+    drawSliderLabel (g, leapChance, "Leaps");
+    drawSliderLabel (g, ghostChance, "Ghosts");
+    drawSliderLabel (g, swing, "Swing");
+    drawSliderLabel (g, humanize, "Humanize");
+    drawSliderLabel (g, complexity, "Complexity");
+
+    g.setColour (juce::Colour (kMuted).withAlpha (0.75f));
+    g.setFont (juce::FontOptions (9.0f));
 }
+
 void MidiForgeAudioProcessorEditor::resized()
 {
-busyOverlay.setBounds (getLocalBounds());
-const int W = getWidth();
-const int left = 20;
-const int contentW = W - 40;
+    busyOverlay.setBounds (getLocalBounds());
 
-// Header
-title.setBounds(left,14,360,32);
-versionLabel.setBounds(660,20,70,22);
-tempoLabel.setBounds(738,20,110,22);
-sectionLabel.setBounds(23,48,500,18);
+    const int W = getWidth();
+    const int margin = 18;
+    const int innerW = W - margin * 2;
+    const int gap = 8;
 
-// Source / harmony
-const int gap = 7;
-int x = left;
-root.setBounds(x,82,68,26); x += 68 + gap;
-genre.setBounds(x,82,106,26); x += 106 + gap;
-scale.setBounds(x,82,118,26); x += 118 + gap;
-progression.setBounds(x,82,112,26); x += 112 + gap;
-rhythm.setBounds(x,82,104,26); x += 104 + gap;
-mode.setBounds(x,82,90,26); x += 90 + gap;
-bars.setBounds(x,82,48,26); x += 48 + gap;
-octave.setBounds(x,82,46,26);
+    title.setBounds (margin + 28, 20, 380, 28);
+    sectionLabel.setBounds (margin + 28, 46, 600, 16);
+    versionLabel.setBounds (W - 215, 20, 70, 22);
+    tempoLabel.setBounds (W - 140, 20, 122, 22);
 
-chords.setBounds(20,112,82,22);
-bass.setBounds(106,112,76,22);
-melody.setBounds(186,112,90,22);
-arp.setBounds(280,112,70,22);
-drums.setBounds(766,112,80,22);
-extensions.setBounds(354,112,82,22);
-inversions.setBounds(440,112,68,22);
-arpRate.setBounds(512,112,58,22);
-hookModeButton.setBounds(574,112,72,22);
-soundCloudButton.setBounds(650,112,110,22);
-moodBox.setBounds(20,136,106,24);
-melodyTypeBox.setBounds(133,136,112,24);
-eraBox.setBounds(252,136,70,24);
-soundBox.setBounds(329,136,168,24);
-articBox.setBounds(503,136,176,24);
-chordBox.setBounds(685,136,150,24);
-autoNextBtn.setBounds(818,690,78,26);
+    const int sourceX = margin + 12;
+    const int sourceY1 = 108;
+    const int sourceY2 = 150;
 
-// Two-column compact control layout.
-const int sliderH = 21;
-const int colW = juce::jmax(240, (contentW - 16) / 2);
-const int x1 = left;
-const int x2 = left + colW + 16;
+    root.setBounds (sourceX, sourceY1, 74, 26);
+    scale.setBounds (sourceX + 82, sourceY1, 124, 26);
+    progression.setBounds (sourceX + 214, sourceY1, 116, 26);
+    rhythm.setBounds (sourceX + 338, sourceY1, 104, 26);
+    bars.setBounds (sourceX + 450, sourceY1, 50, 26);
+    octave.setBounds (sourceX + 508, sourceY1, 52, 26);
 
-chordDensity.setBounds(x1,164,colW,sliderH);
-bassDensity.setBounds(x2,164,colW,sliderH);
-melodyDensity.setBounds(x1,190,colW,sliderH);
-arpDensity.setBounds(x2,190,colW,sliderH);
+    moodBox.setBounds (sourceX, sourceY2, 100, 26);
+    melodyTypeBox.setBounds (sourceX + 108, sourceY2, 116, 26);
+    eraBox.setBounds (sourceX + 232, sourceY2, 64, 26);
+    soundBox.setBounds (sourceX + 304, sourceY2, 160, 26);
+    articBox.setBounds (sourceX + 472, sourceY2, 170, 26);
+    chordBox.setBounds (sourceX + 650, sourceY2, 140, 26);
+    arpRate.setBounds (sourceX + 798, sourceY2, 64, 26);
 
-motifStrength.setBounds(x1,252,colW,sliderH);
-variationAmount.setBounds(x2,252,colW,sliderH);
-fillAmount.setBounds(x1,278,colW,sliderH);
-energy.setBounds(x2,278,colW,sliderH);
+    variationBox.setBounds (margin + 12, 214, 78, 28);
+    variationInfoLabel.setBounds (margin + 98, 214, 125, 28);
+    generate.setBounds (margin + 232, 207, 132, 40);
+    newSeed.setBounds (margin + 372, 214, 94, 28);
+    applyVariation.setBounds (margin + 474, 214, 88, 28);
+    similarButton.setBounds (margin + 570, 214, 88, 28);
+    exportMidi.setBounds (margin + 666, 214, 110, 28);
+    dragHandle.setBounds (margin + 786, 207, 148, 40);
 
-melodyLength.setBounds(x1,340,colW,sliderH);
-pauseChance.setBounds(x2,340,colW,sliderH);
-leapChance.setBounds(x1,366,colW,sliderH);
-ghostChance.setBounds(x2,366,colW,sliderH);
+    int x = margin + 12;
+    const int y = 282;
+    auto put = [&] (juce::Component& c, int w)
+    {
+        c.setBounds (x, y, w, 24);
+        x += w + gap;
+    };
 
-const int feelGap = 8;
-const int feelW = (contentW - feelGap * 3) / 4;
-swing.setBounds(x1,428,feelW,21);
-humanize.setBounds(x1 + feelW + feelGap,428,feelW,21);
-humanizeModeButton.setBounds(x1 + 2 * (feelW + feelGap),428,feelW,21);
-complexity.setBounds(x1 + 3 * (feelW + feelGap),428,feelW,21);
+    put (chords, 76);
+    put (bass, 64);
+    put (melody, 80);
+    put (arp, 58);
+    put (drums, 70);
+    put (extensions, 72);
+    put (inversions, 58);
+    put (hookModeButton, 64);
+    put (soundCloudButton, 104);
+    put (autoNextBtn, 88);
+    drumViewBtn.setBounds (W - margin - 92, 282, 80, 24);
 
-// Piano roll is kept large enough to remain usable, but no longer pushes the
-// action controls below the host window.
-pianoGridBox.setBounds(20,447,62,22);
-quantizeButton.setBounds(88,447,80,22);
-resetViewButton.setBounds(174,447,82,22);
-phraseButton.setBounds(262,447,78,22);
-barButton.setBounds(346,447,48,22);
-transposeDownButton.setBounds(400,447,48,22);
-transposeUpButton.setBounds(454,447,48,22);
-snapScaleButton.setBounds(508,447,64,22);
-humanizeSelectionButton.setBounds(578,447,82,22);
-selectionLabel.setBounds(668,447,120,22);
+    pianoGridBox.setBounds (margin + 12, 344, 58, 24);
+    quantizeButton.setBounds (margin + 76, 344, 72, 24);
+    resetViewButton.setBounds (margin + 156, 344, 76, 24);
+    phraseButton.setBounds (margin + 240, 344, 66, 24);
+    barButton.setBounds (margin + 314, 344, 48, 24);
+    transposeDownButton.setBounds (margin + 370, 344, 48, 24);
+    transposeUpButton.setBounds (margin + 426, 344, 48, 24);
+    snapScaleButton.setBounds (margin + 482, 344, 62, 24);
+    humanizeSelectionButton.setBounds (margin + 552, 344, 82, 24);
+    selectionLabel.setBounds (margin + 642, 344, 120, 24);
 
-duplicateButton.setBounds(20,473,48,22);
-reverseButton.setBounds(72,473,48,22);
-doubleTimeButton.setBounds(124,473,48,22);
-halfTimeButton.setBounds(176,473,54,22);
-rotateButton.setBounds(234,473,48,22);
-normalizeVelocityButton.setBounds(286,473,72,22);
-frameSelectionButton.setBounds(362,473,64,22);
+    duplicateButton.setBounds (margin + 12, 370, 52, 22);
+    reverseButton.setBounds (margin + 70, 370, 52, 22);
+    doubleTimeButton.setBounds (margin + 128, 370, 46, 22);
+    halfTimeButton.setBounds (margin + 180, 370, 52, 22);
+    rotateButton.setBounds (margin + 238, 370, 52, 22);
+    normalizeVelocityButton.setBounds (margin + 296, 370, 76, 22);
+    frameSelectionButton.setBounds (margin + 378, 370, 66, 22);
+    historyLabel.setBounds (margin + 454, 369, 190, 23);
+    undoBtn.setBounds (margin + 652, 370, 58, 22);
+    redoBtn.setBounds (margin + 718, 370, 58, 22);
+    clearBtn.setBounds (margin + 784, 370, 58, 22);
 
-pianoRoll.setBounds(left,500,contentW,162);
-drumGrid.setBounds(left,500,contentW,162);
-drumViewBtn.setBounds(850,112,120,22);
+    pianoRoll.setBounds (margin + 12, 400, innerW - 24, 166);
+    drumGrid.setBounds (margin + 12, 400, innerW - 24, 166);
 
-// Bottom action rows — always visible in the default 800px editor.
-variationBox.setBounds(20,690,74,28);
-variationInfoLabel.setBounds(100,690,118,28);
-generate.setBounds(222,687,102,32);
-newSeed.setBounds(328,687,98,32);
-applyVariation.setBounds(432,687,92,32);
-exportMidi.setBounds(530,687,118,32);
-likeBtn.setBounds(654,687,70,32);
-dislikeBtn.setBounds(730,687,82,32);
-mutateButton.setBounds(818,687,76,32);
-evolveButton.setBounds(900,687,76,32);
+    const int detailX = margin + 12;
+    const int detailTop = 610;
+    const int detailGap = 14;
+    const int colW = (innerW - 24 - detailGap * 3) / 4;
+    const int rowH = 31;
 
-similarButton.setBounds(20,733,124,28);
-undoBtn.setBounds(150,733,66,28);
-redoBtn.setBounds(224,733,66,28);
-clearBtn.setBounds(298,733,66,28);
-historyLabel.setBounds(372,733,136,28);
-lockChordsBtn.setBounds(516,733,82,24);
-lockBassBtn.setBounds(604,733,82,24);
-lockMelodyBtn.setBounds(692,733,90,24);
-lockArpBtn.setBounds(788,733,92,24);
+    auto sliderAt = [&] (juce::Slider& s, int col, int row)
+    {
+        const int sx = detailX + col * (colW + detailGap);
+        const int sy = detailTop + row * rowH;
+        s.setBounds (sx, sy + 11, colW, 20);
+    };
 
-dragHandle.setBounds(620,763,132,28);
+    sliderAt (chordDensity, 0, 0);
+    sliderAt (bassDensity,   0, 1);
+    sliderAt (melodyDensity, 0, 2);
+    sliderAt (arpDensity,    0, 3);
 
-dragChords.setBounds(20,764,118,28);
-dragBass.setBounds(146,764,118,28);
-dragMelody.setBounds(272,764,118,28);
-dragArp.setBounds(398,764,118,28);
-dragDrums.setBounds(522,764,92,28);
-tasteLabel.setBounds(760,758,150,36);
-resetTasteBtn.setBounds(916,764,58,26);
-tasteToggleBtn.setBounds(884,733,92,24);
+    sliderAt (motifStrength,   1, 0);
+    sliderAt (variationAmount, 1, 1);
+    sliderAt (fillAmount,      1, 2);
+    sliderAt (energy,          1, 3);
+
+    sliderAt (melodyLength, 2, 0);
+    sliderAt (pauseChance,  2, 1);
+    sliderAt (leapChance,   2, 2);
+    sliderAt (ghostChance,  2, 3);
+
+    sliderAt (swing,      3, 0);
+    sliderAt (humanize,   3, 1);
+    sliderAt (complexity, 3, 2);
+    humanizeModeButton.setBounds (detailX + 3 * (colW + detailGap), detailTop + 3 * rowH + 8, colW, 24);
+
+    const int footerY = 763;
+
+    likeBtn.setBounds (margin + 12, footerY, 64, 28);
+    dislikeBtn.setBounds (margin + 82, footerY, 78, 28);
+    lockChordsBtn.setBounds (margin + 172, footerY, 86, 28);
+    lockBassBtn.setBounds (margin + 266, footerY, 80, 28);
+    lockMelodyBtn.setBounds (margin + 354, footerY, 92, 28);
+    lockArpBtn.setBounds (margin + 454, footerY, 80, 28);
+    mutateButton.setBounds (margin + 542, footerY, 72, 28);
+    evolveButton.setBounds (margin + 622, footerY, 72, 28);
+    tasteToggleBtn.setBounds (margin + 702, footerY, 90, 28);
+    resetTasteBtn.setBounds (margin + 800, footerY, 58, 28);
+
+    const int dragY = 803;
+    dragChords.setBounds (margin + 12, dragY, 96, 25);
+    dragBass.setBounds   (margin + 116, dragY, 88, 25);
+    dragMelody.setBounds (margin + 212, dragY, 98, 25);
+    dragArp.setBounds    (margin + 318, dragY, 84, 25);
+    dragDrums.setBounds  (margin + 410, dragY, 92, 25);
+    tasteLabel.setBounds  (margin + 514, dragY - 2, innerW - 590, 30);
+
+    // Advanced controls stay within the card even at the minimum window size.
+    historyLabel.toFront (false);
+    selectionLabel.toFront (false);
 }
+
 void MidiForgeAudioProcessorEditor::timerCallback()
 {
     if (regenerationPending)
@@ -548,6 +766,14 @@ if (generationDone != lastGenerationDone)
     repaint();
 }
 
+if (magicPending && ! processor.isGenerating())
+{
+    magicPending = false;
+    processor.magicRandomize();
+    busyOverlay.sync();
+    pianoRoll.resetEditHistory();
+}
+
 const double bpm = processor.getHostBpm();
 const juce::String bpmText = "DAW BPM " + juce::String (juce::roundToInt (bpm));
 if (tempoLabel.getText() != bpmText)
@@ -556,12 +782,55 @@ if (tempoLabel.getText() != bpmText)
 const int id = processor.getSelectedVariation() + 1;
 if (id >= 1 && variationBox.getSelectedId() != id)
 variationBox.setSelectedId (id, juce::dontSendNotification);
+
+// MAGIC changes the source/harmony controls and several musical sliders in the processor.
+// Keep the editor as a faithful view of the actual generation state.
+if (root.getSelectedId() != processor.getRoot()+1) root.setSelectedId (processor.getRoot()+1, juce::dontSendNotification);
+if (scale.getSelectedId() != processor.getScale()+1) scale.setSelectedId (processor.getScale()+1, juce::dontSendNotification);
+if (progression.getSelectedId() != processor.getProgression()+1) progression.setSelectedId (processor.getProgression()+1, juce::dontSendNotification);
+if (rhythm.getSelectedId() != processor.getRhythm()+1) rhythm.setSelectedId (processor.getRhythm()+1, juce::dontSendNotification);
+const int barsId = processor.getBars() == 1 ? 1 : processor.getBars() == 2 ? 2 : processor.getBars() == 4 ? 3 : processor.getBars() == 8 ? 4 : 5;
+if (bars.getSelectedId() != barsId) bars.setSelectedId (barsId, juce::dontSendNotification);
+if (octave.getSelectedId() != processor.getOctave()-1) octave.setSelectedId(processor.getOctave()-1, juce::dontSendNotification);
+if (arpRate.getSelectedId() != processor.getArpRate()) arpRate.setSelectedId(processor.getArpRate(), juce::dontSendNotification);
+
 if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
 if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
+
+auto syncSlider = [] (juce::Slider& slider, double value)
+{
+    if (std::abs (slider.getValue() - value) > 0.0005)
+        slider.setValue (value, juce::dontSendNotification);
+};
+syncSlider (chordDensity, processor.getChordDensity());
+syncSlider (bassDensity, processor.getBassDensity());
+syncSlider (melodyDensity, processor.getMelodyDensity());
+syncSlider (arpDensity, processor.getArpDensity());
+syncSlider (motifStrength, processor.getMotifStrength());
+syncSlider (variationAmount, processor.getVariationAmount());
+syncSlider (fillAmount, processor.getFillAmount());
+syncSlider (energy, processor.getEnergy());
+syncSlider (melodyLength, processor.getMelodyLength());
+syncSlider (pauseChance, processor.getPauseChance());
+syncSlider (leapChance, processor.getLeapChance());
+syncSlider (ghostChance, processor.getGhostChance());
+syncSlider (swing, processor.getSwing());
+syncSlider (humanize, processor.getHumanize());
+syncSlider (complexity, processor.getComplexity());
+
+if (chords.getToggleState() != processor.isChordsEnabled()) chords.setToggleState(processor.isChordsEnabled(), juce::dontSendNotification);
+if (bass.getToggleState() != processor.isBassEnabled()) bass.setToggleState(processor.isBassEnabled(), juce::dontSendNotification);
+if (melody.getToggleState() != processor.isMelodyEnabled()) melody.setToggleState(processor.isMelodyEnabled(), juce::dontSendNotification);
+if (arp.getToggleState() != processor.isArpEnabled()) arp.setToggleState(processor.isArpEnabled(), juce::dontSendNotification);
+if (extensions.getToggleState() != processor.getChordExtensions()) extensions.setToggleState(processor.getChordExtensions(), juce::dontSendNotification);
+if (inversions.getToggleState() != processor.getInversions()) inversions.setToggleState(processor.getInversions(), juce::dontSendNotification);
+if (hookModeButton.getToggleState() != processor.getHookMode()) hookModeButton.setToggleState(processor.getHookMode(), juce::dontSendNotification);
+if (soundCloudButton.getToggleState() != processor.getLeadStyleSoundCloud()) soundCloudButton.setToggleState(processor.getLeadStyleSoundCloud(), juce::dontSendNotification);
+
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
 if (humanizeModeButton.getToggleState() != processor.isHumanizeEnabled()) humanizeModeButton.setToggleState(processor.isHumanizeEnabled(), juce::dontSendNotification);
 refreshTaste();

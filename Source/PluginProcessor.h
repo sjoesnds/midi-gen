@@ -13,16 +13,15 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-inline constexpr const char* kMidiForgeEngineVersion = "0.80.0";
+#ifndef MIDIFORGE_ENGINE_VERSION
+#define MIDIFORGE_ENGINE_VERSION "0.85.6"
+#endif
+inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
-enum Genre {
-    Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic,
-    RnB, GenrePop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental, Lofi
-};
-enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic };
+enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic, Lydian, Mixolydian, Locrian, HarmonicMajor, Blues };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
 enum SectionMode { Loop, SongMode, SongExtended };
@@ -40,6 +39,7 @@ void releaseResources() override
     samplePosition = 0;
     lastGlobalStep.store (-1);
     uiCurrentStep.store (-1);
+    clearActiveSnapshot();
 }
 bool isBusesLayoutSupported(const BusesLayout&) const override;
 void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -66,7 +66,7 @@ bool isGenerating() const { return generating.load(); }
 uint32_t getGenerationDoneCounter() const { return generationDone.load(); }
 void waitForGeneration();
 // 0.79 feedback log: one CSV row per LIKE / DISLIKE / export / drag, so the real like-rate of every archetype, transform,
-// genre and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
+// archetype and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
 void setFeedbackLogFile (const juce::File& f) { feedbackFile = f; }
 // Tests point this at a temporary folder BEFORE creating any processor, so taste.json / feedback.csv of the real user are never read or written.
 static void setSettingsDirectoryOverride (const juce::File& dir);
@@ -84,7 +84,7 @@ int similarToSelected();
 void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls
-void setRoot(int); void setGenre(int); void setScale(int);
+void setRoot(int); void setScale(int);
 void setMood(int); void setMelodyType(int); void setEra(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
@@ -113,7 +113,6 @@ bool getLockMelody() const { return lockMelodyLayer; }
 bool getLockArp() const    { return lockArpLayer; }
 int getRoot() const { return rootPc; }
 int snapPitchToScale (int midi) const { return snapToScale (midi); }
-int getGenre() const { return genre; }
 int getScale() const { return scale; }
 int getProgression() const { return progression; }
 int getRhythm() const { return rhythm; }
@@ -126,7 +125,7 @@ int getMelodyType() const { return melodyType; }
 int getSoundTarget() const { return soundTarget; }
 // 0.42 Articulation (0 off, 1 slides, 2 slides + vibrato) - applies to profiles that support it (Synth Lead, 808)
 int getArticulation() const { return articulation; }
-// 0.44 Chord style (0 Auto by genre, 1 Held, 2 Comping) and the optional Drums layer (MIDI channel 10)
+// 0.44 Chord style (0 Auto, 1 Held, 2 Comping) and the optional Drums layer (MIDI channel 10)
 int getChordStyle() const { return chordStyle; }
 void setChordStyle (int v);
 bool isDrumsEnabled() const { return drumsEnabled; }
@@ -174,6 +173,8 @@ bool isArpEnabled() const { return arpEnabled; }
 bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
+int getVariationMelodyCharacter (int index) const;
+int getVariationMelodyComplexityClass (int index) const;
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
@@ -192,9 +193,7 @@ bool getTasteEnabled() const { return tasteEnabled; }
 void setTasteEnabled (bool on) { tasteEnabled = on; }
 void resetTaste();
 void trainTaste (int varIndex, float likeTarget, float weight);
-// Implicit taste signal: dragging / exporting a loop to the DAW is a weak positive sample (weight 0.5). Counted once per
-// loop, only if the loop was not rated explicitly, and only while Taste learning is on. Returns true if a sample was added.
-bool noteKeptVariation();
+// Explicit LIKE / DISLIKE are the only Taste ML training signals; drag/export remain telemetry-only.
 // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
 // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
 juce::MidiFile buildMidiFile (int channelFilter = 0, int drumRow = -1) const;
@@ -229,6 +228,8 @@ struct Section {
     int transpose = 0;
     int sourceArchetype = -1;   // 0.79: MAGIC archetype the loop came from (for the feedback log)
     int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
+    int melodyCharacter = -1;   // 0.85.5: latent melodic behavior family; not exposed as a UI label
+    int melodyComplexityClass = -1; // 0.86: 0=simple, 1=medium, 2=complex; one intent for the whole loop
     std::vector<NoteEvent> notes;
 };
 struct SongData {
@@ -243,7 +244,8 @@ struct MelodyFeatures
 {
     float density=0, space=0, leap=0, repetition=0, contour=0, variety=0, harmony=0, hook=0;
     float rhythmIdentity=0, motifIdentity=0, phraseMemory=0, seam=0, phraseArc=0, tensionArc=0,
-          stepPenalty=0, registerScore=0, surprise=0, context=0.5f, velocity=0.5f,
+          stepPenalty=0, registerScore=0, registerCenter=0.5f, weakSpot=0.5f,
+          simplicity=0.5f, surprise=0, context=0.5f, velocity=0.5f,
           noteLength=0.5f, loopQuality=0.0f, grooveQuality=0.0f;
 };
 
@@ -277,6 +279,7 @@ struct Candidate
     float phraseArc = 0.5f;
     float tension = 0.5f;
     float development = 0.5f;
+    float characterFit = 0.5f;   // 0.85.6: how closely the candidate expresses its latent character
     IdeaFingerprint idea {};
 };
 
@@ -309,8 +312,13 @@ void applyHumanPerformance (Section& section) const;
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
+float phraseContrastScore (const Section& section, uint32_t identity) const;
+float localMelodyQualityScore (const Section& section, uint32_t identity) const;
+float localMelodyRhythmScore (const Section& section, uint32_t identity) const;
+void repairLocalMelodyQuality (Section& section, uint32_t identity) const;
 void applyLoopClosure (Section& section, uint32_t identity) const;
 float loopClosureScore (const Section& section, uint32_t identity) const;
+float closureJudgeScore (const Section& section, uint32_t identity) const;
 struct ComposerJudgeInputs
 {
     MelodyFeatures features {};
@@ -327,6 +335,7 @@ struct ComposerJudgeInputs
 };
 float composerJudgeScore (const Section& section, uint32_t identity,
                           const ComposerJudgeInputs& inputs) const;
+void enforceFinalMelodyContract (Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
@@ -338,8 +347,11 @@ int selectedVariation = 0;
 std::vector<NoteEvent> activeNotes;
 void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);
 int activeBars = 4;
+// Immutable audio-thread snapshot: processBlock never waits on activeNotesLock.
+std::shared_ptr<const std::vector<NoteEvent>> activeNotesSnapshot;
+std::atomic<int> activeBarsSnapshot { 4 };
 double sampleRate = 44100.0;
-int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
+int rootPc = 0, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
 int chordStyle = 0;
@@ -423,8 +435,8 @@ taste::Model tasteModel;
 taste::Vec tasteMean {};
 taste::Vec tasteStd = [] { taste::Vec v; v.fill (1.0f); return v; }();
 bool tasteEnabled = true;
-uint32_t keptNonce = 0;
-unsigned keptMask = 0;
+void publishActiveSnapshot (const std::vector<NoteEvent>& notes, int bars);
+void clearActiveSnapshot();
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
 void applyLearnedWeights();
 void loadPreferences();
@@ -440,20 +452,25 @@ int degreeToPitch(int degree, int baseOctave) const;
 int snapToScale(int midi) const;
 // 0.38 Register lanes: 0 = chords, 1 = bass, 2 = melody (inclusive MIDI range).
 void registerLane (int part, int& lo, int& hi) const;
+// Unified melodic register contract used by all final melodic safety stages.
+// Returns the playable MIDI range and the maximum preferred leap for the active sound profile.
+// Role-aware melodic lane shared by the composer and post-processing stages.
+void melodyCoreLane (int& lo, int& hi) const;
+void melodyRegisterContract (int& lo, int& hi, int& maxLeap) const;
 bool rhythmHit(int stepInBar) const;
 void applyRhythmGrammar (Section& section, uint32_t identity) const;
 float rhythmGrammarScore (const Section& section) const;
 void applyMelodyFoundation (Section& section, uint32_t identity) const;
-void applyMelodyExpression (Section& section, uint32_t identity) const;
+float melodyPleasantnessScore (const Section& section) const;
 float melodyExpressionScore (const Section& section) const;
 void applyHarmonicIntelligence (Section& section, uint32_t identity) const;
 float harmonicIntelligenceScore (const Section& section) const;
-void applyPhraseMemory4 (Section& section, uint32_t identity) const;
 float phraseMemory4Score (const Section& section) const;
 float composerGrammarScore (const Section& section) const;
 void applyMelodicProsody (Section& section, uint32_t identity) const;
 float melodicProsodyScore (const Section& section) const;
 float creativeRangeScore (const Section& section, uint32_t identity) const;
+float contextualPhraseQualityScore (const Section& section) const;
 void buildBaseSong(SongData& song, juce::Random& random, int variationSalt = 0);
 void buildSection(Section& section, int sectionIndex, const std::vector<int>& prog, juce::Random& random,
                   const std::vector<NoteEvent>* inheritedMotif = nullptr, int variationSalt = 0);
@@ -464,7 +481,6 @@ void addDrums(Section&, int barOffset, float localEnergy, juce::Random&, int var
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
                const std::vector<NoteEvent>* inheritedMotif, int variationSalt = 0);
 PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
-void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 MelodyFeatures melodyFeatures (const Section& sec, uint32_t identity) const;
 IdeaFingerprint makeIdeaFingerprint (const Section& sec) const;
@@ -473,7 +489,6 @@ float motifMemoryScore (const Section& sec) const;
 void applyGrooveEngine (Section& sec, uint32_t identity) const;
 float grooveQualityScore (const Section& sec) const;
 int rootAtBar (int bar) const;
-void applyMagicArchetype (Section& flat, int archetype, uint32_t identity) const;
 float similarity (const Section& a, const Section& b) const;
 static float behaviorDistance (const Candidate& a, const Candidate& b);
 Section flatten (const SongData& song, int candidateIndex, juce::Random& local, int mLo, int mHi) const;

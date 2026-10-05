@@ -7,10 +7,9 @@
 //  * extractFeatures(): 17 musical features of a whole loop (melody + chords + bass)
 //  * Model: p(like) = sigmoid(b + (w + w_sound + w_genre) . z), z = standardised features
 //           - global weights w learn the general taste
-//           - small, strongly regularised residuals per Sound target and per Genre
+//           - small, strongly regularised residuals per Sound target
 //             learn context-specific taste without overfitting a handful of ratings
-//           - trained online by SGD; explicit LIKE / DISLIKE = weight 1,
-//             implicit "dragged / exported to the DAW" = positive sample, weight 0.5
+//           - trained online by SGD from explicit LIKE / DISLIKE feedback only
 //
 #include <juce_core/juce_core.h>
 #include <cstdlib>
@@ -23,7 +22,6 @@ namespace taste
 {
     constexpr int kDim = 17;
     constexpr int kSounds = 8;
-    constexpr int kGenres = 16;
     using Vec = std::array<float, kDim>;
 
     inline const char* featureName (int i)
@@ -170,33 +168,31 @@ namespace taste
     public:
         void reset() { *this = Model(); }
 
-        float logit (const Vec& z, int sound, int genre) const
+        float logit (const Vec& z, int sound) const
         {
             const int s = std::min (kSounds - 1, std::max (0, sound));
-            const int g = std::min (kGenres - 1, std::max (0, genre));
             float a = bias;
             for (int i = 0; i < kDim; ++i)
-                a += (w[(size_t) i] + ws[(size_t) s][(size_t) i] + wg[(size_t) g][(size_t) i]) * z[(size_t) i];
+                a += (w[(size_t) i] + ws[(size_t) s][(size_t) i]) * z[(size_t) i];
             return a;
         }
-        float predict (const Vec& z, int sound, int genre) const
+        float predict (const Vec& z, int sound) const
         {
-            return 1.0f / (1.0f + std::exp (-std::min (20.0f, std::max (-20.0f, logit (z, sound, genre)))));
+            return 1.0f / (1.0f + std::exp (-std::min (20.0f, std::max (-20.0f, logit (z, sound)))));
         }
 
         // y = 1 like, 0 dislike. Taste ML 2.0 balances classes so a long run of
         // one-sided feedback cannot drown the less frequent signal.
-        void update (const Vec& z, int sound, int genre, float y, float weight)
+        void update (const Vec& z, int sound, float y, float weight)
         {
             const int s = std::min (kSounds - 1, std::max (0, sound));
-            const int g = std::min (kGenres - 1, std::max (0, genre));
             const float safeWeight = std::max (0.05f, weight);
             const float sameMass = y > 0.5f ? juce::jmax (0.5f, pos) : juce::jmax (0.5f, neg);
             const float otherMass = y > 0.5f ? juce::jmax (0.5f, neg) : juce::jmax (0.5f, pos);
             const float balanceScale = juce::jlimit (0.55f, 1.80f,
                 std::sqrt (otherMass / sameMass));
             const float effectiveWeight = safeWeight * balanceScale;
-            const float err = (y - predict (z, sound, genre)) * effectiveWeight;
+            const float err = (y - predict (z, sound)) * effectiveWeight;
             const float lr = 0.14f / (1.0f + 0.03f * n);
 
             for (size_t i = 0; i < (size_t) kDim; ++i)
@@ -204,8 +200,6 @@ namespace taste
                 w[i] = clampW (w[i] + lr * (err * z[i] - 0.010f * w[i]));
                 ws[(size_t) s][i] = clampW (ws[(size_t) s][i]
                     + 0.6f * lr * (err * z[i] - 0.060f * ws[(size_t) s][i]));
-                wg[(size_t) g][i] = clampW (wg[(size_t) g][i]
-                    + 0.6f * lr * (err * z[i] - 0.060f * wg[(size_t) g][i]));
             }
 
             bias += lr * 0.5f * err;
@@ -292,11 +286,10 @@ namespace taste
             o->setProperty ("n", (double) n);
             o->setProperty ("pos", (double) pos);
             o->setProperty ("neg", (double) neg);
-            juce::Array<juce::var> jw, jws, jwg;
+            juce::Array<juce::var> jw, jws;
             for (int i = 0; i < kDim; ++i) jw.add ((double) w[(size_t) i]);
             for (int s = 0; s < kSounds; ++s) for (int i = 0; i < kDim; ++i) jws.add ((double) ws[(size_t) s][(size_t) i]);
-            for (int g = 0; g < kGenres; ++g) for (int i = 0; i < kDim; ++i) jwg.add ((double) wg[(size_t) g][(size_t) i]);
-            o->setProperty ("w", jw); o->setProperty ("ws", jws); o->setProperty ("wg", jwg);
+            o->setProperty ("w", jw); o->setProperty ("ws", jws);
             juce::Array<juce::var> jrl, jrd;
             for (int i = 0; i < kDim; ++i) { jrl.add ((double) recentLike[(size_t) i]); jrd.add ((double) recentDislike[(size_t) i]); }
             o->setProperty ("recentLike", jrl);
@@ -311,10 +304,9 @@ namespace taste
             if (o == nullptr || (int) o->getProperty ("dim") != kDim) return false;
             auto* jw = o->getProperty ("w").getArray();
             auto* jws = o->getProperty ("ws").getArray();
-            auto* jwg = o->getProperty ("wg").getArray();
-            if (jw == nullptr || jws == nullptr || jwg == nullptr
+            if (jw == nullptr || jws == nullptr
                 || jw->size() != kDim || jws->size() % kDim != 0 || jws->size() / kDim < 1
-                || jws->size() / kDim > kSounds || jwg->size() != kGenres * kDim)
+                || jws->size() / kDim > kSounds)
                 return false;
             const int savedSounds = jws->size() / kDim;     // models saved by older versions had fewer sounds
             Model m;
@@ -324,7 +316,6 @@ namespace taste
             m.neg = (float) (double) o->getProperty ("neg");
             for (int i = 0; i < kDim; ++i) m.w[(size_t) i] = (float) (double) (*jw)[i];
             for (int s = 0; s < savedSounds; ++s) for (int i = 0; i < kDim; ++i) m.ws[(size_t) s][(size_t) i] = (float) (double) (*jws)[s * kDim + i];
-            for (int g = 0; g < kGenres; ++g) for (int i = 0; i < kDim; ++i) m.wg[(size_t) g][(size_t) i] = (float) (double) (*jwg)[g * kDim + i];
 
             // Taste ML 1.x files have no short-term memory; load them normally
             // and start the 2.0 recent-memory layer empty.
@@ -348,7 +339,6 @@ namespace taste
         static float clampW (float v) { return std::min (3.0f, std::max (-3.0f, v)); }
         Vec w {};
         std::array<Vec, kSounds> ws {};
-        std::array<Vec, kGenres> wg {};
         Vec recentLike {};
         Vec recentDislike {};
         float recentLikeMass = 0.0f;

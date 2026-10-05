@@ -58,7 +58,10 @@ juce::int64 regenerationDueMs = 0;
 uint32_t scheduledGenerationNonce = 0;
 bool regenerationPending = false;
 bool preserveSelectionOnRegenerate = false;
- juce::ComboBox root, genre, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
+// Queue one MAGIC request while the background generator is busy.
+// The processor already coalesces normal regeneration requests; this flag keeps MAGIC clicks from being lost.
+bool magicPending = false;
+ juce::ComboBox root, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, eraBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
@@ -120,7 +123,6 @@ bool preserveSelectionOnRegenerate = false;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForChannel (channel);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.processor.noteKeptVariation();
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
@@ -155,7 +157,6 @@ bool preserveSelectionOnRegenerate = false;
          dragStarted = true;
          auto file = owner.processor.writeTemporaryMidiFileForDrumRow (row);
          if (!file.existsAsFile()) { dragStarted = false; return; }
-         owner.processor.noteKeptVariation();
          owner.performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
      }
      void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }

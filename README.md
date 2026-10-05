@@ -2,18 +2,93 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.80.0**
+**Current version: 0.86.0**
+
+### 0.86.x — Style / Safety & Judge Refinement
+- Melody safety uses a common ceiling without using Simple / Medium / Complex as hidden pitch-style rules.
+- Composer Judge is being consolidated into fewer orthogonal quality groups.
+- Candidate ranking now gives explicit weight to memorability instead of letting pleasantness dominate.
+- The work remains part of the 0.86.x development cycle; the public version stays 0.86.0 until the stage is complete.
+
+### 0.86.0 — Unified Melody Intent
+- Simple / Medium / Complex is now a single loop-level composition intent stored on the generated Section as melodyComplexityClass.
+- The class is chosen once per loop using a bar-stable seed and is no longer independently re-rolled by Foundation or Pleasantness.
+- Foundation and Pleasantness now interpret the same intent instead of making separate random simple/conservative decisions.
+- The Judge's simplicity target is primarily anchored to the actual complexity class of the candidate, preventing the selector from rewarding a different complexity level than the generator intended.
+- The complexity class survives candidate flattening and final variation transformations.
+- QA now checks valid classes, multiple complexity languages in the bank, deterministic assignment, and reachability of all three classes.
+- No new UI control was added. The existing Complexity control still influences the probability of Simple / Medium / Complex candidates.
+
+### 0.85.7 — Character Integrity
+- Fixed a real Character propagation bug in candidate flattening: the latent melodic character assigned during generation is now preserved when the candidate Section is created.
+- Character Fit Judge now receives the character the candidate was actually generated with instead of silently falling back to the neutral 0.5 score.
+- Tightened Character QA: every final variation must retain a valid latent character, and the 8-slot bank must preserve all 8 distinct character families produced by the current archetype/rotation design.
+- No changes to the Foundation, Judge weights, MAGIC controls, UI behavior, tonal safety, realtime path or humanization in this stage.
+
+### 0.85.1 — Musical Quality & Phrase Intelligence
+- Judge calibration now separates **register width** from **register position**. A melody that spans a healthy range but sits unnecessarily high is penalised directly, with sound-profile-aware register targets.
+- Added a **local weak-spot** judge that penalises unrecovered large jumps, pathological same-note runs and small zig-zag transitions instead of relying only on whole-loop averages.
+- Simple / Medium / Complex selection now responds materially to the **Complexity** control. The default search includes a larger simple-phrase population while still preserving a minority of complex and weird ideas.
+- Candidate ranking now rewards the new register-centre and simplicity signals and applies the weak-spot penalty before the final diversity gate.
+- **Phrase Contrast 2.0** replaces the old "maximal difference" B-bar heuristic with a balanced contrast target: recognizable motif identity plus controlled changes in rhythm, contour direction and register.
+- QA now checks that B phrases land in a useful contrast band instead of rewarding arbitrarily dissimilar material.
+- **Closure Judge 2.0** evaluates the final seam as a real phrase ending: seam distance, release tail, final-bar placement, approach gesture and harmonic landing are scored together.
+- QA now checks real generated endings for extreme seam jumps, missing final-bar material and obviously truncated tails.
+- No new UI controls; this stage only recalibrates the existing MIDI generation and judge pipeline.
 
 
 
-### Unreleased (next version)
+
+
+### 0.85.2 — Local Melody Quality 2.0
+- Adds a profile-safe local transition judge instead of relying only on global melody averages.
+- Penalizes isolated unrecovered large leaps, long scalar walks, mechanical tiny up/down zig-zags, and pathological repeated-note runs.
+- Uses a lower-percentile local window score so one or two weak micro-spots can materially reduce candidate quality.
+- Adds deterministic regression QA over a seed batch to keep severe local melody failures rare.
+
+
+### 0.85.3 — Local Melody Repair 1.0
+- Adds a small deterministic repair pass after melody safety normalization.
+- Targets only the worst internal weak spots; opening identity and final closure are left to their dedicated systems.
+- Tests nearby scale-safe pitches under the existing register and leap contract.
+- Accepts a repair only when local transition quality improves without materially reducing overall melody pleasantness.
+
+
+### 0.85.4 — Micro-Rhythm Quality 1.0
+- Adds a local melodic rhythm judge alongside the pitch-quality judge.
+- Detects excessive one-step note chains, duplicate onsets, repetitive gap runs and accidental long holes.
+- Evaluates note-length fit against the next onset gap and keeps offbeat density profile-aware.
+- Adds the timing score to candidate ranking without creating new controls or a second generator.
+
+
+### 0.85.6 — Character Fit Judge
+- Adds a **character-fit judge** after generation so the hidden melodic behavior profile is evaluated from the finished candidate, not only from its generation settings.
+- Scores multiple musical axes together — density, space, rhythmic identity, motif identity, leap language, repetition, surprise and phrase arc — with broad targets for each latent character.
+- Candidates that drift back toward the same generic melody shape lose some rank, while genuinely character-consistent candidates gain rank.
+- Keeps the character system hidden and UI-free; no playlist-style labels or new controls are introduced.
+
+### 0.85.5 — Latent Melody Character Engine
+- Adds twelve hidden melodic behavior profiles selected per candidate; these are not UI categories.
+- Each profile changes multiple axes together: density, space, interval size, syncopation, motif strength, sustain, repetition, register journey, contrast and tension.
+- The same harmonic setting and mood can therefore produce materially different melodic behaviors instead of only surface-level note changes.
+- Character choice is carried with the generated Section so downstream judging and variation selection can see the actual melodic language.
+- No new controls and no playlist-style labels are exposed in the UI.
+
+### 0.84.2 — Runtime stability
+- Removed the stale implicit Taste-training hook from drag/export paths; explicit LIKE / DISLIKE are the only learning signals, while drag/export remain telemetry.
+- Reworked live MIDI playback to use an immutable active-note snapshot, avoiding `activeNotesLock` on the audio thread.
+- `processBlock()` now handles every 16th-note boundary inside a large host audio block instead of skipping steps when buffers span multiple boundaries.
+- Hardened project-state loading with safe defaults, integer range validation and finite floating-point checks while preserving legacy-state compatibility.
+- Updated headless QA for explicit-feedback-only Taste behavior and fixed the stale numeric formatter in the QA output.
+
+### Historical release notes
 - **Melodies are more varied in pitch.** The melody foundation clamped every note into a tonic-relative lane that sat below the lane the composer plans in, so notes above the ceiling all collapsed onto the single highest scale tone. Measured over many loops, seeds, genres and keys: 33-47% of all melody notes sat on one pitch, that pitch was also the highest note in 70-80% of loops, and 24-42% of consecutive notes were repeats. The whole line is now first moved by whole octaves into the lane, so the planned contour survives, and only a genuinely too-wide line is clamped. Result: the most-used pitch drops to ~29%, the ceiling pitch is the favourite in ~17% of loops and repeats fall to ~14%. Rhythm and the rest of the pipeline are unchanged.
 - QA: new "melody variety" checks (no dominant pitch, ceiling pitch not the favourite, moderate repeats).
 - QA: the long-form "keeps a recognizable contour" check no longer counts two flat steps as matching shape. That metric rewarded the collapsed melodies (44% flat steps before the fix, 16% after) and made the old result look better than it was; on moving steps only, contour retention was 56% before and 82% after. Threshold is now 75% on the stricter metric.
 
 - QA is now hermetic: `MidiForgeAudioProcessor::setSettingsDirectoryOverride()` points `taste.json` / `feedback.csv` at a temporary folder for the whole run. Before, every local QA run read the Taste model that earlier runs had saved to the real settings folder, so identical code gave different numbers on different runs (CI always starts clean, so it was never affected).
 - QA: the A' / B / A'' / "semantic development" motif-structure checks now judge the share of loops that have melody material in every bar (44% / 53% / 44% / 36%) instead of absolute counts out of 45, so they no longer depend on how many loops happen to be sparse.
-- **Needs CI confirmation:** this branch has not been run on the CI toolchain yet. If any Quality check turns red here and is green on `main`, the octave shift is the cause.
+- The melody-variety/octave-placement changes from the earlier branch are now part of the historical 0.80-era notes below; CI coverage is handled by the current 0.84.2 stability branch.
 
 ### SIMILAR / More Like This — 0.80.0
 - New **SIMILAR** button (bottom row, left of UNDO). Select a loop you like and press it: the bank is rebuilt as the **untouched source loop in slot 1** plus **seven close relatives in slots 2-8, ordered from nearest to boldest**.
@@ -32,8 +107,8 @@
 
 ### Feedback Log — 0.79.0
 - Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.
-- Each row records engine version, verdict, variation slot, **transform**, **source archetype**, genre, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
-- `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, genre, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
+- Each row records engine version, verdict, variation slot, **transform**, **source archetype**, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
+- `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
 - Loops now remember the archetype they came from and their transform slot.
 - QA: new checks for the log format, verdict/slot recording and archetype/transform names.
 - No new UI controls.
@@ -262,7 +337,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - Major, Minor, Dorian, Phrygian, Harmonic Minor, Melodic Minor and Pentatonic scales
 - Multiple progression styles: Auto, Pop, Dark, Emotional, Cinematic, Jazz-like, Looping
 - Melody roles: Hook, Vocal-like, Riff, Ostinato, Arp, Counter, Sparse Lead, Phrase
-- Genre DNA for Trap, House, Techno, BoomBap, Ambient, Cinematic, RnB, Pop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental and Lofi
+- Open-ended Creative DNA with hidden melodic behavior profiles
 - Mood, era and energy controls
 - Sound-target profiles for Piano, Pluck, Synth Lead, Bell/Mallet, Pad/Strings, Brass, 808/Sub Lead and Guitar
 
@@ -294,7 +369,7 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - The first 600 candidates explore the current musical space broadly.
 - The best 48 first-pass candidates are rank-weighted to build an adaptive profile of density, space, rhythm, motif, leap, register, surprise, loop quality, groove and motif memory.
 - The remaining 400 candidates are generated with their melody controls, phrasing, swing, register and variation amount nudged toward that discovered neighborhood.
-- Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing genre, DNA, archetype, Judge or diversity systems.
+- Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing DNA, archetype, Judge or diversity systems.
 - Local deterministic jitter keeps the adaptive phase exploratory instead of collapsing all candidates into clones.
 - The final eight-variation bank and one-winner-per-archetype behavior remain unchanged.
 
@@ -578,7 +653,7 @@ The repository previously contained many small README files created for individu
 - Rhythm Engine
 - Harmony work
 - Mutation / evolution
-- Genre DNA and hybrid DNA
+- Creative DNA and hybrid context
 - Advanced MAGIC composition
 - Larger candidate search and diversity improvements
 

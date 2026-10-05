@@ -47,8 +47,7 @@ ComposerGrammar::Plan ComposerGrammar::makePlan (int bars,
                                                  float complexity,
                                                  int melodyType,
                                                  int mood,
-                                                 int genre,
-                                                 uint32_t identity)
+                                                                                                  uint32_t identity)
 {
     Plan plan;
     plan.bars = std::max (1, bars);
@@ -205,8 +204,6 @@ ComposerGrammar::Plan ComposerGrammar::makePlan (int bars,
             state.density += 0.04f;
             state.tension += 0.04f;
         }
-        if (genre == 5 || genre == 12 || genre == 14)
-            state.registerLift += 0.7f;
 
         const uint32_t h = mix32 (identity
                                   ^ (uint32_t) (i + 1) * 0x9e3779b9u

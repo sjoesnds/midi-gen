@@ -43,8 +43,7 @@ public:
                        float complexity,
                        float energy,
                        uint32_t seed,
-                       int melodyType,
-                       int genre);
+                       int melodyType);
 
     static float score (const std::vector<Note>& melody,
                         int bars,
@@ -257,12 +256,11 @@ private:
                               float energy,
                               double bpm,
                               uint32_t seed,
-                              int melodyType,
-                              int genre)
+                              int melodyType)
     {
         const uint32_t roll = hash32 (seed ^ 0x5F3759DFu) % 100u;
         const bool fast = bpm >= 170.0;
-        const bool sparse = melodyType == 6 || genre == 5; // Sparse Lead / Ambient in current enums
+        const bool sparse = melodyType == 6; // Sparse Lead
 
         if (intent == Intent::Anchor)
         {

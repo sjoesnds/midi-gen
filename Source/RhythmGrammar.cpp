@@ -9,8 +9,7 @@ void RhythmGrammar::apply (std::vector<Note>& melody,
                             float complexity,
                             float energy,
                             uint32_t seed,
-                            int melodyType,
-                            int genre)
+                            int melodyType )
 {
     bars = std::max (1, bars);
     bpm = std::clamp (bpm, 40.0, 240.0);
@@ -56,7 +55,7 @@ void RhythmGrammar::apply (std::vector<Note>& melody,
             const Intent intent = intentForBar (localBar);
             const Shape shape = chooseShape (intent, baseRhythm, complexity, energy, bpm,
                                               hash32 (seed ^ (uint32_t) (phrase * 131 + localBar * 17 + 7)),
-                                              melodyType, genre);
+                                              melodyType);
 
             auto targetPositions = makePositions ((int) indices.size(), shape, bpm, baseRhythm,
                                                   complexity, energy,

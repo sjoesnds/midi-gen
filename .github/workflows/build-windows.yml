@@ -4,6 +4,11 @@ on:
   push:
   workflow_dispatch:
 
+# Keep only the newest Windows build for each branch.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-2022

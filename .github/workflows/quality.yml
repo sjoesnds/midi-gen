@@ -8,6 +8,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Never build a stale commit when a newer push arrives.
+# This prevents rapid development pushes from creating an endless QA queue.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -33,9 +39,12 @@ jobs:
         run: cmake --build build-qa --config Release --parallel
 
       - name: Run quality checks
+        env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
         run: |
+          set -o pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          echo "Running $QA"
+          echo "Running $QA with melody pipeline trace"
           "$QA" | tee qa-report.txt
 
       - uses: actions/upload-artifact@v4
@@ -43,3 +52,47 @@ jobs:
         with:
           name: quality-report
           path: qa-report.txt
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-sanitize/_deps
+          key: ${{ runner.os }}-qa-sanitize-juce-8.0.14-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure ASan + UBSan
+        run: |
+          cmake -S tests -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            -DCMAKE_CXX_FLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitized QA
+        run: cmake --build build-sanitize --config Debug --parallel
+
+      - name: Run sanitized quality checks
+        env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:detect_stack_use_after_return=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          QA=$(find build-sanitize -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          echo "Running $QA under ASan + UBSan"
+          "$QA" | tee sanitized-qa-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitized-quality-report
+          path: sanitized-qa-report.txt

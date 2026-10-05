@@ -32,46 +32,43 @@ struct ComposerJudge
     {
         const auto c = [] (float v) { return std::clamp (v, 0.0f, 1.0f); };
 
-        const float phraseArc = c (m.phraseArc);
-        const float role = c (m.roleConsistency);
-        const float motif = c (m.motifDevelopment);
-        const float expression = c (m.expression);
-        const float harmony = c (m.harmony);
-        const float densitySpace = c (m.densitySpace);
-        const float rhythm = c (m.rhythm);
-        const float reg = c (m.registerScore);
-        const float closure = c (m.closure);
-        const float novelty = c (m.noveltyBalance);
-        const float groove = c (m.groove);
-        const float prosody = c (m.prosody);
-        const float development = c (m.development);
+        // 0.86.x Judge cleanup: keep the top-level judge deliberately small.
+        // The previous version added many partially correlated terms, which
+        // rewarded "polished" averages too easily. These nine groups are meant
+        // to answer different questions: does the idea exist, does it express
+        // something, does harmony support it, does the rhythm have identity,
+        // is the register usable, does the loop close, and is there useful novelty.
+        const float idea = c (0.50f * m.motifDevelopment
+                            + 0.30f * m.phraseArc
+                            + 0.20f * m.roleConsistency);
 
-        // Cross-system agreement is intentionally low-level rather than a
-        // new musical preference. It rewards systems that arrive at compatible
-        // conclusions without requiring every subsystem to have the same score.
-        const float agreement =
-            1.0f - std::clamp (
-                (std::abs (motif - development)
-                 + std::abs (expression - prosody)
-                 + std::abs (harmony - closure)
-                 + std::abs (phraseArc - role)) * 0.25f,
-                0.0f, 1.0f);
+        const float expression = c (0.65f * m.expression
+                                  + 0.25f * m.prosody
+                                  + 0.10f * m.development);
+
+        const float harmony = c (0.72f * m.harmony
+                              + 0.28f * m.closure);
+
+        const float rhythm = c (0.58f * m.rhythm
+                              + 0.24f * m.groove
+                              + 0.18f * m.densitySpace);
+
+        const float novelty = c (0.65f * m.noveltyBalance
+                               + 0.20f * m.development
+                               + 0.15f * m.motifDevelopment);
+
+        const float registerFit = c (m.registerScore);
 
         return std::clamp (
-            0.14f * phraseArc
-            + 0.12f * role
-            + 0.13f * motif
-            + 0.10f * expression
-            + 0.12f * harmony
-            + 0.09f * densitySpace
-            + 0.07f * rhythm
-            + 0.07f * reg
-            + 0.08f * closure
-            + 0.05f * novelty
-            + 0.03f * groove
-            + 0.04f * prosody
-            + 0.04f * agreement
-            + 0.02f * development,
+            0.22f * idea
+            + 0.18f * expression
+            + 0.16f * harmony
+            + 0.13f * rhythm
+            + 0.11f * novelty
+            + 0.07f * registerFit
+            + 0.07f * c (m.closure)
+            + 0.04f * c (m.densitySpace)
+            + 0.02f * c (m.roleConsistency),
             0.0f, 1.0f);
     }
 };

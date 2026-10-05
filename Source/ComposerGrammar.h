@@ -47,7 +47,6 @@ public:
                           float complexity,
                           int melodyType,
                           int mood,
-                          int genre,
                           uint32_t identity);
 
     static const char* roleName (Role role);
