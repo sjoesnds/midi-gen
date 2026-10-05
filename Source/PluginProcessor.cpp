@@ -10279,10 +10279,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
     // Creator-first generation:
     // The search has already found independent musical ideas and the diversity gate
-    // has deliberately separated them. Do not immediately collapse those ideas back
-    // into one source loop plus eight post-transformations. For a working musician,
-    // the bank itself is the creative material: each slot should be an independently
-    // discovered phrase that can be auditioned, edited and kept.
+    // has deliberately separated them. Do not collapse those ideas back into one
+    // source loop plus eight post-transformations. For a working musician, the
+    // selected bank itself is the creative material: each slot should be an
+    // independently discovered phrase that can be auditioned, edited and kept.
     std::vector<Section> result;
     result.reserve (selected.size());
 
@@ -10290,7 +10290,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         const auto& candidate = selected[slot];
         Section flat = candidate.section;
-        const uint32_t candidateSeed = candidate.identity;
 
         flat.sourceArchetype = candidate.archetype;
         flat.transformMode = -1;
@@ -10324,47 +10323,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
                        return a.note < b.note;
                    });
 
-        // Preserve the selected candidate whenever possible. The finishing/safety
-        // stages are still allowed to enforce hard musical validity, but they no
-        // longer have a second stylistic transformation pass to overwrite the idea.
-        const Section beforeSafety = flat;
-        applyMelodyFoundation (flat, candidateSeed);
-        enforceFinalMelodyContract (flat, candidateSeed);
-        removeDuplicateNotes (flat.notes);
-        cleanMelodyLine (flat.notes);
-        std::sort (flat.notes.begin(), flat.notes.end(),
-                   [] (const NoteEvent& a, const NoteEvent& b)
-                   {
-                       if (a.step != b.step) return a.step < b.step;
-                       if (a.channel != b.channel) return a.channel < b.channel;
-                       return a.note < b.note;
-                   });
-
-        // The foundation/contract path is hard-safety only. If it ever produces a
-        // materially different invalidating rewrite, retain the original selected
-        // candidate; the next regeneration can produce another idea instead of
-        // silently turning this one into a different composition.
-        const auto selectedMelodyPitch = [&] (const Section& section)
-        {
-            std::vector<int> pitches;
-            for (const auto& n : section.notes)
-                if (n.channel == 3) pitches.push_back (n.note);
-            return pitches;
-        };
-
-        const auto beforePitches = selectedMelodyPitch (beforeSafety);
-        const auto afterPitches = selectedMelodyPitch (flat);
-        if (! beforePitches.empty() && ! afterPitches.empty())
-        {
-            int changed = 0;
-            const int comparable = juce::jmin ((int) beforePitches.size(), (int) afterPitches.size());
-            for (int i = 0; i < comparable; ++i)
-                if (beforePitches[(size_t) i] != afterPitches[(size_t) i]) ++changed;
-
-            if (comparable > 0 && changed > juce::jmax (2, comparable / 3))
-                flat = beforeSafety;
-        }
-
+        // Candidates have already passed generation-time foundation, local repair,
+        // harmonic checks and the complete judge stack. Keep that authored result
+        // intact here; hard safety belongs to generation, not a second stylistic
+        // rewrite after the user has selected the idea bank.
         result.push_back (std::move (flat));
     }
 
