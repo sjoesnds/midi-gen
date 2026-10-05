@@ -489,7 +489,6 @@ void addDrums(Section&, int barOffset, float localEnergy, juce::Random&, int var
 void addMelody(Section&, int barOffset, float localEnergy, juce::Random&,
                const std::vector<NoteEvent>* inheritedMotif, int variationSalt = 0);
 PhraseMotif extractPhraseMotif (const Section&, int phraseStartBar) const;
-void applyHumanPhraseRole (Section&, int barOffset, const PhraseMotif&) const;
 void addArp(Section&, int barOffset, int degree, float localEnergy, juce::Random&);
 MelodyFeatures melodyFeatures (const Section& sec, uint32_t identity) const;
 IdeaFingerprint makeIdeaFingerprint (const Section& sec) const;
