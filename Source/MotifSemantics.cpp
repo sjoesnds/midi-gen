@@ -149,5 +149,4 @@ MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
 
     return p;
 }
-}
 } // namespace midiforge
