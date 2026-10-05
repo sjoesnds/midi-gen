@@ -2,7 +2,13 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.97.0**
+**Current version: 0.97.1**
+
+### 0.97.1 — Creator-First Controls & Open Creativity
+- The user-facing generation surface is intentionally reduced to **Key, Scale and Bars** plus workflow/edit controls.
+- Removed visible Mood, Melody Type, Sound Target, Progression, Rhythm, Octave, density, complexity, motif, variation and other strategy knobs from the creative surface.
+- MAGIC now keeps the creator-selected Key, Scale and Bars fixed while freely exploring hidden musical DNA inside those constraints.
+- Hidden strategy axes remain randomized internally so the generator can still discover distinct musical ideas without turning them into genre/style presets.
 
 ### 0.97.0 — Creator-First Melody Discovery
 - Adds a single melody decision/evaluation layer above the existing Melody Intent and Judge stack.
