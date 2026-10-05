@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.85.4"
+#define MIDIFORGE_ENGINE_VERSION "0.85.5"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -178,6 +178,7 @@ bool isArpEnabled() const { return arpEnabled; }
 bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
+int getVariationMelodyCharacter (int index) const;
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
@@ -231,6 +232,7 @@ struct Section {
     int transpose = 0;
     int sourceArchetype = -1;   // 0.79: MAGIC archetype the loop came from (for the feedback log)
     int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
+    int melodyCharacter = -1;   // 0.85.5: latent melodic behavior family; not exposed as a UI label
     std::vector<NoteEvent> notes;
 };
 struct SongData {

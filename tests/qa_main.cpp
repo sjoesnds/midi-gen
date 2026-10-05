@@ -2534,6 +2534,61 @@ int main()
                 fmt ("%.0f mechanical gap runs", (double) mechanicalRuns));
     }
 
+
+    // ------------------------------------------------------------------ 17. latent melodic character diversity (0.85.5)
+    {
+        MidiForgeAudioProcessor a;
+        a.setFeedbackLogFile (juce::File());
+        a.setSeed (19001);
+
+        std::set<int> characters;
+        std::set<std::string> behaviorSignatures;
+
+        for (int k = 0; k < a.getVariationCount(); ++k)
+        {
+            a.chooseVariation (k);
+            const int character = a.getVariationMelodyCharacter (k);
+            if (character >= 0)
+                characters.insert (character);
+
+            auto notes = a.getVisibleNotes();
+            std::vector<MidiForgeAudioProcessor::VisibleNote> mel;
+            for (const auto& n : notes)
+                if (n.channel == 3)
+                    mel.push_back (n);
+
+            std::stable_sort (mel.begin(), mel.end(),
+                [] (const auto& x, const auto& y)
+                {
+                    if (x.step != y.step) return x.step < y.step;
+                    return x.note < y.note;
+                });
+
+            std::string sig = std::to_string (mel.size()) + ":";
+            for (size_t i = 0; i < mel.size() && i < 8; ++i)
+                sig += std::to_string (mel[i].step % 16) + ",";
+
+            sig += "|";
+            for (size_t i = 1; i < mel.size() && i < 9; ++i)
+            {
+                const int d = mel[i].note - mel[i - 1].note;
+                sig += (d > 3 ? '+' : d < -3 ? '-' : d == 0 ? '0' : 's');
+            }
+
+            behaviorSignatures.insert (sig);
+        }
+
+        report ("melody character diversity: bank keeps distinct latent families",
+                a.getVariationCount() == 8 && characters.size() >= 6,
+                fmt ("%.0f distinct characters across %.0f variations",
+                     (double) characters.size(), (double) a.getVariationCount()));
+
+        report ("melody character diversity: bank changes behavior signatures",
+                behaviorSignatures.size() >= 6,
+                fmt ("%.0f distinct local behavior signatures",
+                     (double) behaviorSignatures.size()));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

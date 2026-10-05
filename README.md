@@ -2,7 +2,7 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.85.4**
+**Current version: 0.85.5**
 
 ### 0.85.1 — Musical Quality & Phrase Intelligence
 - Judge calibration now separates **register width** from **register position**. A melody that spans a healthy range but sits unnecessarily high is penalised directly, with sound-profile-aware register targets.
@@ -38,6 +38,14 @@
 - Detects excessive one-step note chains, duplicate onsets, repetitive gap runs and accidental long holes.
 - Evaluates note-length fit against the next onset gap and keeps offbeat density profile-aware.
 - Adds the timing score to candidate ranking without creating new controls or a second generator.
+
+
+### 0.85.5 — Latent Melody Character Engine
+- Adds twelve hidden melodic behavior profiles selected per candidate; these are not UI categories.
+- Each profile changes multiple axes together: density, space, interval size, syncopation, motif strength, sustain, repetition, register journey, contrast and tension.
+- The same genre, scale and mood can therefore produce materially different melodic behaviors instead of only surface-level note changes.
+- Character choice is carried with the generated Section so downstream judging and variation selection can see the actual melodic language.
+- No new controls and no playlist-style labels are exposed in the UI.
 
 ### 0.84.2 — Runtime stability
 - Removed the stale implicit Taste-training hook from drag/export paths; explicit LIKE / DISLIKE are the only learning signals, while drag/export remain telemetry.
