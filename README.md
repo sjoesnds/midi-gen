@@ -4,6 +4,14 @@
 
 **Current version: 0.96.0**
 
+### 0.96.0 — Architecture Cleanup & Reliability
+- Extracted MIDI-file construction/export and drag-temp creation into `MidiForgeMidiIO.cpp`.
+- Extracted project state persistence into `MidiForgeState.cpp`.
+- Extracted Taste learning, preference persistence and feedback telemetry into `MidiForgeTaste.cpp`.
+- Removed the obsolete `mergedSelectedSong()` helper; MIDI export snapshots the selected variation directly under `variationsLock`.
+- Expanded QA with async-generation stress, active-MIDI/export consistency and a 12-scale × 4-melody-language validation matrix.
+- Existing ASan/UBSan and Windows VST3 gates remain enabled; real FL Studio long-session validation is still a release requirement.
+
 ### 0.95.0 — Workflow, Stability & Musical QA
 - Melody generation remains a single deterministic Melody Core; no additional parallel melody author was added.
 - Humanize is completely separate from authored generation: the generator/export remain clean, while LIVE HUMANIZE is a playback layer and Piano Roll HUMANIZE is an explicit edit.
