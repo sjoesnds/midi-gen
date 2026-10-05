@@ -810,8 +810,13 @@ void MidiForgeAudioProcessor::applyMelodyFoundation (Section& section, uint32_t 
 
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
-    const bool simple = (hash32 (identity ^ 0xA11CE55u) % 100u) < 58u;
-    const int maxLeap = simple ? juce::jmin (7, contractLeap) : contractLeap;
+    // 0.86 Unified Melody Intent: Foundation follows the same loop-level
+    // complexity class chosen by addMelody. It no longer rolls its own style.
+    const int complexityClass = juce::jlimit (0, 2, section.melodyComplexityClass < 0 ? 1 : section.melodyComplexityClass);
+    const int maxLeap =
+        complexityClass == 0 ? juce::jmin (7, contractLeap)
+        : complexityClass == 1 ? juce::jmin (8, contractLeap)
+        : contractLeap;
     const auto scale = scaleSemitones();
 
     auto pitchClass = [] (int n)
