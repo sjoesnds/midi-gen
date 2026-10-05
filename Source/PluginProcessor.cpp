@@ -185,8 +185,12 @@ juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForDrumRow(int row) co
         .getChildFile("MidiForge_"+juce::String(row<0 ? "Drums" : drumRowName(row))+"_"
                       +juce::String(juce::Random::getSystemRandom().nextInt())+".mid");
     auto midiFile=buildMidiFile(5,row);
-    if(auto stream=file.createOutputStream()) midiFile.writeTo(*stream);
-    return file;
+    if(auto stream=file.createOutputStream())
+    {
+        if (midiFile.writeTo(*stream) && file.existsAsFile() && file.getSize() > 0)
+            return file;
+    }
+    return {};
 }
 void MidiForgeAudioProcessor::dislikeAndAdvance()
 {
@@ -11707,12 +11711,14 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(humanizeEnabled);
 
     std::vector<VisibleNote> savedNotes;
+    bool hasSavedNotes = false;
     if (stateVersion >= 3 && i.getNumBytesRemaining() >= 4)
     {
         int count = 0;
         if (readIntRaw (count))
         {
             count = juce::jlimit (0, 65536, count);
+            hasSavedNotes = true;
             savedNotes.reserve ((size_t) count);
             for (int n = 0; n < count; ++n)
             {
@@ -11742,7 +11748,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     realtimeSwing.store(swing); realtimeHumanize.store(humanize);
     realtimeHumanizeEnabled.store(humanizeEnabled); realtimeDrumMuteMask.store(drumMuteMask);
     regenerateBlocking(savedSelection);
-    if (stateVersion >= 3 && ! savedNotes.empty())
+    if (stateVersion >= 3 && hasSavedNotes)
         replaceVisibleNotes (savedNotes);
 }
 // --- MIDI export --------------------------------------------------------
