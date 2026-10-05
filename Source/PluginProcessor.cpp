@@ -9050,6 +9050,8 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
         // If a future multi-section song mixes families, do not invent one identity.
         int flattenedCharacter = -1;
         bool mixedCharacters = false;
+        int flattenedComplexityClass = -1;
+        bool mixedComplexityClasses = false;
 
         for(const auto& sec:song.sections)
         {
@@ -9059,6 +9061,14 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
                     flattenedCharacter = sec.melodyCharacter;
                 else if (flattenedCharacter != sec.melodyCharacter)
                     mixedCharacters = true;
+            }
+
+            if (sec.melodyComplexityClass >= 0)
+            {
+                if (flattenedComplexityClass < 0)
+                    flattenedComplexityClass = sec.melodyComplexityClass;
+                else if (flattenedComplexityClass != sec.melodyComplexityClass)
+                    mixedComplexityClasses = true;
             }
 
             const int sectionBarsBefore=flat.bars;
@@ -9119,6 +9129,7 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
         // The current generator uses one section, so this preserves the exact
         // generated character. Mixed multi-section songs have no single identity.
         flat.melodyCharacter = mixedCharacters ? -1 : flattenedCharacter;
+        flat.melodyComplexityClass = mixedComplexityClasses ? -1 : juce::jlimit (0, 2, flattenedComplexityClass);
 
         removeDuplicateNotes(flat.notes);
         cleanMelodyLine(flat.notes);
