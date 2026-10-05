@@ -38,6 +38,8 @@ jobs:
           $vst = Get-ChildItem build -Filter "*.vst3" -Recurse | Select-Object -First 1
           if (-not $vst) { throw "No .vst3 file was found under build/" }
           Compress-Archive -Path $vst.FullName -DestinationPath dist\MidiForge-Windows-x64.zip -Force
+          $zip = Get-Item dist\MidiForge-Windows-x64.zip
+          if ($zip.Length -le 0) { throw "Windows VST3 package is empty" }
 
       - uses: actions/upload-artifact@v4
         with:
