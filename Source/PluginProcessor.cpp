@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "MelodyIntent.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
@@ -197,7 +198,6 @@ void MidiForgeAudioProcessor::dislikeAndAdvance()
     if (vi + 1 < count) chooseVariation(vi + 1);
     else magicRandomize();
 }
-void MidiForgeAudioProcessor::setEra(int v){era=juce::jlimit(0,5,v);regenerate();}
 void MidiForgeAudioProcessor::setProgression(int v){progression=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regenerate();}
 void MidiForgeAudioProcessor::setBars(int v){bars=juce::jlimit(1,16,v);regenerate();}
@@ -395,10 +395,28 @@ void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
         case PhraseMelody:     targetSpan = 36; break;
     }
 
-    targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 6.0f);
-        targetSpan = juce::jlimit (22, 44, targetSpan);
+    targetSpan += juce::roundToInt (juce::jlimit (0.0f, 1.0f, complexity) * 8.0f);
+    targetSpan = juce::jlimit (24, 48, targetSpan);
 
-    const int centre = (baseLo + baseHi) / 2;
+    // Register is varied at the phrase-identity level instead of by a visible
+    // "range" control. Most melodies stay centered, while a minority deliberately
+    // lives a little lower or higher. This gives us real register variety without
+    // forcing every melody to span the entire playable lane.
+    const uint32_t placementHash = hash32 (
+        generationSeed
+        ^ (uint32_t) (melodyType + 1) * 0xC2B2AE35u
+        ^ 0x4D454C52u);
+    const uint32_t placementRoll = placementHash % 100u;
+    const int centreShift =
+        placementRoll < 24u ? -7
+        : placementRoll >= 84u ? 5
+        : 0;
+
+    const int nominalCentre = (baseLo + baseHi) / 2;
+    const int centre = juce::jlimit (
+        baseLo + targetSpan / 2,
+        baseHi - targetSpan / 2,
+        nominalCentre + centreShift);
     const int half = targetSpan / 2;
     lo = centre - half;
     hi = lo + targetSpan;
@@ -432,10 +450,14 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
     // 0.87 Style / Safety split: this contract is a hard validity ceiling,
-    // not a melodic-style rule. Generation and judging decide whether a loop
-    // should be stepwise, moderate, or expressive; safety only prevents absurd
-    // register jumps that cross the whole playable lane in one move.
-    maxLeap = 12;
+    // not a melodic-style rule. Keep it aligned with the sound profile so the
+    // final pass does not undo expressive interval language that generation
+    // already considered valid.
+    const bool expressiveIntent = complexity >= 0.80f
+        && leapChance >= 0.45f
+        && (melodyType == RiffMelody || melodyType == CounterMelody || melodyType == PhraseMelody);
+    const int profileLeap = profile.maxLeap > 0 ? profile.maxLeap : 12;
+    maxLeap = juce::jmin (12, profileLeap + (expressiveIntent ? 3 : 0));
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
@@ -1198,9 +1220,11 @@ void MidiForgeAudioProcessor::applyMelodicProsody (Section& section, uint32_t id
             return section.notes[a].note < section.notes[b].note;
         });
 
-    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        section.bars, energy, complexity, melodyType, mood,
-        hash32 (identity ^ 0xC0719F0u));
+    const auto composerPlan = section.hasMelodyIntent
+        ? section.melodyIntent.grammar
+        : midiforge::ComposerGrammar::makePlan (
+            section.bars, energy, complexity, melodyType, mood,
+            hash32 (identity ^ 0xC0719F0u));
 
     for (size_t i = 0; i < melody.size(); ++i)
     {
@@ -1299,9 +1323,11 @@ float MidiForgeAudioProcessor::melodicProsodyScore (const Section& section) cons
     if (melody.size() < 3)
         return 0.45f;
 
-    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        section.bars, energy, complexity, melodyType, mood,
-        hash32 (generationSeed ^ 0xC0719F0u));
+    const auto composerPlan = section.hasMelodyIntent
+        ? section.melodyIntent.grammar
+        : midiforge::ComposerGrammar::makePlan (
+            section.bars, energy, complexity, melodyType, mood,
+            hash32 (generationSeed ^ 0xC0719F0u));
 
     int approachGood = 0, approachCount = 0;
     int releaseGood = 0, releaseCount = 0;
@@ -1837,9 +1863,11 @@ float MidiForgeAudioProcessor::phraseMemory4Score (const Section& section) const
 
             const float direct = contourFit (reference[(size_t) localBar], cur, false);
             const float inverse = contourFit (reference[(size_t) localBar], cur, true);
-            const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-                section.bars, energy, complexity, melodyType, mood,
-                hash32 (generationSeed ^ 0xC0A70970u));
+            const auto composerPlan = section.hasMelodyIntent
+                ? section.melodyIntent.grammar
+                : midiforge::ComposerGrammar::makePlan (
+                    section.bars, energy, complexity, melodyType, mood,
+                    hash32 (generationSeed ^ 0xC0A70970u));
             const auto composerState = composerPlan.stateFor (phrase);
             const bool expectedInverse =
                 composerState.role == midiforge::ComposerGrammar::Contrast
@@ -2745,92 +2773,79 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool soundCloud = leadStyleSoundCloud;
     const bool hook = hookMode;
 
-    // 0.22 Phrase Memory + Humanization: Musical DNA is coordinated across open-ended creative axes.
-    // dimension; mood, melody role and era alter the composition language too.
-    float moodSpace = 0.0f, moodLeap = 0.0f, moodDensity = 0.0f, moodTension = 0.0f;
-    switch (mood)
-    {
-        case DarkMood:        moodSpace=.08f; moodLeap=.10f; moodDensity=-.04f; moodTension=.24f; break;
-        case MelancholicMood: moodSpace=.16f; moodLeap=-.05f; moodDensity=-.08f; moodTension=.18f; break;
-        case EuphoricMood:    moodSpace=-.10f; moodLeap=.10f; moodDensity=.10f; moodTension=-.08f; break;
-        case AggressiveMood:  moodSpace=-.08f; moodLeap=.24f; moodDensity=.14f; moodTension=.12f; break;
-        case DreamyMood:      moodSpace=.24f; moodLeap=-.10f; moodDensity=-.12f; moodTension=.04f; break;
-        case NostalgicMood:   moodSpace=.08f; moodLeap=-.02f; moodDensity=-.02f; moodTension=.10f; break;
-        case MysteriousMood:  moodSpace=.18f; moodLeap=.12f; moodDensity=-.06f; moodTension=.22f; break;
-        case EnergeticMood:   moodSpace=-.14f; moodLeap=.16f; moodDensity=.18f; moodTension=-.02f; break;
-        default: break;
-    }
-    const float typeSpace[]   = {-.04f,.16f,-.02f,.18f,.02f,.10f,.28f,.04f};
-    const float typeDensity[] = {.04f,-.10f,.06f,-.08f,.12f,-.04f,-.18f,.02f};
-    const float typeLeap[]    = {.02f,.04f,.18f,-.02f,.08f,.12f,.06f,.10f};
-    const float typeMotif[]   = {.16f,.12f,.10f,.18f,.04f,.08f,.14f,.10f};
-    const float eraSync[] = {-.05f,.02f,.08f,.12f,.16f,.20f};
-    const float eraSpace[] = {.02f,-.02f,.02f,-.01f,.02f,.04f};
-    const float eraNovelty[] = {.04f,.02f,.06f,.08f,.12f,.16f};
-    const float roleSpace = typeSpace[juce::jlimit(0,7,melodyType)];
-    const float roleDensity = typeDensity[juce::jlimit(0,7,melodyType)];
-    const float roleLeap = typeLeap[juce::jlimit(0,7,melodyType)];
-    const float roleMotif = typeMotif[juce::jlimit(0,7,melodyType)];
+    // 0.86.2 Unified Melody Intent:
+    // One deterministic plan owns the language, macro phrase grammar, latent
+    // character and simple/medium/complex probability. Downstream code consumes
+    // this plan instead of independently rolling competing melodic identities.
+    const int nativeArchetype =
+        ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
 
-    const auto creativeRange = midiforge::CreativeRange::makePlan (
-        melodyType, mood, e, complexity,
-        hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x72C0FFEEu));
+    const uint32_t intentIdentity = hash32 (
+        generationSeed
+        ^ (uint32_t) (variationSalt + 1) * 0x72C0FFEEu);
 
-    // Creative DNA is derived directly from the chosen melodic language.
-    // Identity, mood, melody role, energy and complexity shape behavior without named style templates.
-    float dnaSpace = juce::jlimit (0.0f, 1.0f,
-        0.28f + 0.58f * creativeRange.durationContrast);
-    float dnaLeap = creativeRange.leapBias;
-    float dnaSync = juce::jlimit (0.0f, 1.0f,
-        0.16f + 0.06f * (float) (creativeRange.rhythmFamily % 12));
-    float dnaDensity = juce::jlimit (0.0f, 1.0f,
-        0.32f + 0.34f * (1.0f - creativeRange.repetition)
-        + 0.16f * creativeRange.asymmetry);
-    float dnaRegister = juce::jlimit (0.0f, 1.0f,
-        0.50f + 0.05f * creativeRange.registerBias);
-    float dnaMotif = creativeRange.repetition;
-    const int dnaRhythmBias = juce::jmax (0, creativeRange.rhythmFamily % 8);
+    const auto melodyIntent = midiforge::MelodyIntent::makePlan (
+        bars, melodyType, mood, energy, complexity,
+        intentIdentity, nativeArchetype);
 
-    // Generation identity is part of the musical seed.  Previously the melody
-    // seed used to depend on narrow style state, so repeated GENERATE calls could rebuild the
-    // exact same melody when the UI seed was unchanged.
-    dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + eraSpace[juce::jlimit(0,5,era)]);
-    dnaLeap = juce::jlimit(0.0f, 1.0f, dnaLeap + moodLeap + roleLeap);
-    dnaDensity = juce::jlimit(0.0f, 1.0f, dnaDensity + moodDensity + roleDensity);
-    dnaMotif = juce::jlimit(0.0f, 1.0f, dnaMotif + roleMotif);
+    const auto& creativeRange = melodyIntent.language;
+    const auto& composerPlan = melodyIntent.grammar;
+    const auto& character = melodyIntent.character;
+    const int melodyCharacter = melodyIntent.characterIndex;
 
-    const uint32_t seed = hash32(generationSeed
-                                 ^ (uint32_t) variationSalt * 0x9e3779b9u
-                                 ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
-                                 ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u);
-    const int loopBar = barOffset % juce::jmax(1, bars);
+    const float moodTension = melodyIntent.moodTension;
+
+    float dnaSpace = melodyIntent.dnaSpace;
+    float dnaLeap = melodyIntent.dnaLeap;
+    float dnaSync = melodyIntent.dnaSync;
+    float dnaDensity = melodyIntent.dnaDensity;
+    float dnaRegister = melodyIntent.dnaRegister;
+    float dnaMotif = melodyIntent.dnaMotif;
+    const int dnaRhythmBias = melodyIntent.dnaRhythmBias;
+
+    const float simpleProbability = melodyIntent.simpleProbability;
+    const float complexProbability = melodyIntent.complexProbability;
+
+    const auto composerState = composerPlan.stateFor (barOffset / 4);
+    const int phraseStyle = melodyIntent.phraseStyle;
+    const int intervalLanguage = melodyIntent.intervalLanguage;
+    const int tensionProfile = melodyIntent.tensionProfile;
+    const int registerProfile = melodyIntent.registerProfile;
+    const int rhythmicLanguage = melodyIntent.rhythmicLanguage;
+
+    // Preserve the stable per-bar/phrase identities used by the existing melody
+    // grammar. These are derived from the same unified intent identity rather than
+    // introducing a second musical decision system.
+    const uint32_t seed = hash32 (
+        generationSeed
+        ^ (uint32_t) variationSalt * 0x9e3779b9u
+        ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu
+        ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u);
+    const int loopBar = barOffset % juce::jmax (1, bars);
     const int cycle = loopBar % 4;
     const int phraseCell = (barOffset / 4) % 4;
-    const int phraseIdentity = (int)(hash32(seed ^ (uint32_t)(phraseCell + 1) * 0x27d4eb2du) % 4u);
+    const int phraseIdentity = (int) (
+        hash32 (seed ^ (uint32_t) (phraseCell + 1) * 0x27d4eb2du) % 4u);
 
-    // 0.38 Loop identity: rhythm, motif and contour grammar are decided once per
-    // loop (A) and once per phrase for the contrast bar (B).  Bars of the same
-    // role therefore repeat instead of being re-rolled every bar - this is what
-    // makes a hook recognisable.  Small per-bar variation still comes from `seed`.
-    const uint32_t loopSeed = hash32(generationSeed
-                                     ^ (uint32_t) variationSalt * 0x9e3779b9u
-                                     ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u
-                                     ^ 0x7a3c19e5u);
+    const uint32_t loopSeed = hash32 (
+        generationSeed
+        ^ (uint32_t) variationSalt * 0x9e3779b9u
+        ^ (uint32_t) creativeRange.harmonyPersonality * 0xc2b2ae35u
+        ^ 0x7a3c19e5u);
     const uint32_t identitySeed = (cycle == 2)
-        ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset / 4) * 0x27d4eb2du)
+        ? hash32 (loopSeed ^ 0xB2B2B2B2u ^ (uint32_t) (barOffset / 4) * 0x27d4eb2du)
         : loopSeed;
 
-    // 0.70 Composer Grammar: one macro plan coordinates the existing engines.
-    const auto composerPlan = midiforge::ComposerGrammar::makePlan (
-        bars, energy, complexity, melodyType, mood,
-        hash32 (loopSeed ^ 0xC0A70970u));
-    const int composerPhrase = barOffset / 4;
-    const auto composerState = composerPlan.stateFor (composerPhrase);
+    s.melodyCharacter = melodyCharacter;
+    s.melodyIntent = melodyIntent;
+    s.hasMelodyIntent = true;
 
     e = juce::jlimit (0.0f, 1.0f,
         0.68f * e + 0.32f * composerState.tension);
 
-    // These are soft macro targets; creative DNA remains the primary language.
+    // Composer grammar is now a component of the intent rather than a second
+    // random roll at this call site. It shapes the bar softly without becoming
+    // another independent melody author.
     dnaSpace = juce::jlimit (0.0f, 1.0f,
         dnaSpace + (composerState.space - 0.50f) * 0.16f);
     dnaDensity = juce::jlimit (0.0f, 1.0f,
@@ -2842,95 +2857,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     melodyCoreLane (melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody);
-    // 0.81 Simple Melody Class: roughly half the search space is intentionally
-    // composed with a compact 2-4 note vocabulary. This is different from merely
-    // lowering density: the pitch contour, rhythm size and leap language also
-    // become simpler, so the final bank can contain genuinely memorable melodies.
-    // Native archetype: build the melody for the same archetype that this
-    // MAGIC candidate will later be judged/selected under. variationSalt is c+1
-    // during candidate search, while 0 remains a safe default for normal calls.
-    const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
-
-    // 0.85.5 Latent Melody Character Engine:
-    // The visible mood/type controls describe context, while this hidden
-    // profile chooses the *kind of melodic behavior* for the candidate itself.
-    // It changes several musical axes together so two loops can share the same
-    // harmonic setting yet still feel fundamentally different.
-    struct MelodicCharacter
-    {
-        float spaceBias;
-        float densityBias;
-        float leapBias;
-        float syncBias;
-        float motifBias;
-        float sustainBias;
-        float repetitionBias;
-        float registerBias;
-        float contrastBias;
-        int contourBias;
-        int intervalBias;
-        int rhythmBias;
-        int registerJourneyBias;
-        int tensionBias;
-    };
-
-    static constexpr MelodicCharacter characterPool[] =
-    {
-        { 0.26f, -0.16f, -0.10f, -0.12f, 0.16f, 0.24f, 0.24f, -0.08f, -0.08f,  0,  0,  4, 0, 0 },
-        {-0.10f,  0.18f,  0.04f,  0.18f, 0.08f, -0.20f, 0.10f,  0.04f,  0.12f,  5,  3, 7, 5, 2 },
-        { 0.14f, -0.06f, -0.08f, -0.02f, 0.34f, 0.08f, 0.42f, -0.02f, -0.10f,  1,  0, 0, 0, 0 },
-        { 0.20f, -0.12f, -0.14f, -0.08f, 0.08f, 0.30f, 0.18f,  0.02f,  0.02f,  3,  1, 4, 2, 1 },
-        { 0.12f, -0.02f,  0.02f,  0.26f, 0.02f, 0.02f, 0.06f,  0.00f,  0.22f, 10, 8, 9, 5, 4 },
-        {-0.02f,  0.10f,  0.16f,  0.02f, 0.12f,-0.02f, 0.00f,  0.12f,  0.28f, 13, 6, 2, 4, 6 },
-        { 0.08f, -0.02f,  0.10f, -0.04f, 0.18f, 0.10f, 0.06f, -0.10f, -0.02f,  9, 7, 5, 2, 1 },
-        {-0.04f,  0.08f,  0.28f,  0.18f, -0.08f,-0.08f,-0.06f,  0.16f,  0.30f,  7,10, 8, 6, 6 },
-        { 0.30f, -0.20f, -0.12f, -0.18f, -0.06f, 0.34f, 0.12f,  0.18f, -0.16f, 14, 2, 4, 7, 0 },
-        {-0.12f,  0.22f,  0.18f,  0.22f, 0.04f,-0.18f, 0.02f,  0.04f,  0.14f,  4, 9, 6, 1, 5 },
-        { 0.24f, -0.18f, -0.04f, -0.12f, 0.12f, 0.38f, 0.26f,  0.10f, -0.12f, 11, 4, 3, 3, 0 },
-        {-0.16f,  0.20f,  0.24f,  0.24f, -0.02f,-0.22f,-0.08f, -0.02f,  0.20f, 16,11,10, 6, 7 }
-    };
-
-    const int characterRotation = (int) (
-        hash32 (generationSeed
-                ^ (uint32_t) melodyType * 0x85ebca6bu
-                ^ 0xC4A11CE5u)
-        % (uint32_t) (sizeof (characterPool) / sizeof (characterPool[0])));
-    const int melodyCharacter =
-        (nativeArchetype + characterRotation)
-        % (int) (sizeof (characterPool) / sizeof (characterPool[0]));
-    const auto& character = characterPool[melodyCharacter];
-    s.melodyCharacter = melodyCharacter;
-
-    dnaSpace = juce::jlimit (0.0f, 1.0f, dnaSpace + character.spaceBias);
-    dnaDensity = juce::jlimit (0.0f, 1.0f, dnaDensity + character.densityBias);
-    dnaLeap = juce::jlimit (0.0f, 1.0f, dnaLeap + character.leapBias);
-    dnaSync = juce::jlimit (0.0f, 1.0f, dnaSync + character.syncBias);
-    dnaMotif = juce::jlimit (0.0f, 1.0f, dnaMotif + character.motifBias);
-    dnaRegister = juce::jlimit (0.0f, 1.0f, dnaRegister + character.registerBias);
-
-    // 0.83.0 Simple / Medium / Complex: complexity is now a real
-    // composition class instead of a binary "simple vs everything else".
-    // The middle class remains the default because most useful melodies live
-    // there; Complex is a minority language, while archetypes bias the odds.
-    float simpleProbability = 0.46f - 0.16f * juce::jlimit (0.0f, 1.0f, complexity);
-    float complexProbability = 0.10f + 0.17f * juce::jlimit (0.0f, 1.0f, complexity);
-    switch (nativeArchetype)
-    {
-        case 0: simpleProbability += 0.03f; complexProbability -= 0.02f; break; // HOOK
-        case 1: simpleProbability -= 0.01f; break; // GROOVE
-        case 2: simpleProbability += 0.01f; break; // HARMONY
-        case 3: simpleProbability += 0.05f; complexProbability -= 0.02f; break; // MOTIF
-        case 4: simpleProbability += 0.13f; complexProbability -= 0.06f; break; // MINIMAL
-        case 5: simpleProbability -= 0.10f; complexProbability += 0.10f; break; // WEIRD
-        case 6: simpleProbability += 0.04f; break; // EMOTIONAL
-        default: complexProbability += 0.03f; break; // WILDCARD
-    }
-
-    simpleProbability = juce::jlimit (0.18f, 0.68f, simpleProbability);
-    complexProbability = juce::jlimit (0.08f, 0.38f, complexProbability);
-    if (simpleProbability + complexProbability > 0.90f)
-        complexProbability = juce::jmax (0.08f, 0.90f - simpleProbability);
-
+    // 0.86.2 Complexity class comes from the unified Melody Intent.
     // 0.86 Unified Melody Intent: choose the complexity class once per loop,
     // then keep that decision through every bar and every downstream safety/judge stage.
     // The loopSeed is stable across bars; using identitySeed here would silently
@@ -3127,30 +3054,13 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // 0.58.1 Melody Diversity 2.0: expand the melodic search space instead of
     // merely adding more random seeds. Each loop now receives an independent
     // contour language, interval language, tension profile and register behavior.
-    // These axes come from the creative language itself and can produce soft, tense, angular,
-    // 0.72 Creative Range: choose a coherent musical language before writing notes.
-    // The plan expands the *creative* search space rather than simply adding pitch
-    // randomness: contour, interval vocabulary, rhythm family, repetition behavior,
-    // register journey, harmonic color and duration language are selected together.
-    // CreativeRange owns the discrete melodic language. Character is a soft
-    // behavioral flavor layered on top; it must not independently replace the
-    // contour, interval, rhythm or register grammar selected above.
-    const int phraseStyle = creativeRange.contourFamily;
-    const int intervalLanguage = creativeRange.intervalFamily;
-    const int tensionProfile =
-        (int) (hash32 (identitySeed
-                       ^ 0x7f4a7c15u
-                       ^ (uint32_t) creativeRange.harmonyPersonality
-                       ^ (uint32_t) (character.tensionBias + 17) * 0x9e3779b9u) % 8u);
-    const int registerProfile = creativeRange.registerJourney;
-    const int rhythmicLanguage = creativeRange.rhythmFamily;
-
+    // Phrase contour and interval language are part of the unified intent.
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
         + 0.34f * ((float)tensionProfile / 7.0f)
         + 0.18f * moodTension
         + 0.12f * dnaSurprise
-        + 0.08f * ((float)eraNovelty[juce::jlimit(0,5,era)])
+        + 0.08f * 0.16f // fixed modern melodic context (20s)
         + 0.10f * dnaLeap
         + 0.08f * (composerState.tension - 0.50f));
 
@@ -4856,8 +4766,10 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
         ^ (uint32_t) (variationSalt + 1) * 0x85ebca6bu
         ^ 0x73A11CE5u);
 
-    const auto plan = midiforge::MotifSemantics::makePlan (
-        melodyType, mood, energy, complexity, identity);
+    const auto plan = section.hasMelodyIntent
+        ? section.melodyIntent.motif
+        : midiforge::MotifSemantics::makePlan (
+            melodyType, mood, energy, complexity, identity);
 
     const bool simpleIntent = section.melodyComplexityClass == 0;
 
@@ -8376,6 +8288,42 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
             }
         }
 
+        // Final sound-profile timing contract. Transformations are allowed to
+        // reshape the phrase, but they must not erase the instrument's articulation
+        // identity (e.g. Pad becoming staccato or Synth Lead becoming dry).
+        {
+            const auto prof = soundProfileFor (soundTarget);
+            std::vector<size_t> mel;
+            for (size_t i = 0; i < source.notes.size(); ++i)
+                if (source.notes[i].channel == 3)
+                    mel.push_back (i);
+
+            std::stable_sort (mel.begin(), mel.end(),
+                [&] (size_t a, size_t b)
+                {
+                    if (source.notes[a].step != source.notes[b].step)
+                        return source.notes[a].step < source.notes[b].step;
+                    return source.notes[a].note < source.notes[b].note;
+                });
+
+            for (size_t i = 0; i < mel.size(); ++i)
+            {
+                auto& n = source.notes[mel[i]];
+                const int nextStep = (i + 1 < mel.size())
+                    ? source.notes[mel[i + 1]].step
+                    : ((n.step / 16) + 1) * 16;
+                const int gap = juce::jmax (1, nextStep - n.step);
+                const float legato = juce::jlimit (0.0f, 1.0f, prof.legato < 0.0f ? melodyLength : prof.legato);
+                const int sustained = 1 + juce::roundToInt (legato * (float) (gap - 1));
+                const int minLen = juce::jmin (prof.minLen, gap);
+                const int maxLen = juce::jmin (prof.maxLen, gap);
+                n.length = juce::jlimit (
+                    juce::jmax (1, minLen),
+                    juce::jmax (juce::jmax (1, minLen), maxLen),
+                    juce::jmax (n.length, sustained));
+            }
+        }
+
         removeDuplicateNotes (source.notes);
         cleanMelodyLine (source.notes);
         std::sort (source.notes.begin(), source.notes.end(),
@@ -8406,8 +8354,8 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
             return a->note < b->note;
         });
 
-    const auto plan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity, identity);
+    const auto plan = midiforge::MelodyIntent::makePlan (
+        sec.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     int minPitch = 127, maxPitch = 0;
     int leapCount = 0;
@@ -8805,8 +8753,12 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
 
     const int barsN = juce::jmax (1, section.bars);
     const auto& features = inputs.features;
-    const auto grammar = midiforge::ComposerGrammar::makePlan (
-        barsN, energy, complexity, melodyType, mood, identity);
+    // The Judge evaluates the candidate against the intent that actually
+    // generated it. Re-rolling ComposerGrammar here would create a second,
+    // hidden author and reward a target the melody was never asked to follow.
+    const auto grammar = section.hasMelodyIntent
+        ? section.melodyIntent.grammar
+        : midiforge::ComposerGrammar::makePlan (barsN, energy, complexity, melodyType, mood, identity);
 
     std::vector<int> counts ((size_t) barsN, 0);
     std::vector<float> meanPitch ((size_t) barsN, 0.0f);
@@ -8911,8 +8863,10 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         arc = 0.62f * features.phraseArc + 0.38f * features.tensionArc;
     }
 
-    const auto creativePlan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity, identity);
+    const auto creativePlan = section.hasMelodyIntent
+        ? section.melodyIntent.language
+        : midiforge::MelodyIntent::makePlan (
+            section.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     const float actualNovelty = juce::jlimit (
         0.0f, 1.0f, 0.55f * features.variety + 0.45f * features.surprise);
@@ -9181,9 +9135,9 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
 void MidiForgeAudioProcessor::buildVariationBank()
 {
     // Candidate-judge targets come from the same kind of open-ended creative language.
-    const auto judgeCreativeRange = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity,
-        hash32 (generationSeed ^ 0x8B1A5EEDu));
+    const auto judgeCreativeRange = midiforge::MelodyIntent::makePlan (
+        bars, melodyType, mood, energy, complexity,
+        hash32 (generationSeed ^ 0x8B1A5EEDu), 0).language;
 
     float dnaSpace = juce::jlimit (0.0f, 1.0f,
         0.30f + 0.55f * judgeCreativeRange.durationContrast);
@@ -9213,8 +9167,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // a random-note button.
     ++generationNonce;
     const uint32_t uiSeed = static_cast<uint32_t>(seed);
-    const uint32_t nonce = generationNonce * 0x9e3779b9u;
-    generationSeed = uiSeed ^ nonce ^ 0xA53C9E71u;
+    // User Seed is the musical identity. Generation nonce remains a UI/runtime
+    // counter only; it must never make the same Seed produce different music.
+    generationSeed = uiSeed ^ 0xA53C9E71u;
 
     auto hash32 = [](uint32_t x)
     {
@@ -9707,8 +9662,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality += 0.20f * adaptiveFit;
         }
 
-        // Hybrid DNA 1.0: combine creative context + Mood + Era + Melody Type into one
-        // coherent target fingerprint. Each axis contributes softly, so no single
+        // Hybrid DNA 1.0: combine creative context + Mood + Melody Type into one
+        // coherent target fingerprint. The historical Era axis is intentionally fixed to the modern (20s) context.
+        // Each remaining axis contributes softly, so no single
         // preset can collapse the search into one exact pattern.
         float hybridLeap = 0.30f, hybridRhythm = 0.48f, hybridMotif = 0.48f;
         float hybridSurprise = 0.30f, hybridRepeat = 0.50f;
@@ -9728,10 +9684,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
             case PhraseMelody: hybridRhythm -= .16f; hybridRepeat -= .08f; break;
             default: break;
         }
-        // Era is deliberately a small modifier, not a historical stereotype.
-        hybridSurprise += (era - 2.5f) * .018f;
-        hybridRhythm += (era < 2 ? -.04f : (era > 3 ? .05f : 0.0f));
-        hybridLeap += (era > 3 ? .025f : -.01f);
+        // Fixed modern context (20s), kept only as a subtle internal bias.
+        hybridSurprise += 0.045f;
+        hybridRhythm += 0.05f;
+        hybridLeap += 0.025f;
         hybridLeap = juce::jlimit(.05f,.90f,hybridLeap);
         hybridRhythm = juce::jlimit(.05f,.90f,hybridRhythm);
         hybridMotif = juce::jlimit(.05f,.90f,hybridMotif);
@@ -10770,7 +10726,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     static constexpr int barChoices[] = {1,2,4,8,16};
     bars = barChoices[pick(5)];
     { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
-    era = pick(6);
+    era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
     swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
     humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
@@ -11538,7 +11494,7 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
     o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
     o.writeInt(selectedVariation);
-    o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
+    o.writeInt(mood);o.writeInt(melodyType);o.writeInt(5); // legacy Era slot, fixed to 20s
     o.writeInt(soundTarget);
     o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
     o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
@@ -11614,7 +11570,10 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
 
     if (i.getNumBytesRemaining() >= 4) readIntClamped(mood,0,8);
     if (i.getNumBytesRemaining() >= 4) readIntClamped(melodyType,0,7);
-    if (i.getNumBytesRemaining() >= 4) readIntClamped(era,0,5);
+    // Legacy project states stored Era here. Parse it to keep the byte layout
+    // compatible, then intentionally discard it in favour of the fixed 20s context.
+    if (i.getNumBytesRemaining() >= 4) { int legacyEra = 5; readIntClamped(legacyEra,0,5); }
+    era = 5;
     if (i.getNumBytesRemaining() >= 4) readIntClamped(soundTarget,0,7);
     if (i.getNumBytesRemaining() >= 8)
     {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForge VERSION 0.86.0)
+project(MidiForge VERSION 0.86.2)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -33,6 +33,8 @@ target_sources(MidiForge PRIVATE
     Source/MelodicProsody.h
     Source/CreativeRange.cpp
     Source/CreativeRange.h
+    Source/MelodyIntent.cpp
+    Source/MelodyIntent.h
     Source/MotifSemantics.cpp
     Source/MotifSemantics.h
     Source/LoopClosure.cpp

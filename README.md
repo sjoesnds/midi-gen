@@ -2,13 +2,19 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.86.0**
+**Current version: 0.86.2**
+
+### 0.86.2 — Unified Melody Intent
+- Removes Era as a user-facing musical parameter; legacy project state remains load/save compatible while the internal context is fixed to the modern 20s profile.
+- Adds a single deterministic `MelodyIntent` plan that owns creative language, phrase grammar, latent melodic character and Simple / Medium / Complex probabilities before note generation.
+- The main melody generator no longer independently rolls CreativeRange, ComposerGrammar and Character state; those modules now feed the single intent plan.
+- Keeps the change MIDI-only and adds no new user-facing generation controls.
 
 ### 0.86.x — Style / Safety & Judge Refinement
 - Melody safety uses a common ceiling without using Simple / Medium / Complex as hidden pitch-style rules.
 - Composer Judge is being consolidated into fewer orthogonal quality groups.
 - Candidate ranking now gives explicit weight to memorability instead of letting pleasantness dominate.
-- The work remains part of the 0.86.x development cycle; the public version stays 0.86.0 until the stage is complete.
+- The work remains part of the 0.86.x development cycle; the public version is now 0.86.2 for this development stage.
 
 ### 0.86.0 — Unified Melody Intent
 - Simple / Medium / Complex is now a single loop-level composition intent stored on the generated Section as melodyComplexityClass.

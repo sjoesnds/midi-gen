@@ -4,6 +4,7 @@
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "CreativeRange.h"
+#include "MelodyIntent.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
 #include "ComposerJudge.h"
@@ -51,6 +52,9 @@ bool producesMidi() const override { return true; }
 bool isMidiEffect() const override { return false; }
 double getTailLengthSeconds() const override { return 0.0; }
 double getHostBpm() const { return currentBpm.load(); }
+#ifdef MIDIFORGE_HEADLESS
+void setTestHostBpm (double bpm) { currentBpm.store (juce::jlimit (40.0, 240.0, bpm)); }
+#endif
 int getNumPrograms() override { return 1; }
 int getCurrentProgram() override { return 0; }
 void setCurrentProgram(int) override {}
@@ -85,7 +89,7 @@ void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls
 void setRoot(int); void setScale(int);
-void setMood(int); void setMelodyType(int); void setEra(int);
+void setMood(int); void setMelodyType(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
 void setSoundTarget(int);
@@ -145,7 +149,6 @@ void setArticulation (int v);
 bool getAutoNext() const { return autoNextOnDislike; }
 void setAutoNext (bool on) { autoNextOnDislike = on; }
 void dislikeAndAdvance();   // DISLIKE the selected loop and move on to the next one
-int getEra() const { return era; }
 float getChordDensity() const { return chordDensity; }
 float getBassDensity() const { return bassDensity; }
 float getMelodyDensity() const { return melodyDensity; }
@@ -230,6 +233,8 @@ struct Section {
     int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
     int melodyCharacter = -1;   // 0.85.5: latent melodic behavior family; not exposed as a UI label
     int melodyComplexityClass = -1; // 0.86: 0=simple, 1=medium, 2=complex; one intent for the whole loop
+    midiforge::MelodyIntent melodyIntent {};
+    bool hasMelodyIntent = false; // Reuse the exact intent that created the candidate.
     std::vector<NoteEvent> notes;
 };
 struct SongData {
@@ -352,7 +357,10 @@ std::shared_ptr<const std::vector<NoteEvent>> activeNotesSnapshot;
 std::atomic<int> activeBarsSnapshot { 4 };
 double sampleRate = 44100.0;
 int rootPc = 0, scale = Minor, progression = AutoProg;
-int mood = NeutralMood, melodyType = HookMelody, era = 5;
+int mood = NeutralMood, melodyType = HookMelody;
+    // Legacy project-state compatibility: historical Era data is still parsed, but
+    // the plugin has a single modern melodic profile internally (20s).
+    int era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
 int chordStyle = 0;
 bool drumsEnabled = false;

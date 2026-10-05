@@ -176,8 +176,11 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     p.intervalFamily = language.intervalFamily;
     p.rhythmFamily = language.rhythmFamily;
 
-    static constexpr int biases[12] = { -11, 8, -5, 13, -17, 5, 11, -8, 16, -14, 20, -20 };
-    p.rhythmBias = biases[p.rhythmFamily];
+    static constexpr int biases[16] = {
+        -11, 8, -5, 13, -17, 5, 11, -8,
+        16, -14, 20, -20, -18, 14, -16, 7
+    };
+    p.rhythmBias = biases[std::clamp (language.rhythmFamily, 0, 15)];
 
     p.repetitionStyle = language.repetitionStyle;
     p.registerJourney = language.registerJourney;

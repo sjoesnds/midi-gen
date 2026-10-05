@@ -146,7 +146,7 @@ setSize(1120, 850);
 setResizable(true, true);
 setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.86.0", juce::dontSendNotification);
+versionLabel.setText("v0.86.2", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -163,7 +163,7 @@ addAndMakeVisible(title);
 addAndMakeVisible(sectionLabel);
 
 for (auto* c : { &root, &scale, &progression, &rhythm, &mode, &bars, &octave,
-                 &arpRate, &variationBox, &moodBox, &melodyTypeBox, &eraBox, &soundBox,
+                 &arpRate, &variationBox, &moodBox, &melodyTypeBox, &soundBox,
                  &articBox, &chordBox, &pianoGridBox })
     styleCombo (*c);
 
@@ -243,8 +243,6 @@ moodBox.addItemList({"Neutral","Dark","Melancholic","Euphoric","Aggressive","Dre
 moodBox.setSelectedId(p.getMood()+1); moodBox.onChange=[this]{processor.setMood(moodBox.getSelectedId()-1);}; addAndMakeVisible(moodBox);
 melodyTypeBox.addItemList({"Hook","Vocal-like","Riff","Ostinato","Arp","Counter","Sparse Lead","Phrase"},1);
 melodyTypeBox.setSelectedId(p.getMelodyType()+1); melodyTypeBox.onChange=[this]{processor.setMelodyType(melodyTypeBox.getSelectedId()-1);}; addAndMakeVisible(melodyTypeBox);
-eraBox.addItemList({"70s","80s","90s","00s","10s","20s"},1);
-eraBox.setSelectedId(p.getEra()+1); eraBox.onChange=[this]{processor.setEra(eraBox.getSelectedId()-1);}; addAndMakeVisible(eraBox);
 soundBox.addItemList({"Sound: Piano","Sound: Pluck","Sound: Synth Lead","Sound: Bell / Mallet","Sound: Pad / Strings","Sound: Brass","Sound: 808 (one bass line)","Sound: Guitar"},1);
 soundBox.setSelectedId(p.getSoundTarget()+1); soundBox.onChange=[this]{processor.setSoundTarget(soundBox.getSelectedId()-1);}; addAndMakeVisible(soundBox);
 articBox.addItemList({"Artic: Off","Artic: Slides","Artic: Slides + Vibrato"},1);
@@ -563,7 +561,6 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     drawFieldLabel (g, octave, "Octave");
     drawFieldLabel (g, moodBox, "Mood");
     drawFieldLabel (g, melodyTypeBox, "Melody");
-    drawFieldLabel (g, eraBox, "Era");
     drawFieldLabel (g, soundBox, "Sound");
     drawFieldLabel (g, articBox, "Articulation");
     drawFieldLabel (g, chordBox, "Chords");
@@ -616,7 +613,6 @@ void MidiForgeAudioProcessorEditor::resized()
 
     moodBox.setBounds (sourceX, sourceY2, 100, 26);
     melodyTypeBox.setBounds (sourceX + 108, sourceY2, 116, 26);
-    eraBox.setBounds (sourceX + 232, sourceY2, 64, 26);
     soundBox.setBounds (sourceX + 304, sourceY2, 160, 26);
     articBox.setBounds (sourceX + 472, sourceY2, 170, 26);
     chordBox.setBounds (sourceX + 650, sourceY2, 140, 26);
@@ -796,7 +792,6 @@ if (arpRate.getSelectedId() != processor.getArpRate()) arpRate.setSelectedId(pro
 
 if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
-if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);

@@ -9,6 +9,7 @@
 //   6. project state round-trip, old-state compatibility, AUTO-NEXT
 // Statistical checks get one retry with fresh loops (MAGIC is random); invariants never retry.
 #include "PluginProcessor.h"
+#include "MelodyIntent.h"
 #include "RhythmGrammar.h"
 #include "ComposerGrammar.h"
 #include "MelodicProsody.h"
@@ -246,6 +247,52 @@ int main()
 
     MidiForgeAudioProcessor p;
     p.resetTaste();
+
+    // ------------------------------------------------------------------ Unified Melody Intent contract
+    {
+        const auto a = midiforge::MelodyIntent::makePlan (
+            4, 0, 0, 0.65f, 0.55f, 0x1234ABCDu, 0);
+        const auto b = midiforge::MelodyIntent::makePlan (
+            4, 0, 0, 0.65f, 0.55f, 0x1234ABCDu, 0);
+        const bool deterministic =
+               a.characterIndex == b.characterIndex
+            && a.language.contourFamily == b.language.contourFamily
+            && a.language.intervalFamily == b.language.intervalFamily
+            && a.language.rhythmFamily == b.language.rhythmFamily
+            && a.language.repetitionStyle == b.language.repetitionStyle
+            && a.language.registerJourney == b.language.registerJourney
+            && a.grammar.phrases.size() == b.grammar.phrases.size()
+            && a.motif.rhythmicCore == b.motif.rhythmicCore
+            && a.motif.intervalCore == b.motif.intervalCore
+            && a.motif.peakGesture == b.motif.peakGesture
+            && a.motif.endingGesture == b.motif.endingGesture
+            && a.motif.primaryMutation == b.motif.primaryMutation
+            && a.motif.secondaryMutation == b.motif.secondaryMutation
+            && a.simpleProbability == b.simpleProbability
+            && a.complexProbability == b.complexProbability;
+        std::set<std::string> languageSignatures;
+        for (uint32_t i = 0; i < 16; ++i)
+        {
+            const auto plan = midiforge::MelodyIntent::makePlan (
+                4, 0, 0, 0.65f, 0.55f, 0x9000u + i * 7919u, (int) (i % 8));
+            languageSignatures.insert (
+                std::to_string (plan.language.contourFamily) + "/"
+                + std::to_string (plan.language.intervalFamily) + "/"
+                + std::to_string (plan.language.rhythmFamily) + "/"
+                + std::to_string (plan.characterIndex));
+        }
+        const bool probabilityContract =
+               a.simpleProbability >= 0.18f
+            && a.simpleProbability <= 0.68f
+            && a.complexProbability >= 0.08f
+            && a.complexProbability <= 0.38f
+            && a.simpleProbability + a.complexProbability <= 0.90f;
+        report ("Unified Melody Intent",
+                deterministic && probabilityContract && languageSignatures.size() >= 4,
+                fmt ("deterministic=%d signatures=%d simple=%.3f complex=%.3f",
+                     deterministic, (double) languageSignatures.size(),
+                     a.simpleProbability, a.complexProbability));
+    }
 
 
     // ------------------------------------------------------------------ MAGIC Scale Coverage
@@ -2155,7 +2202,7 @@ int main()
         const int cols = lines.size() > 0 ? juce::StringArray::fromTokens (lines[0], ",", "").size() : 0;
         bool sameCols = lines.size() == 4;
         for (const auto& l : lines) sameCols = sameCols && juce::StringArray::fromTokens (l, ",", "").size() == cols;
-        report ("feedback log: header + one row per like / dislike / export", sameCols && cols == 22 && lines[0].startsWith ("time_utc,engine,verdict"),
+        report ("feedback log: header + one row per like / dislike / export", sameCols && cols == 21 && lines[0].startsWith ("time_utc,engine,verdict"),
                fmt ("%.0f lines, %.0f columns", (double) lines.size(), (double) cols));
         const auto like = juce::StringArray::fromTokens (lines.size() > 1 ? lines[1] : juce::String(), ",", "");
         const auto dislike = juce::StringArray::fromTokens (lines.size() > 2 ? lines[2] : juce::String(), ",", "");
@@ -2741,6 +2788,170 @@ int main()
                 simpleCount == 0 || complexCount == 0 || simplePitchSpan <= complexPitchSpan + 1.25,
                 fmt ("simple %.2f unique pitches vs complex %.2f",
                      simplePitchSpan, complexPitchSpan));
+    }
+
+    // ------------------------------------------------------------------ 21. broad melody-core benchmark (0.86.3)
+    // This intentionally measures the final musical result across several sound
+    // contexts instead of checking one hand-picked seed. It is a regression gate
+    // for tonal safety, register spread, complexity reachability, variation family
+    // diversity and the end-to-end Sound Profile contract.
+    {
+        const int testedSounds[] = { 0, 1, 2, 4 }; // Piano, Pluck, Lead, Pad
+        int loops = 0;
+        int invalidPitches = 0;
+        int invalidLeaps = 0;
+        int wideLoops = 0;
+        int narrowLoops = 0;
+        double registerSum = 0.0;
+        double registerSq = 0.0;
+        double padMeanLen = 0.0;
+        double pluckMeanLen = 0.0;
+        double leadMeanLen = 0.0;
+        int padNotes = 0, pluckNotes = 0, leadNotes = 0;
+        std::set<int> observedComplexity;
+        std::set<int> observedCharacters;
+
+        for (const int sound : testedSounds)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setSoundTarget (sound);
+
+            for (int seed = 0; seed < 16; ++seed)
+            {
+                p.setSeed (51000 + sound * 1000 + seed * 37);
+                for (int k = 0; k < p.getVariationCount(); ++k)
+                {
+                    p.chooseVariation (k);
+                    const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+                    if (mel.empty())
+                        continue;
+
+                    int minPitch = 127;
+                    int maxPitch = 0;
+                    double meanPitch = 0.0;
+                    int previous = -1;
+                    int duplicateOnsets = 0;
+
+                    for (const auto& n : mel)
+                    {
+                        minPitch = std::min (minPitch, n.note);
+                        maxPitch = std::max (maxPitch, n.note);
+                        meanPitch += (double) n.note;
+                        if (n.note < 0 || n.note > 127)
+                            ++invalidPitches;
+                        if (sound == 4) { padMeanLen += n.length; ++padNotes; }
+                        if (sound == 1) { pluckMeanLen += n.length; ++pluckNotes; }
+                        if (sound == 2) { leadMeanLen += n.length; ++leadNotes; }
+                    }
+
+                    for (size_t i = 1; i < mel.size(); ++i)
+                    {
+                        const int leap = std::abs (mel[i].note - mel[i - 1].note);
+                        if (leap > 12)
+                            ++invalidLeaps;
+                        if (mel[i].step == mel[i - 1].step)
+                            ++duplicateOnsets;
+                        previous = mel[i].note;
+                    }
+                    juce::ignoreUnused (previous, duplicateOnsets);
+
+                    const int range = maxPitch - minPitch;
+                    if (range >= 30) ++wideLoops;
+                    if (range <= 18) ++narrowLoops;
+
+                    meanPitch /= (double) mel.size();
+                    registerSum += meanPitch;
+                    registerSq += meanPitch * meanPitch;
+                    observedComplexity.insert (p.getVariationMelodyComplexityClass (k));
+                    observedCharacters.insert (p.getVariationMelodyCharacter (k));
+                    ++loops;
+                }
+            }
+        }
+
+        const double meanRegister = loops > 0 ? registerSum / (double) loops : 0.0;
+        const double variance = loops > 0
+            ? std::max (0.0, registerSq / (double) loops - meanRegister * meanRegister)
+            : 0.0;
+        const double registerStd = std::sqrt (variance);
+
+        report ("melody benchmark: final pitches stay in MIDI range",
+                loops > 0 && invalidPitches == 0,
+                fmt ("%.0f loops, %.0f invalid pitches", (double) loops, (double) invalidPitches));
+        report ("melody benchmark: safety never exceeds 12 semitones",
+                loops > 0 && invalidLeaps == 0,
+                fmt ("%.0f loops, %.0f overshoots", (double) loops, (double) invalidLeaps));
+        report ("melody benchmark: register distribution is not collapsed",
+                loops > 0 && registerStd >= 4.0,
+                fmt ("register mean %.2f, std %.2f", meanRegister, registerStd));
+        report ("melody benchmark: both compact and wide ranges are reachable",
+                loops > 0 && wideLoops >= 16 && narrowLoops >= 16,
+                fmt ("%.0f wide / %.0f narrow / %.0f total loops",
+                     (double) wideLoops, (double) narrowLoops, (double) loops));
+        report ("melody benchmark: all three complexity classes are reachable",
+                observedComplexity.size() == 3,
+                fmt ("%.0f / 3 classes", (double) observedComplexity.size()));
+        report ("melody benchmark: character families remain diverse",
+                observedCharacters.size() >= 8,
+                fmt ("%.0f distinct characters", (double) observedCharacters.size()));
+
+        const double padLength = padNotes > 0 ? padMeanLen / (double) padNotes : 0.0;
+        const double pluckLength = pluckNotes > 0 ? pluckMeanLen / (double) pluckNotes : 0.0;
+        const double leadLength = leadNotes > 0 ? leadMeanLen / (double) leadNotes : 0.0;
+
+        report ("sound profile benchmark: Pad remains genuinely sustained",
+                padNotes > 0 && padLength >= 3.0,
+                fmt ("mean Pad length %.2f", padLength));
+        report ("sound profile benchmark: Pluck remains genuinely short",
+                pluckNotes > 0 && pluckLength <= 3.5,
+                fmt ("mean Pluck length %.2f", pluckLength));
+        report ("sound profile benchmark: Synth Lead retains connected notes",
+                leadNotes > 0 && leadLength >= 2.0,
+                fmt ("mean Lead length %.2f", leadLength));
+    }
+
+    // ------------------------------------------------------------------ 22. BPM adaptation benchmark (0.86.3)
+    {
+        const int bpms[] = { 80, 120, 160, 200, 220 };
+        double density[5] {};
+
+        for (int bi = 0; bi < 5; ++bi)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setTestHostBpm ((double) bpms[bi]);
+
+            double noteSum = 0.0;
+            int samples = 0;
+            for (int seed = 0; seed < 12; ++seed)
+            {
+                p.setTestHostBpm ((double) bpms[bi]);
+                p.setSeed (61000 + bi * 1000 + seed * 29);
+                p.chooseVariation (0);
+                const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+                noteSum += (double) mel.size() / (double) std::max (1, p.getVisibleBars());
+                ++samples;
+            }
+            density[bi] = samples > 0 ? noteSum / (double) samples : 0.0;
+        }
+
+        const double minDensity = *std::min_element (density, density + 5);
+        const double maxDensity = *std::max_element (density, density + 5);
+        const double fastDensity = 0.5 * (density[3] + density[4]);
+        const double midDensity = density[1];
+
+        report ("BPM adaptation: generation stays populated across tempo range",
+                minDensity > 0.5,
+                fmt ("densities 80/120/160/200/220 = %.2f / %.2f / %.2f / %.2f / %.2f",
+                     density[0], density[1], density[2], density[3], density[4]));
+        report ("BPM adaptation: fast tempos do not collapse into the old 150-160 ceiling",
+                midDensity > 0.0 && fastDensity >= midDensity * 0.78,
+                fmt ("120 BPM %.2f vs 200-220 BPM %.2f notes/bar",
+                     midDensity, fastDensity));
+        report ("BPM adaptation: density remains a bounded musical adjustment",
+                minDensity > 0.0 && maxDensity / minDensity < 2.10,
+                fmt ("density ratio %.2f", minDensity > 0.0 ? maxDensity / minDensity : 999.0));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
