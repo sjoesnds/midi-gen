@@ -792,7 +792,6 @@ if (arpRate.getSelectedId() != processor.getArpRate()) arpRate.setSelectedId(pro
 
 if (moodBox.getSelectedId() != processor.getMood()+1) moodBox.setSelectedId(processor.getMood()+1, juce::dontSendNotification);
 if (melodyTypeBox.getSelectedId() != processor.getMelodyType()+1) melodyTypeBox.setSelectedId(processor.getMelodyType()+1, juce::dontSendNotification);
-if (eraBox.getSelectedId() != processor.getEra()+1) eraBox.setSelectedId(processor.getEra()+1, juce::dontSendNotification);
 if (soundBox.getSelectedId() != processor.getSoundTarget()+1) soundBox.setSelectedId(processor.getSoundTarget()+1, juce::dontSendNotification);
 if (articBox.getSelectedId() != processor.getArticulation()+1) articBox.setSelectedId(processor.getArticulation()+1, juce::dontSendNotification);
 if (chordBox.getSelectedId() != processor.getChordStyle()+1) chordBox.setSelectedId(processor.getChordStyle()+1, juce::dontSendNotification);
