@@ -2535,7 +2535,7 @@ int main()
     }
 
 
-    // ------------------------------------------------------------------ 17. latent melodic character diversity (0.85.5)
+    // ------------------------------------------------------------------ 17. latent melodic character integrity (0.85.7)
     {
         MidiForgeAudioProcessor a;
         a.setFeedbackLogFile (juce::File());
@@ -2548,7 +2548,12 @@ int main()
         {
             a.chooseVariation (k);
             const int character = a.getVariationMelodyCharacter (k);
-            if (character >= 0)
+
+            report ("melody character integrity: final variation keeps a valid family",
+                    character >= 0 && character < 12,
+                    fmt ("slot %.0f character %.0f", (double) (k + 1), (double) character));
+
+            if (character >= 0 && character < 12)
                 characters.insert (character);
 
             auto notes = a.getVisibleNotes();
@@ -2578,8 +2583,11 @@ int main()
             behaviorSignatures.insert (sig);
         }
 
-        report ("melody character diversity: bank keeps distinct latent families",
-                a.getVariationCount() == 8 && characters.size() >= 6,
+        // Candidate search creates one candidate per native archetype, and the
+        // current bank keeps one candidate per archetype. Their rotated latent
+        // characters therefore form eight distinct families in every bank.
+        report ("melody character diversity: bank keeps all distinct latent families",
+                a.getVariationCount() == 8 && characters.size() == 8,
                 fmt ("%.0f distinct characters across %.0f variations",
                      (double) characters.size(), (double) a.getVariationCount()));
 
