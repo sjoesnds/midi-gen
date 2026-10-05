@@ -17,6 +17,8 @@ target_sources(MidiForgeQA PRIVATE
     qa_main.cpp
     ../Source/PluginProcessor.cpp
     ../Source/MidiForgeMidiIO.cpp
+    ../Source/MidiForgeState.cpp
+    ../Source/MidiForgeTaste.cpp
     ../Source/RhythmGrammar.cpp
     ../Source/ComposerGrammar.cpp
     ../Source/MelodicProsody.cpp
