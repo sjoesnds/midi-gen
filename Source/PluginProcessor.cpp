@@ -3813,18 +3813,18 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         melodyType, mood, genre, e, complexity,
         hash32 (identitySeed ^ 0x72C0FFEEu));
 
-    const int phraseStyle =
-        (creativeRange.contourFamily + character.contourBias) % 18;
-    const int intervalLanguage =
-        (creativeRange.intervalFamily + character.intervalBias) % 12;
+    // CreativeRange owns the discrete melodic language. Character is a soft
+    // behavioral flavor layered on top; it must not independently replace the
+    // contour, interval, rhythm or register grammar selected above.
+    const int phraseStyle = creativeRange.contourFamily;
+    const int intervalLanguage = creativeRange.intervalFamily;
     const int tensionProfile =
-        (int) (((hash32 (identitySeed ^ 0x7f4a7c15u
-                          ^ (uint32_t) creativeRange.harmonyPersonality) % 8u)
-                + (uint32_t) character.tensionBias) % 8u);
-    const int registerProfile =
-        (creativeRange.registerJourney + character.registerJourneyBias) % 8;
-    const int rhythmicLanguage =
-        creativeRange.rhythmFamily + character.rhythmBias;
+        (int) (hash32 (identitySeed
+                       ^ 0x7f4a7c15u
+                       ^ (uint32_t) creativeRange.harmonyPersonality
+                       ^ (uint32_t) (character.tensionBias + 17) * 0x9e3779b9u) % 8u);
+    const int registerProfile = creativeRange.registerJourney;
+    const int rhythmicLanguage = creativeRange.rhythmFamily;
 
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
