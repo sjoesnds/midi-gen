@@ -13,8 +13,8 @@ There is one musical author, with a small number of explicitly scoped developmen
    They may reshape a complete phrase because their responsibility is contextual A / A' / B / A'' development. They must remain coherent with the melodic language already selected by addMelody().
 
 3. **Harmony and prosody are constrained corrections, not replacement composers.**
-   applyMelodicProsody() assigns note roles and may make local pitch adjustments.
-   applyHarmonicIntelligence() supplies chord gravity and anticipation.
+   applyMelodicProsody() assigns note roles, velocity, and sustain shape; it is pitch-neutral.
+   applyHarmonicIntelligence() supplies limited chord gravity and anticipation only for structurally important non-chord tones.
    Neither may replace the whole contour with a generic arpeggio language.
 
 4. **applyMelodyFoundation() is safety only.**
