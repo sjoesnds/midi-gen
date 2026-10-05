@@ -450,16 +450,14 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
     // 0.87 Style / Safety split: this contract is a hard validity ceiling,
-    // not a melodic-style rule. Generation and judging decide whether a loop
-    // should be stepwise, moderate, or expressive; safety only prevents absurd
-    // register jumps that cross the whole playable lane in one move.
-    // Ordinary generation stays within 9 semitones. A wider 12-semitone jump
-    // is reserved for explicit high-complexity / high-leap settings so the
-    // safety contract does not accidentally turn every loop into a wide-interval loop.
+    // not a melodic-style rule. Keep it aligned with the sound profile so the
+    // final pass does not undo expressive interval language that generation
+    // already considered valid.
     const bool expressiveIntent = complexity >= 0.80f
         && leapChance >= 0.45f
         && (melodyType == RiffMelody || melodyType == CounterMelody || melodyType == PhraseMelody);
-    maxLeap = expressiveIntent ? 12 : 9;
+    const int profileLeap = profile.maxLeap > 0 ? profile.maxLeap : 12;
+    maxLeap = juce::jmin (12, profileLeap + (expressiveIntent ? 3 : 0));
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
@@ -8755,8 +8753,12 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
 
     const int barsN = juce::jmax (1, section.bars);
     const auto& features = inputs.features;
-    const auto grammar = midiforge::ComposerGrammar::makePlan (
-        barsN, energy, complexity, melodyType, mood, identity);
+    // The Judge evaluates the candidate against the intent that actually
+    // generated it. Re-rolling ComposerGrammar here would create a second,
+    // hidden author and reward a target the melody was never asked to follow.
+    const auto grammar = section.hasMelodyIntent
+        ? section.melodyIntent.grammar
+        : midiforge::ComposerGrammar::makePlan (barsN, energy, complexity, melodyType, mood, identity);
 
     std::vector<int> counts ((size_t) barsN, 0);
     std::vector<float> meanPitch ((size_t) barsN, 0.0f);
@@ -8861,8 +8863,10 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         arc = 0.62f * features.phraseArc + 0.38f * features.tensionArc;
     }
 
-    const auto creativePlan = midiforge::MelodyIntent::makePlan (
-        section.bars, melodyType, mood, energy, complexity, identity, 0).language;
+    const auto creativePlan = section.hasMelodyIntent
+        ? section.melodyIntent.language
+        : midiforge::MelodyIntent::makePlan (
+            section.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     const float actualNovelty = juce::jlimit (
         0.0f, 1.0f, 0.55f * features.variety + 0.45f * features.surprise);
