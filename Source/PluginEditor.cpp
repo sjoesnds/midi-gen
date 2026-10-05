@@ -162,7 +162,7 @@ sectionLabel.setColour (juce::Label::textColourId, juce::Colour (kMuted));
 addAndMakeVisible(title);
 addAndMakeVisible(sectionLabel);
 
-for (auto* c : { &root, &genre, &scale, &progression, &rhythm, &mode, &bars, &octave,
+for (auto* c : { &root, &scale, &progression, &rhythm, &mode, &bars, &octave,
                  &arpRate, &variationBox, &moodBox, &melodyTypeBox, &eraBox, &soundBox,
                  &articBox, &chordBox, &pianoGridBox })
     styleCombo (*c);
@@ -199,7 +199,6 @@ similarButton.setTooltip ("Generate close relatives of the selected loop.");
 exportMidi.setTooltip ("Save the active loop as a standard MIDI file.");
 
 root.setTooltip ("Root note / key center");
-genre.setTooltip ("Genre vocabulary");
 scale.setTooltip ("Scale / mode");
 progression.setTooltip ("Chord progression style");
 rhythm.setTooltip ("Rhythmic vocabulary");
@@ -560,7 +559,6 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     drawCard (g, { margin, 740, innerW, 92 }, "06  KEEP / LEARN / EXPORT", juce::Colour (kSuccess).withAlpha (0.24f));
 
     drawFieldLabel (g, root, "Key");
-    drawFieldLabel (g, genre, "Genre");
     drawFieldLabel (g, scale, "Scale");
     drawFieldLabel (g, progression, "Progression");
     drawFieldLabel (g, rhythm, "Rhythm");
@@ -613,12 +611,11 @@ void MidiForgeAudioProcessorEditor::resized()
     const int sourceY2 = 150;
 
     root.setBounds (sourceX, sourceY1, 74, 26);
-    genre.setBounds (sourceX + 82, sourceY1, 106, 26);
-    scale.setBounds (sourceX + 196, sourceY1, 124, 26);
-    progression.setBounds (sourceX + 328, sourceY1, 116, 26);
-    rhythm.setBounds (sourceX + 452, sourceY1, 104, 26);
-    bars.setBounds (sourceX + 564, sourceY1, 50, 26);
-    octave.setBounds (sourceX + 622, sourceY1, 52, 26);
+    scale.setBounds (sourceX + 82, sourceY1, 124, 26);
+    progression.setBounds (sourceX + 214, sourceY1, 116, 26);
+    rhythm.setBounds (sourceX + 338, sourceY1, 104, 26);
+    bars.setBounds (sourceX + 450, sourceY1, 50, 26);
+    octave.setBounds (sourceX + 508, sourceY1, 52, 26);
 
     moodBox.setBounds (sourceX, sourceY2, 100, 26);
     melodyTypeBox.setBounds (sourceX + 108, sourceY2, 116, 26);
@@ -792,7 +789,6 @@ variationBox.setSelectedId (id, juce::dontSendNotification);
 // MAGIC changes the source/harmony controls and several musical sliders in the processor.
 // Keep the editor as a faithful view of the actual generation state.
 if (root.getSelectedId() != processor.getRoot()+1) root.setSelectedId (processor.getRoot()+1, juce::dontSendNotification);
-if (genre.getSelectedId() != processor.getGenre()+1) genre.setSelectedId (processor.getGenre()+1, juce::dontSendNotification);
 if (scale.getSelectedId() != processor.getScale()+1) scale.setSelectedId (processor.getScale()+1, juce::dontSendNotification);
 if (progression.getSelectedId() != processor.getProgression()+1) progression.setSelectedId (processor.getProgression()+1, juce::dontSendNotification);
 if (rhythm.getSelectedId() != processor.getRhythm()+1) rhythm.setSelectedId (processor.getRhythm()+1, juce::dontSendNotification);
