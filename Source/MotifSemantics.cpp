@@ -89,7 +89,7 @@ MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
     };
 
     const int typeFamily[8] = { 0, 7, 2, 3, 4, 1, 6, 7 };
-    int family = typeFamily[juce::jlimit (0, 7, melodyType)];
+    int family = typeFamily[std::clamp (melodyType, 0, 7)];
 
     // Identity may switch to one neighboring semantic family, but never
     // completely reshuffles every axis independently.
