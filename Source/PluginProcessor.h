@@ -179,6 +179,7 @@ bool getHookMode() const { return hookMode; }
 bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
 int getVariationMelodyCharacter (int index) const;
+int getVariationMelodyComplexityClass (int index) const;
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
