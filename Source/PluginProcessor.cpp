@@ -2779,8 +2779,8 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         melodyType, mood, e, complexity,
         hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x72C0FFEEu));
 
-    // Creative DNA is derived from the chosen melodic language rather than a named genre.
-    // Identity, mood, melody role, energy and complexity shape behavior without a genre vocabulary.
+    // Creative DNA is derived directly from the chosen melodic language.
+    // Identity, mood, melody role, energy and complexity shape behavior without named style templates.
     float dnaSpace = juce::jlimit (0.0f, 1.0f,
         0.28f + 0.58f * creativeRange.durationContrast);
     float dnaLeap = creativeRange.leapBias;
