@@ -85,7 +85,7 @@ void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls
 void setRoot(int); void setScale(int);
-void setMood(int); void setMelodyType(int); void setEra(int);
+void setMood(int); void setMelodyType(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
 void setSoundTarget(int);
@@ -145,7 +145,6 @@ void setArticulation (int v);
 bool getAutoNext() const { return autoNextOnDislike; }
 void setAutoNext (bool on) { autoNextOnDislike = on; }
 void dislikeAndAdvance();   // DISLIKE the selected loop and move on to the next one
-int getEra() const { return era; }
 float getChordDensity() const { return chordDensity; }
 float getBassDensity() const { return bassDensity; }
 float getMelodyDensity() const { return melodyDensity; }
@@ -352,7 +351,10 @@ std::shared_ptr<const std::vector<NoteEvent>> activeNotesSnapshot;
 std::atomic<int> activeBarsSnapshot { 4 };
 double sampleRate = 44100.0;
 int rootPc = 0, scale = Minor, progression = AutoProg;
-int mood = NeutralMood, melodyType = HookMelody, era = 5;
+int mood = NeutralMood, melodyType = HookMelody;
+    // Legacy project-state compatibility: historical Era data is still parsed, but
+    // the plugin has a single modern melodic profile internally (20s).
+    int era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
 int chordStyle = 0;
 bool drumsEnabled = false;
