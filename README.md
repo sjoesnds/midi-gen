@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.96.0**
+**Current version: 0.97.0**
+
+### 0.97.0 — Unified Melody Decision
+- Adds a single melody decision/evaluation layer above the existing Melody Intent and Judge stack.
+- Complexity is evaluated as a real budget: Simple / Medium / Complex now receive different density, repetition, rhythm and interval expectations instead of only changing note counts.
+- Strong structural positions are scored separately from weak positions, with stronger harmonic anchoring where the phrase naturally carries weight.
+- Generic bar-copy behaviour is measured and softly penalized for medium/complex material while simple hooks retain room for intentional repetition.
+- The layer is ranking/evaluation only; it does not create a second melody author and does not add UI controls.
+- Headless QA covers deterministic classification, complexity-budget separation and structural scoring.
 
 ### 0.96.0 — Architecture Cleanup & Reliability
 - Extracted MIDI-file construction/export and drag-temp creation into `MidiForgeMidiIO.cpp`.
