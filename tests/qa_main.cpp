@@ -3660,6 +3660,59 @@ int main()
                      (double) complexityHits[0], (double) complexityHits[1], (double) complexityHits[2]));
     }
 
+    // ------------------------------------------------------------------ 15. 0.97 Unified Melody Decision
+    {
+        using Decision = midiforge::MelodyDecision;
+
+        std::vector<Decision::NoteView> simple;
+        simple.push_back ({ 0, 6, 60, true });
+        simple.push_back ({ 8, 5, 62, true });
+        simple.push_back ({ 12, 4, 60, true });
+        simple.push_back ({ 0 + 16, 6, 62, true });
+        simple.push_back ({ 8 + 16, 5, 60, true });
+        simple.push_back ({ 12 + 16, 4, 62, true });
+
+        std::vector<Decision::NoteView> complex;
+        for (int i = 0; i < 24; ++i)
+        {
+            const int step = i * 3;
+            const int pitchPattern[8] = { 60, 64, 67, 62, 65, 69, 63, 70 };
+            complex.push_back ({ step, 1 + (i % 3), pitchPattern[i % 8], (i % 4) == 0 });
+        }
+
+        const auto a = Decision::classify (0.20f, 0.60f, 0.12f, 123u);
+        const auto b = Decision::classify (0.90f, 0.22f, 0.30f, 987u);
+        const auto a2 = Decision::classify (0.20f, 0.60f, 0.12f, 123u);
+
+        report ("0.97 decision: classification is deterministic",
+                a == a2, "same identity and intent -> same class");
+
+        const auto simpleEval = Decision::evaluate (
+            simple, 2, Decision::Simple, 62.0f, 7);
+        const auto complexEval = Decision::evaluate (
+            complex, 5, Decision::Complex, 66.0f, 10);
+
+        report ("0.97 decision: simple material fits the simple budget",
+                simpleEval.complexityFit >= 0.46f,
+                fmt ("simple fit %.3f", (double) simpleEval.complexityFit));
+
+        report ("0.97 decision: complex material fits the complex budget",
+                complexEval.complexityFit >= 0.42f,
+                fmt ("complex fit %.3f", (double) complexEval.complexityFit));
+
+        report ("0.97 decision: structural scoring rewards anchored strong positions",
+                simpleEval.structuralFit >= 0.45f,
+                fmt ("structural fit %.3f", (double) simpleEval.structuralFit));
+
+        report ("0.97 decision: different complexity budgets remain meaningfully distinct",
+                std::abs ((double) simpleEval.complexityFit - (double) complexEval.complexityFit) >= 0.05,
+                fmt ("simple %.3f / complex %.3f",
+                     (double) simpleEval.complexityFit,
+                     (double) complexEval.complexityFit));
+
+        (void) b;
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
