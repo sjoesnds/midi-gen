@@ -8089,11 +8089,11 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
         // 0.87 variation thoughts: each slot changes one musical dimension,
         // rather than applying cosmetic parameter nudges.
         const bool tight = (mode == 1 || mode == 6);          // CLOSE / HYBRID
-        const bool sparse = (mode == 2 || mode == 7);        // RHYTHMIC / WILDCARD
-        const bool contrast = (mode == 3 || mode == 7);      // CONTRAST / WILDCARD
-        const bool registerThought = (mode == 4);             // REGISTER
-        const bool motifThought = (mode == 5);                // MOTIF
-        const bool experimental = (mode == 5 || mode == 6);   // MOTIF / EXPERIMENTAL
+        const bool sparse = (mode == 7);                         // WILDCARD
+        const bool contrast = (mode == 3 || mode == 7);          // CONTRAST / WILDCARD
+        const bool registerThought = (mode == 4);                // REGISTER
+        const bool motifThought = (mode == 5);                   // MOTIF
+        const bool experimental = (mode == 6);                  // EXPERIMENTAL
 
         if (tight)
         {
