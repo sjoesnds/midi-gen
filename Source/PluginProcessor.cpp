@@ -10563,7 +10563,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             float relaxedBest = -1000.0f;
             for (size_t i = 0; i < candidates.size(); ++i)
             {
-                if (used[i] || usedArchetypes[(size_t) candidates[i].archetype]) continue;
+                if (used[i]) continue;
                 const float diversity = minDiversityToSelected (candidates[i], selected);
                 float maxSim = 0.0f;
                 for (const auto& s : selected)
