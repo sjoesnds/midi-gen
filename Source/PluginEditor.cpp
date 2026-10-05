@@ -335,9 +335,9 @@ setupSlider(ghostChance,0,.5,.01,p.getGhostChance(),this);
 setupSlider(swing,0,.75,.01,p.getSwing(),this);
 setupSlider(humanize,0,1,.01,p.getHumanize(),this);
 setupSlider(complexity,0,1,.01,p.getComplexity(),this);
-humanizeModeButton.setButtonText("HUMANIZE");
+humanizeModeButton.setButtonText("LIVE HUMANIZE");
 humanizeModeButton.setToggleState(p.isHumanizeEnabled(), juce::dontSendNotification);
-humanizeModeButton.setTooltip("Enable human performance timing, velocity and phrase asymmetry. OFF keeps MIDI tight and electronic.");
+humanizeModeButton.setTooltip("Playback-only human performance layer. Generation and exported MIDI stay clean.");
 humanizeModeButton.onClick = [this]
 {
     processor.setHumanizeEnabled (humanizeModeButton.getToggleState());
