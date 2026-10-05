@@ -1074,6 +1074,7 @@ bool magicPending = false;
      void resetEditHistory()
      {
          pristineNotes = processor.getVisibleNotes();
+         pristineReady = true;
          history.clear();
          historyCursor = -1;
          selectedIndices.clear();
@@ -1086,6 +1087,8 @@ bool magicPending = false;
 
      void revertEdits()
      {
+         if (! pristineReady)
+             return;
          processor.replaceVisibleNotes (pristineNotes);
          history.clear();
          history.push_back (pristineNotes);
@@ -1224,6 +1227,7 @@ bool magicPending = false;
      std::vector<MidiForgeAudioProcessor::VisibleNote> dragStartNotes;
      std::vector<std::vector<MidiForgeAudioProcessor::VisibleNote>> history;
      std::vector<MidiForgeAudioProcessor::VisibleNote> pristineNotes;
+     bool pristineReady = false;
      int historyCursor = -1;
 
      void timerCallback() override { updateHistoryButtons(); repaint(); }
