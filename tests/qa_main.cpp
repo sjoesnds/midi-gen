@@ -3133,6 +3133,119 @@ int main()
                      rhythmABits, sharedAPBits, sharedBBits, sharedAPPBits));
     }
 
+
+    // ------------------------------------------------------------------ 26. 1000-seed release preflight (0.90)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+
+        int loops = 0;
+        int empty = 0;
+        int outOfScale = 0;
+        int overshoot = 0;
+        int duplicateOnsets = 0;
+        int severeSpots = 0;
+        int scalarRuns = 0;
+        std::array<int, 3> complexityHits {};
+
+        for (int seedIndex = 0; seedIndex < 1024; ++seedIndex)
+        {
+            p.setSeed (910000 + seedIndex * 37);
+            p.regenerate ();
+            p.chooseVariation (0);
+
+            const auto mel =
+                layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+
+            if (mel.empty())
+            {
+                ++empty;
+                continue;
+            }
+
+            const int root = p.getRoot();
+            const int scaleId = p.getScale();
+            juce::ignoreUnused (root, scaleId);
+
+            for (const auto& n : mel)
+            {
+                if (p.snapPitchToScale (n.note) != n.note)
+                    ++outOfScale;
+            }
+
+            int localScalarRun = 1;
+            for (size_t i = 1; i < mel.size(); ++i)
+            {
+                const int leap = std::abs (mel[i].note - mel[i - 1].note);
+                if (leap > 12)
+                    ++overshoot;
+
+                if (mel[i].step == mel[i - 1].step)
+                    ++duplicateOnsets;
+
+                if (i >= 2)
+                {
+                    const int a = mel[i - 1].note - mel[i - 2].note;
+                    const int b = mel[i].note - mel[i - 1].note;
+                    if (std::abs (a) <= 2 && std::abs (b) <= 2
+                        && a != 0 && b != 0 && ((a > 0) == (b > 0)))
+                    {
+                        ++localScalarRun;
+                    }
+                    else
+                    {
+                        if (localScalarRun >= 6)
+                            ++scalarRuns;
+                        localScalarRun = 1;
+                    }
+
+                    if (std::abs (a) >= 7 && std::abs (b) >= 7
+                        && ((a > 0) != (b > 0)))
+                        ++severeSpots;
+                }
+            }
+
+            if (localScalarRun >= 6)
+                ++scalarRuns;
+
+            const int cls = juce::jlimit (0, 2, p.getVariationMelodyComplexityClass (0));
+            ++complexityHits[(size_t) cls];
+            ++loops;
+        }
+
+        report ("release preflight: 1024 seeds produced melodies",
+                loops >= 1000 && empty <= 2,
+                fmt ("%.0f populated loops, %.0f empty",
+                     (double) loops, (double) empty));
+
+        report ("release preflight: zero out-of-scale notes",
+                outOfScale == 0,
+                fmt ("%.0f out-of-scale notes", (double) outOfScale));
+
+        report ("release preflight: zero unsafe leaps",
+                overshoot == 0,
+                fmt ("%.0f leaps above 12 semitones", (double) overshoot));
+
+        report ("release preflight: zero duplicate melody onsets",
+                duplicateOnsets == 0,
+                fmt ("%.0f duplicate onsets", (double) duplicateOnsets));
+
+        report ("release preflight: rare mechanical scalar runs",
+                scalarRuns <= 24,
+                fmt ("%.0f long scalar runs", (double) scalarRuns));
+
+        report ("release preflight: rare stacked large-leap reversals",
+                severeSpots <= 24,
+                fmt ("%.0f severe local spots", (double) severeSpots));
+
+        report ("release preflight: all three complexity classes appear",
+                complexityHits[0] > 0 && complexityHits[1] > 0 && complexityHits[2] > 0,
+                fmt ("simple %.0f, medium %.0f, complex %.0f",
+                     (double) complexityHits[0],
+                     (double) complexityHits[1],
+                     (double) complexityHits[2]));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
