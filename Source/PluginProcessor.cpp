@@ -11769,6 +11769,14 @@ int MidiForgeAudioProcessor::getVariationMelodyCharacter (int index) const
     return variations[(size_t) index].melodyCharacter;
 }
 
+int MidiForgeAudioProcessor::getVariationMelodyComplexityClass (int index) const
+{
+    const juce::ScopedLock sl (variationsLock);
+    if (index < 0 || index >= (int) variations.size())
+        return -1;
+    return variations[(size_t) index].melodyComplexityClass;
+}
+
 void MidiForgeAudioProcessor::magicRandomize()
 {
     if (isGenerating()) return;   // 0.78: the worker is reading the controls
