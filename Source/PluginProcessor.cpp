@@ -40,7 +40,7 @@ namespace
     // Project-state envelope. Legacy states had no header and started directly
     // with rootPc, so a non-matching first word is treated as the legacy format.
     static constexpr int kStateMagic = 0x4D464752; // "MFGR"
-    static constexpr int kStateVersion = 2;
+    static constexpr int kStateVersion = 3;
 }
 namespace
 {
@@ -11587,6 +11587,25 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     o.writeBool(leadStyleSoundCloud);
     o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
     o.writeBool(tasteEnabled); o.writeBool(humanizeEnabled);
+
+    // State v3: persist the editable Piano Roll MIDI so a saved project restores
+    // the exact edited variation instead of regenerating over user edits.
+    std::vector<VisibleNote> savedNotes;
+    {
+        const juce::ScopedLock sl (activeNotesLock);
+        savedNotes.reserve (activeNotes.size());
+        for (const auto& n : activeNotes)
+            savedNotes.push_back ({ n.step, n.length, n.note, n.velocity, n.channel });
+    }
+    o.writeInt ((int) savedNotes.size());
+    for (const auto& n : savedNotes)
+    {
+        o.writeInt (n.step);
+        o.writeInt (n.length);
+        o.writeInt (n.note);
+        o.writeInt (n.velocity);
+        o.writeInt (n.channel);
+    }
 }
 
 void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
@@ -11597,11 +11616,12 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (i.getNumBytesRemaining() < 4) return;
 
     const int firstWord = i.readInt();
+    int stateVersion = 0;
     if (firstWord == kStateMagic)
     {
         if (i.getNumBytesRemaining() < 4) return;
-        const int v = i.readInt();
-        if (v <= 0 || v > kStateVersion) return;
+        stateVersion = i.readInt();
+        if (stateVersion <= 0 || stateVersion > kStateVersion) return;
     }
     else
         i.setPosition (0);
@@ -11686,9 +11706,44 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(tasteEnabled);
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(humanizeEnabled);
 
+    std::vector<VisibleNote> savedNotes;
+    if (stateVersion >= 3 && i.getNumBytesRemaining() >= 4)
+    {
+        int count = 0;
+        if (readIntRaw (count))
+        {
+            count = juce::jlimit (0, 65536, count);
+            savedNotes.reserve ((size_t) count);
+            for (int n = 0; n < count; ++n)
+            {
+                if (i.getNumBytesRemaining() < 20)
+                {
+                    savedNotes.clear();
+                    break;
+                }
+                int step = 0, length = 1, note = 60, velocity = 100, channel = 3;
+                if (! readIntRaw (step) || ! readIntRaw (length) || ! readIntRaw (note)
+                    || ! readIntRaw (velocity) || ! readIntRaw (channel))
+                {
+                    savedNotes.clear();
+                    break;
+                }
+                savedNotes.push_back ({
+                    juce::jmax (0, step),
+                    juce::jmax (1, length),
+                    juce::jlimit (0, 127, note),
+                    juce::jlimit (1, 127, velocity),
+                    juce::jlimit (1, 5, channel)
+                });
+            }
+        }
+    }
+
     realtimeSwing.store(swing); realtimeHumanize.store(humanize);
     realtimeHumanizeEnabled.store(humanizeEnabled); realtimeDrumMuteMask.store(drumMuteMask);
     regenerateBlocking(savedSelection);
+    if (stateVersion >= 3 && ! savedNotes.empty())
+        replaceVisibleNotes (savedNotes);
 }
 // --- MIDI export --------------------------------------------------------
 std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const
