@@ -41,7 +41,7 @@ LoopClosure::Plan LoopClosure::makePlan (int melodyType,
         identity
         ^ (uint32_t) (melodyType + 3) * 0x9e3779b9u
         ^ (uint32_t) (mood + 13) * 0x85ebca6bu
-        ^ (uint32_t) (genre + 19) * 0xc2b2ae35u);
+        ^ 0xc2b2ae35u);
 
     p.bridgeStyle = pick (base ^ 0x11111111u, 6);
     p.targetStrategy = pick (base ^ 0x22222222u, 6);
@@ -82,9 +82,6 @@ LoopClosure::Plan LoopClosure::makePlan (int melodyType,
 
     if (melodyType == 1 || melodyType == 6) // vocal-like / sparse lead
         p.boundaryDistance += 0.06f;
-
-    if (genre == 14) // experimental
-        p.bridgeStyle = (p.bridgeStyle + 2) % 6;
 
     p.unresolvedBias = std::clamp (p.unresolvedBias, 0.08f, 0.42f);
     p.pickupBias = std::clamp (p.pickupBias, 0.10f, 0.52f);
