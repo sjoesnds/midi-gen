@@ -11393,12 +11393,20 @@ void MidiForgeAudioProcessor::buildVariationBank()
             const float ideaNovelty = ideaNoveltyToSelected (candidates[i]);
             const float familyCollision = std::count_if (selected.begin(), selected.end(),
                 [&] (const Candidate& s) { return s.idea.family == candidates[i].idea.family; }) > 0 ? 1.0f : 0.0f;
+            const float characterCollision = std::count_if (selected.begin(), selected.end(),
+                [&] (const Candidate& s)
+                {
+                    return s.section.melodyCharacter >= 0
+                        && s.section.melodyCharacter == candidates[i].section.melodyCharacter;
+                }) > 0 ? 1.0f : 0.0f;
+            const float characterBonus = characterCollision > 0.5f ? -0.085f : 0.028f;
 
             const float score = candidates[i].quality
                               - 0.62f * maxSim
                               + 0.13f * diversity
                               + 0.11f * ideaNovelty
-                              - 0.035f * familyCollision;
+                              - 0.035f * familyCollision
+                              + characterBonus;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -11422,6 +11430,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 const float ideaNovelty = ideaNoveltyToSelected (candidates[i]);
                 const float familyCollision = std::count_if (selected.begin(), selected.end(),
                     [&] (const Candidate& s) { return s.idea.family == candidates[i].idea.family; }) > 0 ? 1.0f : 0.0f;
+                const float characterCollision = std::count_if (selected.begin(), selected.end(),
+                    [&] (const Candidate& s)
+                    {
+                        return s.section.melodyCharacter >= 0
+                            && s.section.melodyCharacter == candidates[i].section.melodyCharacter;
+                    }) > 0 ? 1.0f : 0.0f;
+                const float characterBonus = characterCollision > 0.5f ? -0.065f : 0.018f;
 
                 const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
                 const float score = candidates[i].quality
@@ -11429,7 +11444,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   - gatePenalty
                                   + 0.08f * diversity
                                   + 0.075f * ideaNovelty
-                                  - 0.025f * familyCollision;
+                                  - 0.025f * familyCollision
+                                  + characterBonus;
                 if (score > relaxedBest)
                 {
                     relaxedBest = score;
@@ -11625,6 +11641,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
     likeCounts.fill(0);
     dislikeCounts.fill(0);
+}
+
+
+int MidiForgeAudioProcessor::getVariationMelodyCharacter (int index) const
+{
+    const juce::ScopedLock sl (variationsLock);
+    if (index < 0 || index >= (int) variations.size())
+        return -1;
+    return variations[(size_t) index].melodyCharacter;
 }
 
 void MidiForgeAudioProcessor::magicRandomize()
