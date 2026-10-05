@@ -198,13 +198,86 @@ ComposerGrammar::Plan ComposerGrammar::makePlan (int bars,
             state.tension += 0.025f;
         }
 
-        if (mood == 0 || mood == 1)
-            state.space += 0.04f;
-        if (mood == 3 || mood == 7)
+        // 0.86.x Context Language: mood is a coordinated phrase grammar,
+        // not a single scalar bias. Each family changes several musical axes
+        // together so the same motif can acquire a genuinely different feel.
+        switch (mood)
         {
-            state.density += 0.04f;
-            state.tension += 0.04f;
+            case 1: // Dark
+                state.tension += 0.08f;
+                state.space += 0.06f;
+                state.density -= 0.04f;
+                state.registerLift -= 0.7f;
+                state.sustainBias += 0.05f;
+                state.cadencePull -= 0.08f;
+                state.motifStrength += 0.04f;
+                break;
+            case 2: // Melancholic
+                state.tension += 0.03f;
+                state.space += 0.07f;
+                state.density -= 0.06f;
+                state.registerLift -= 0.4f;
+                state.sustainBias += 0.10f;
+                state.cadencePull += 0.03f;
+                state.motifStrength += 0.06f;
+                break;
+            case 3: // Euphoric
+                state.tension += 0.05f;
+                state.space -= 0.05f;
+                state.density += 0.08f;
+                state.registerLift += 1.8f;
+                state.sustainBias -= 0.04f;
+                state.cadencePull += 0.06f;
+                state.velocityLift += 0.025f;
+                state.motifStrength += 0.06f;
+                break;
+            case 4: // Aggressive
+                state.tension += 0.10f;
+                state.space -= 0.10f;
+                state.density += 0.10f;
+                state.registerLift += 0.8f;
+                state.sustainBias -= 0.08f;
+                state.cadencePull -= 0.10f;
+                state.velocityLift += 0.045f;
+                break;
+            case 5: // Dreamy
+                state.space += 0.13f;
+                state.density -= 0.08f;
+                state.registerLift += 0.7f;
+                state.sustainBias += 0.15f;
+                state.cadencePull -= 0.02f;
+                state.motifStrength += 0.03f;
+                break;
+            case 6: // Nostalgic
+                state.space += 0.05f;
+                state.density -= 0.02f;
+                state.sustainBias += 0.08f;
+                state.cadencePull += 0.04f;
+                state.motifStrength += 0.08f;
+                break;
+            case 7: // Mysterious
+                state.tension += 0.07f;
+                state.space += 0.12f;
+                state.density -= 0.06f;
+                state.registerLift -= 0.8f;
+                state.sustainBias += 0.09f;
+                state.cadencePull -= 0.14f;
+                state.motifStrength += 0.02f;
+                break;
+            case 8: // Energetic
+                state.tension += 0.08f;
+                state.space -= 0.08f;
+                state.density += 0.10f;
+                state.registerLift += 1.4f;
+                state.sustainBias -= 0.07f;
+                state.cadencePull += 0.07f;
+                state.velocityLift += 0.035f;
+                break;
+            default: // Neutral
+                state.space += 0.02f;
+                break;
         }
+
         if (genre == 5 || genre == 12 || genre == 14)
             state.registerLift += 0.7f;
 
