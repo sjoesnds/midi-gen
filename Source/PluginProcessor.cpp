@@ -3558,12 +3558,14 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         {-0.16f,  0.20f,  0.24f,  0.24f, -0.02f,-0.22f,-0.08f, -0.02f,  0.20f, 16,11,10, 6, 7 }
     };
 
-    const int melodyCharacter = (int)
-        ((nativeArchetype * 3
-          + (hash32 (generationSeed
-                     ^ (uint32_t) (variationSalt + 17) * 0x9e3779b9u
-                     ^ (uint32_t) melodyType * 0x85ebca6bu) % 3u))
-         % (int) (sizeof (characterPool) / sizeof (characterPool[0])));
+    const int characterRotation = (int) (
+        hash32 (generationSeed
+                ^ (uint32_t) melodyType * 0x85ebca6bu
+                ^ 0xC4A11CE5u)
+        % (uint32_t) (sizeof (characterPool) / sizeof (characterPool[0])));
+    const int melodyCharacter =
+        (nativeArchetype + characterRotation)
+        % (int) (sizeof (characterPool) / sizeof (characterPool[0]));
     const auto& character = characterPool[melodyCharacter];
     s.melodyCharacter = melodyCharacter;
 
