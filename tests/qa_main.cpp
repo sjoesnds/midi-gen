@@ -2026,7 +2026,7 @@ int main()
                            && in.readInt() == 2;
         }
         report ("state uses a versioned header", versionedHeader,
-                versionedHeader ? "magic + version 2" : "missing/invalid header");
+                versionedHeader ? "magic + version 3" : "missing/invalid header");
 
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
         report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
