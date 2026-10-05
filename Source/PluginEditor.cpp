@@ -172,7 +172,7 @@ for (auto* s : { &chordDensity, &bassDensity, &melodyDensity, &arpDensity, &swin
                  &melodyLength, &pauseChance, &leapChance, &ghostChance })
     styleSlider (*s);
 
-for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &quantizeButton,
+for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &revertBtn, &quantizeButton,
                  &resetViewButton, &phraseButton, &barButton, &transposeDownButton,
                  &transposeUpButton, &snapScaleButton, &humanizeSelectionButton,
                  &duplicateButton, &reverseButton, &doubleTimeButton, &halfTimeButton,
@@ -311,6 +311,7 @@ halfTimeButton.setTooltip ("Expand selected timing to half speed");
 rotateButton.setTooltip ("Rotate selected phrase by one quarter");
 normalizeVelocityButton.setTooltip ("Set selected velocities to their average");
 frameSelectionButton.setTooltip ("Zoom and pan to the current selection");
+    revertBtn.setTooltip ("Restore the variation to the state captured before Piano Roll edits.");
 mode.setVisible(false);
 bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
@@ -389,6 +390,8 @@ generate.setButtonText("MAGIC");
 newSeed.setButtonText("NEW SEED");
 applyVariation.setButtonText("USE VAR");
 exportMidi.setButtonText("EXPORT .MID");
+revertBtn.setButtonText ("REVERT");
+revertBtn.setTooltip ("Revert Piano Roll to the state captured when this variation was selected.");
 generate.onClick=[this]{
     if (processor.isGenerating())
         magicPending = true;
@@ -401,6 +404,7 @@ generate.onClick=[this]{
 };
 newSeed.onClick=[this]{ processor.rerollSameDNA(); busyOverlay.sync(); pianoRoll.resetEditHistory(); };
 applyVariation.onClick=[this]{ processor.chooseVariation(variationBox.getSelectedId()-1); pianoRoll.resetEditHistory(); };
+revertBtn.onClick=[this]{ pianoRoll.revertEdits(); };
 exportMidi.onClick=[this]{
 fileChooser = std::make_unique<juce::FileChooser>(
 "Export MIDI",
@@ -434,7 +438,7 @@ mutateButton.onClick=[this]{ processor.mutateSelected(0.45f); pianoRoll.resetEdi
 evolveButton.onClick=[this]{ processor.evolveSelected(); pianoRoll.resetEditHistory(); };
 similarButton.onClick=[this]{ processor.similarToSelected(); pianoRoll.resetEditHistory(); repaint(); };
 similarButton.setTooltip ("More like this: keeps the selected loop as variation 1 and fills 2-8 with close relatives, nearest first");
-addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);
+addAndMakeVisible(generate);addAndMakeVisible(newSeed);addAndMakeVisible(applyVariation);addAndMakeVisible(exportMidi);addAndMakeVisible(revertBtn);
 addAndMakeVisible(mutateButton); addAndMakeVisible(evolveButton); addAndMakeVisible(similarButton);
 
 // --- P2: Undo / Redo / Clear ------------------------------------------
@@ -665,8 +669,9 @@ void MidiForgeAudioProcessorEditor::resized()
     rotateButton.setBounds (margin + 238, 370, 52, 22);
     normalizeVelocityButton.setBounds (margin + 296, 370, 76, 22);
     frameSelectionButton.setBounds (margin + 378, 370, 66, 22);
-    historyLabel.setBounds (margin + 454, 369, 190, 23);
-    undoBtn.setBounds (margin + 652, 370, 58, 22);
+    revertBtn.setBounds (margin + 454, 370, 66, 22);
+    historyLabel.setBounds (margin + 526, 369, 116, 23);
+    undoBtn.setBounds (margin + 650, 370, 58, 22);
     redoBtn.setBounds (margin + 718, 370, 58, 22);
     clearBtn.setBounds (margin + 784, 370, 58, 22);
 
