@@ -4467,18 +4467,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
 
         velocity += (int)(h % 7u) - 3;
 
-        // 0.22 Humanization: vary accents and sustain in a musically bounded
-        // way. Timing stays on the chosen grid; "human" here means phrasing
-        // and dynamics, not random off-grid MIDI.
-        const float human = humanizeEnabled ? juce::jlimit(0.0f, 1.0f, humanize) : 0.0f;
-        const int accent = juce::jlimit(-10, 10, (int)std::round((float)((int)(h % 9u) - 4) * (2.0f + 7.0f * human)));
-        if (x % 4 == 0) velocity += 2;
-        if (cycle == 2 && (x % 8) == 4) velocity += 3;
-        velocity += accent;
-        if (human > 0.12f && (h % 100u) < (uint32_t)(18.0f * human))
-            len = juce::jmin(4, len + 1);
-        if (human > 0.18f && (h % 100u) > 88u)
-            len = juce::jmax(1, len - 1);
+        // Human performance is deliberately excluded from generation. Playback may
+        // still apply the optional live layer in processBlock(), while the
+        // piano-roll HUMANIZE button can commit a real MIDI edit.
         velocity = juce::jlimit(48, 112, velocity);
         // Synth-like sounds ignore velocity; keep their dynamics flat and consistent.
         velocity = prof.velCenter + (int) std::round((float) (velocity - prof.velCenter) * prof.velSpread);
@@ -6110,8 +6101,8 @@ for(const auto& ev:song.sections[i-1].notes)
 if(ev.channel==3){ inherited=&song.sections[i-1].notes; break; }
 }
 buildSection(sec,i,prog,r,inherited,variationSalt);
-if (humanizeEnabled)
-    applyHumanPerformance(sec);
+// Generation remains clean and deterministic. Human performance is an optional
+// playback layer or explicit piano-roll edit, never part of the authored melody.
 song.sections.push_back(std::move(sec));
 }
 }
@@ -8095,11 +8086,14 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
 
         const int barsN = juce::jmax (1, source.bars);
         const int totalSteps = juce::jmax (16, barsN * 16);
-        const bool tight = (mode == 1 || mode == 6);
-        const bool sparse = (mode == 2 || mode == 7);
-        const bool dark = (mode == 3 || mode == 7);
-        const bool bigger = (mode == 4);
-        const bool weird = (mode == 5 || mode == 6);
+        // 0.87 variation thoughts: each slot changes one musical dimension,
+        // rather than applying cosmetic parameter nudges.
+        const bool tight = (mode == 1 || mode == 6);          // CLOSE / HYBRID
+        const bool sparse = (mode == 2 || mode == 7);        // RHYTHMIC / WILDCARD
+        const bool contrast = (mode == 3 || mode == 7);      // CONTRAST / WILDCARD
+        const bool registerThought = (mode == 4);             // REGISTER
+        const bool motifThought = (mode == 5);                // MOTIF
+        const bool experimental = (mode == 5 || mode == 6);   // MOTIF / EXPERIMENTAL
 
         if (tight)
         {
@@ -8116,6 +8110,46 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
                 }
                 if (n.channel == 3 && n.length > 2 && (n.step % 4) != 0)
                     n.length = juce::jmax (1, n.length - 1);
+            }
+        }
+
+        if (mode == 2)
+        {
+            // RHYTHMIC thought: preserve the pitch idea while changing how it
+            // breathes across the bar. Attacks move as a phrase, never jitter
+            // independently.
+            for (int bar = 0; bar < barsN; ++bar)
+            {
+                std::vector<size_t> idx;
+                for (size_t i = 0; i < source.notes.size(); ++i)
+                    if (source.notes[i].channel == 3
+                        && source.notes[i].step / 16 == bar)
+                        idx.push_back (i);
+
+                std::stable_sort (idx.begin(), idx.end(),
+                    [&] (size_t a, size_t b)
+                    {
+                        return source.notes[a].step < source.notes[b].step;
+                    });
+
+                if (idx.size() < 2)
+                    continue;
+
+                const uint32_t h = hash32 (
+                    identity ^ (uint32_t) (bar + 1) * 0xC2B2AE35u);
+                const bool pullLate = (h & 1u) != 0u;
+                for (size_t n = 0; n < idx.size(); ++n)
+                {
+                    if (((h >> (n & 15u)) & 1u) == 0u)
+                        continue;
+                    auto& note = source.notes[idx[n]];
+                    const int local = note.step % 16;
+                    const int delta = pullLate
+                        ? ((local < 12) ? 2 : -2)
+                        : ((local >= 2) ? -2 : 2);
+                    note.step = juce::jlimit (
+                        bar * 16, bar * 16 + 15, note.step + delta);
+                }
             }
         }
 
@@ -8157,7 +8191,7 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
                 }), source.notes.end());
         }
 
-        if (dark)
+        if (contrast)
         {
             for (auto& n : source.notes)
             {
@@ -8182,7 +8216,7 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
             }
         }
 
-        if (bigger)
+        if (registerThought)
         {
             for (auto& n : source.notes)
             {
@@ -8244,7 +8278,40 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
             }
         }
 
-        if (weird)
+        if (motifThought)
+        {
+            // MOTIF thought: make the central contour gesture more explicit by
+            // echoing selected internal intervals inside each bar.
+            for (int bar = 0; bar < barsN; ++bar)
+            {
+                std::vector<size_t> idx;
+                for (size_t i = 0; i < source.notes.size(); ++i)
+                    if (source.notes[i].channel == 3
+                        && source.notes[i].step / 16 == bar)
+                        idx.push_back (i);
+
+                std::stable_sort (idx.begin(), idx.end(),
+                    [&] (size_t a, size_t b)
+                    {
+                        return source.notes[a].step < source.notes[b].step;
+                    });
+
+                if (idx.size() < 3)
+                    continue;
+
+                const int anchor = source.notes[idx.front()].note;
+                for (size_t k = 1; k < idx.size(); ++k)
+                {
+                    if (((k + (size_t) bar) & 1u) == 0u)
+                        continue;
+                    const int rel = source.notes[idx[k]].note - anchor;
+                    source.notes[idx[k]].note =
+                        snapToScale (anchor + juce::jlimit (-7, 7, rel));
+                }
+            }
+        }
+
+        if (experimental)
         {
             std::vector<int> anchors ((size_t) barsN, -1);
             for (const auto& n : source.notes)
@@ -10529,8 +10596,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
     static constexpr const char* transformationNames[8] =
     {
-        "ORIGINAL", "TIGHT", "SPARSE", "DARK",
-        "BIGGER", "WEIRD", "TIGHT+WEIRD", "SPARSE+DARK"
+        "ORIGINAL", "CLOSE", "RHYTHMIC", "CONTRAST",
+        "REGISTER", "MOTIF", "EXPERIMENTAL", "WILDCARD"
     };
 
     // 0.60 Loop Forge: final integration pass after generation, judging,
