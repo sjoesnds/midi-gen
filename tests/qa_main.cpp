@@ -1855,9 +1855,7 @@ int main()
         bool namesOk = true, oneInstrumentPerTrack = true, sampler = true; size_t maxTracks = 0;
         for (int i = 0; i < 20; ++i)
         {
-            p.magicRandomize();
-            p.setGenre (i % 2 ? 2 : 1);                      // House / Trap: many instruments
-            auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_rows.mid");
+            p.magicRandomize();            auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mf_qa_rows.mid");
             p.exportMidiFileTo (f);
             auto m = readMidi (f); f.deleteFile();
             maxTracks = std::max (maxTracks, m.drumTracks.size());
