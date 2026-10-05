@@ -666,8 +666,13 @@ void MidiForgeAudioProcessor::applyMelodyPleasantness (Section& section, uint32_
     int laneLo = 40, laneHi = 96, contractLeap = 9;
     melodyRegisterContract (laneLo, laneHi, contractLeap);
 
-    const bool conservative = (hash32 (identity ^ 0xB41A5AFEu) % 100u) < 72u;
-    const int maxLeap = conservative ? juce::jmin (7, contractLeap) : contractLeap;
+    // 0.86 Unified Melody Intent: do not roll a second unrelated "simple"
+    // decision here. The generation class is the single source of intent.
+    const int complexityClass = juce::jlimit (0, 2, section.melodyComplexityClass < 0 ? 1 : section.melodyComplexityClass);
+    const int maxLeap =
+        complexityClass == 0 ? juce::jmin (7, contractLeap)
+        : complexityClass == 1 ? juce::jmin (8, contractLeap)
+        : contractLeap;
 
     auto pitchClass = [] (int n)
     {
