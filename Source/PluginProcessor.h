@@ -218,6 +218,9 @@ void replaceVisibleNotes (const std::vector<VisibleNote>& notes);
 void quantizeVisibleNotes (int gridSteps);
 // Текущий шаг воспроизведения внутри паттерна (0..bars*16-1), -1 если не играет.
 int getVisiblePlayheadStep() const { return uiCurrentStep.load(); }
+    // UI-only audition request. The audio thread consumes the latest request at
+    // the next process block; this never mutates the generated variation.
+    void previewNote (int midiNote, int velocity = 100, int lengthSteps = 1);
 private:
 struct NoteEvent {
 int step, length, note, velocity, channel;
@@ -422,6 +425,11 @@ juce::int64 samplePosition = 0;
 // block (illegal for VST3), so it waits here; a stale note-off can never cut a retriggered note.
 struct PendingMidi { juce::int64 globalSample; int channel; int note; int velocity; bool on; };
 std::vector<PendingMidi> pendingEvents;
+    std::atomic<uint32_t> previewCounter { 0 };
+    std::atomic<int> previewPitch { 60 };
+    std::atomic<int> previewVelocity { 100 };
+    std::atomic<int> previewLengthSteps { 1 };
+    uint32_t consumedPreviewCounter = 0;
 juce::MidiBuffer outScratch;   // 0.79.x: reused every block instead of allocating a MidiBuffer in the audio thread
 // 0.45.1: swing in MIDI ticks for exported / dragged files (same rule as the live output: odd 16ths move by swing/2 of a step)
 double swingTicks (int step, double ticksPerStep) const { return (step & 1) != 0 ? (double) swing * ticksPerStep * 0.5 : 0.0; }
@@ -446,7 +454,7 @@ bool tasteEnabled = true;
 void publishActiveSnapshot (const std::vector<NoteEvent>& notes, int bars);
 void clearActiveSnapshot();
 void sampleVariationFeatures(int varIndex, float& d, float& e, float& c) const;
-void applyLearnedWeights();
+
 void loadPreferences();
 void savePreferences();
 void sampleVariationTaste(int varIndex, std::array<float,8>& features) const;
