@@ -3257,7 +3257,6 @@ int main()
         p.chooseVariation (0);
 
         const int totalSteps = p.getVisibleBars() * 16;
-        auto baseline = p.getVisibleNotes();
 
         // Editor-side edits must never create notes outside the active loop.
         p.addVisibleNote (9999, 64, 9999, 100, 3);
@@ -3472,6 +3471,193 @@ int main()
                 invalid == 0 && empty == 0,
                 fmt ("%.0f invalid notes / %.0f empty variation snapshots",
                      (double) invalid, (double) empty));
+    }
+
+
+    // ------------------------------------------------------------------ 30. async generation / lifetime stress (0.96)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setAsyncGeneration (true);
+
+        for (int i = 0; i < 128; ++i)
+        {
+            if ((i % 3) == 0)
+                p.magicRandomize();
+            else
+                p.setSeed (100000 + i * 97);
+
+            if ((i % 5) == 0)
+                p.chooseVariation (i % juce::jmax (1, p.getVariationCount()));
+        }
+
+        p.waitForGeneration();
+
+        const bool validBank = p.getVariationCount() == 8
+            && p.getVisibleBars() >= 1
+            && ! p.getVisibleNotes().empty();
+
+        report ("stress: 128 coalesced async generation requests leave a valid bank",
+                validBank,
+                fmt ("variations %.0f, bars %.0f, notes %.0f",
+                     (double) p.getVariationCount(),
+                     (double) p.getVisibleBars(),
+                     (double) p.getVisibleNotes().size()));
+
+        // Destruction is exercised by this scope ending after waitForGeneration().
+        p.setAsyncGeneration (false);
+    }
+
+    // ------------------------------------------------------------------ 31. generation -> active snapshot -> export consistency (0.96)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        int failuresLocal = 0;
+
+        for (int i = 0; i < 48; ++i)
+        {
+            p.setSeed (101000 + i * 31);
+            p.chooseVariation (i % 8);
+
+            const auto visible = p.getVisibleNotes();
+            int expectedMelody = 0;
+            for (const auto& n : visible)
+                if (n.channel == 3) ++expectedMelody;
+
+            const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                .getChildFile ("mf_consistency_" + juce::String (i) + ".mid");
+
+            if (! p.exportMidiFileTo (file) || ! file.existsAsFile() || file.getSize() <= 0)
+                ++failuresLocal;
+            else
+            {
+                const auto parsed = readMidi (file);
+                if (! parsed.ok || parsed.melodyNotes != expectedMelody)
+                    ++failuresLocal;
+            }
+            file.deleteFile();
+        }
+
+        report ("consistency: active Piano Roll melody equals exported melody",
+                failuresLocal == 0,
+                fmt ("%.0f consistency failures / 48 exports", (double) failuresLocal));
+    }
+
+    // ------------------------------------------------------------------ 32. real-world musical validation matrix (0.97 proxy)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+
+        struct Aggregate
+        {
+            int cases = 0;
+            int empty = 0;
+            int outOfScale = 0;
+            int largeLeap = 0;
+            double densitySum = 0.0;
+            double registerSum = 0.0;
+            double stepwiseSum = 0.0;
+        } a;
+
+        // Every declared scale is exercised against several melodic languages.
+        for (int scaleId = 0; scaleId < 12; ++scaleId)
+        {
+            for (int type : { 0, 1, 2, 6 })
+            {
+                p.setScale (scaleId);
+                p.setMelodyType (type);
+                p.setComplexity (0.55f, false);
+                p.setTestHostBpm (120.0);
+                p.setSeed (102000 + scaleId * 97 + type * 13);
+                p.regenerate();
+                p.chooseVariation (0);
+
+                const auto visible = p.getVisibleNotes();
+                const auto melody = layer ({ visible, std::max (1, p.getVisibleBars()) }, 3);
+                const auto f = feats (visible, p.getVisibleBars());
+                ++a.cases;
+
+                if (melody.empty())
+                    ++a.empty;
+
+                for (size_t i = 0; i < melody.size(); ++i)
+                {
+                    if (p.snapPitchToScale (melody[i].note) != melody[i].note)
+                        ++a.outOfScale;
+                    if (i > 0 && std::abs (melody[i].note - melody[i - 1].note) > 12)
+                        ++a.largeLeap;
+                }
+
+                a.densitySum += f.dens;
+                a.registerSum += f.reg;
+                a.stepwiseSum += f.steps;
+            }
+        }
+
+        // BPM sensitivity: density must remain non-degenerate at slow and fast hosts.
+        double slowDensity = 0.0, fastDensity = 0.0;
+        int slowCount = 0, fastCount = 0;
+        for (int i = 0; i < 12; ++i)
+        {
+            p.setMelodyType (i % 8);
+            p.setComplexity (i % 3 == 0 ? 0.18f : (i % 3 == 1 ? 0.55f : 0.88f), false);
+
+            p.setTestHostBpm (80.0);
+            p.setSeed (103000 + i * 17);
+            p.regenerate();
+            slowDensity += feats (p.getVisibleNotes(), p.getVisibleBars()).dens;
+            ++slowCount;
+
+            p.setTestHostBpm (220.0);
+            p.setSeed (104000 + i * 17);
+            p.regenerate();
+            fastDensity += feats (p.getVisibleNotes(), p.getVisibleBars()).dens;
+            ++fastCount;
+        }
+
+        const double avgCases = std::max (1, a.cases);
+        const double avgDensity = a.densitySum / avgCases;
+        const double avgRegister = a.registerSum / avgCases;
+        const double avgStepwise = a.stepwiseSum / avgCases;
+        const double avgSlow = slowDensity / std::max (1, slowCount);
+        const double avgFast = fastDensity / std::max (1, fastCount);
+
+        const bool matrixHealthy =
+            a.cases == 48
+            && a.empty == 0
+            && a.outOfScale == 0
+            && a.largeLeap == 0
+            && avgDensity > 0.5
+            && avgDensity < 12.0
+            && avgRegister > 35.0
+            && avgRegister < 100.0
+            && avgStepwise >= 0.03
+            && avgSlow > 0.5
+            && avgFast > 0.5;
+
+        report ("musical matrix: 12 scales x 4 melodic languages remain playable",
+                matrixHealthy,
+                fmt ("cases %.0f empty %.0f offscale %.0f >12st %.0f density %.2f median-register %.2f stepwise %.2f",
+                     (double) a.cases, (double) a.empty, (double) a.outOfScale,
+                     (double) a.largeLeap, avgDensity, avgRegister, avgStepwise));
+
+        report ("musical matrix: BPM adaptation remains populated at 80/220",
+                avgSlow > 0.5 && avgFast > 0.5,
+                fmt ("80 BPM density %.2f / 220 BPM density %.2f", avgSlow, avgFast));
+
+        std::array<int, 3> complexityHits {};
+        for (int i = 0; i < 36; ++i)
+        {
+            p.setComplexity (i % 3 == 0 ? 0.08f : (i % 3 == 1 ? 0.55f : 0.94f), false);
+            p.setSeed (105000 + i * 23);
+            p.regenerate();
+            ++complexityHits[(size_t) juce::jlimit (0, 2, p.getVariationMelodyComplexityClass (0))];
+        }
+
+        report ("musical matrix: Simple / Medium / Complex remain reachable",
+                complexityHits[0] > 0 && complexityHits[1] > 0 && complexityHits[2] > 0,
+                fmt ("simple %.0f medium %.0f complex %.0f",
+                     (double) complexityHits[0], (double) complexityHits[1], (double) complexityHits[2]));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
