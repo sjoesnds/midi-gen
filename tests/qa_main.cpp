@@ -2597,6 +2597,66 @@ int main()
                      (double) behaviorSignatures.size()));
     }
 
+    // ------------------------------------------------------------------ 18. unified melody complexity intent (0.86)
+    {
+        MidiForgeAudioProcessor a;
+        a.setFeedbackLogFile (juce::File());
+        a.setSeed (22001);
+
+        std::vector<int> first;
+        std::set<int> bankClasses;
+
+        for (int k = 0; k < a.getVariationCount(); ++k)
+        {
+            const int cls = a.getVariationMelodyComplexityClass (k);
+            first.push_back (cls);
+
+            report ("melody intent: final variation keeps one valid complexity class",
+                    cls >= 0 && cls <= 2,
+                    fmt ("slot %.0f class %.0f", (double) (k + 1), (double) cls));
+
+            if (cls >= 0 && cls <= 2)
+                bankClasses.insert (cls);
+        }
+
+        report ("melody intent: bank contains multiple complexity languages",
+                a.getVariationCount() == 8 && bankClasses.size() >= 2,
+                fmt ("%.0f distinct classes across %.0f variations",
+                     (double) bankClasses.size(), (double) a.getVariationCount()));
+
+        a.setSeed (22001);
+        a.regenerate ();
+
+        std::vector<int> second;
+        for (int k = 0; k < a.getVariationCount(); ++k)
+            second.push_back (a.getVariationMelodyComplexityClass (k));
+
+        report ("melody intent: complexity assignment is deterministic",
+                first == second,
+                fmt ("first/second class vectors %s",
+                     first == second ? "match" : "differ"));
+
+        std::set<int> observedClasses;
+        for (int seed = 1; seed <= 32; ++seed)
+        {
+            MidiForgeAudioProcessor b;
+            b.setFeedbackLogFile (juce::File());
+            b.setSeed (23000 + seed * 17);
+
+            for (int k = 0; k < b.getVariationCount(); ++k)
+            {
+                const int cls = b.getVariationMelodyComplexityClass (k);
+                if (cls >= 0 && cls <= 2)
+                    observedClasses.insert (cls);
+            }
+        }
+
+        report ("melody intent: all three complexity languages are reachable",
+                observedClasses.size() == 3,
+                fmt ("%.0f / 3 classes observed in seed batch",
+                     (double) observedClasses.size()));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
