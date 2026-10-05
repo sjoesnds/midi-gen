@@ -9381,13 +9381,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         && std::abs (complexity - 0.68f) < 0.001f
         && std::abs (energy - 0.72f) < 0.001f;
 
-    std::array<MelodyPipelineStageStats, 9> pipelineTrace {};
+    std::array<MelodyPipelineStageStats, 6> pipelineTrace {};
     if (traceThisGeneration)
     {
-        static constexpr const char* names[9] =
+        static constexpr const char* names[6] =
         {
-            "flatten", "archetype", "rhythm", "expression", "memory",
-            "prosody", "harmony", "groove", "foundation+pleasantness"
+            "flatten", "rhythm", "prosody",
+            "harmony", "groove", "foundation+repair"
         };
         for (size_t i = 0; i < pipelineTrace.size(); ++i)
             pipelineTrace[i].name = names[i];
@@ -9511,27 +9511,21 @@ void MidiForgeAudioProcessor::buildVariationBank()
         Section flat=flatten(song,c,local,mLo,mHi);
         traceMelodyStage (0, flat);
 
+        applyRhythmGrammar (flat, identity);
         traceMelodyStage (1, flat);
 
-        applyRhythmGrammar (flat, identity);
+        applyMelodicProsody (flat, identity);
         traceMelodyStage (2, flat);
 
+        applyHarmonicIntelligence (flat, identity);
         traceMelodyStage (3, flat);
 
-        traceMelodyStage (4, flat);
-
-        applyMelodicProsody (flat, identity);
-        traceMelodyStage (5, flat);
-
-        applyHarmonicIntelligence (flat, identity);
-        traceMelodyStage (6, flat);
-
         applyGrooveEngine (flat, identity);
-        traceMelodyStage (7, flat);
+        traceMelodyStage (4, flat);
 
         applyMelodyFoundation (flat, identity);
         repairLocalMelodyQuality (flat, identity);
-        traceMelodyStage (8, flat);
+        traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
         const float motifMemory = motifMemoryScore(flat);
