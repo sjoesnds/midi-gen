@@ -2564,19 +2564,18 @@ int main()
                     return x.note < y.note;
                 });
 
-            std::ostringstream sig;
-            sig << mel.size() << ':';
+            std::string sig = std::to_string (mel.size()) + ":";
             for (size_t i = 0; i < mel.size() && i < 8; ++i)
-                sig << (mel[i].step % 16) << ',';
+                sig += std::to_string (mel[i].step % 16) + ",";
 
-            sig << '|';
+            sig += "|";
             for (size_t i = 1; i < mel.size() && i < 9; ++i)
             {
                 const int d = mel[i].note - mel[i - 1].note;
-                sig << (d > 3 ? '+' : d < -3 ? '-' : d == 0 ? '0' : 's');
+                sig += (d > 3 ? '+' : d < -3 ? '-' : d == 0 ? '0' : 's');
             }
 
-            behaviorSignatures.insert (sig.str());
+            behaviorSignatures.insert (sig);
         }
 
         report ("melody character diversity: bank keeps distinct latent families",
