@@ -70,7 +70,7 @@
 ### 0.85.5 — Latent Melody Character Engine
 - Adds twelve hidden melodic behavior profiles selected per candidate; these are not UI categories.
 - Each profile changes multiple axes together: density, space, interval size, syncopation, motif strength, sustain, repetition, register journey, contrast and tension.
-- The same genre, scale and mood can therefore produce materially different melodic behaviors instead of only surface-level note changes.
+- The same harmonic setting and mood can therefore produce materially different melodic behaviors instead of only surface-level note changes.
 - Character choice is carried with the generated Section so downstream judging and variation selection can see the actual melodic language.
 - No new controls and no playlist-style labels are exposed in the UI.
 
@@ -107,8 +107,8 @@
 
 ### Feedback Log — 0.79.0
 - Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.
-- Each row records engine version, verdict, variation slot, **transform**, **source archetype**, genre, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
-- `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, genre, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
+- Each row records engine version, verdict, variation slot, **transform**, **source archetype**, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
+- `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
 - Loops now remember the archetype they came from and their transform slot.
 - QA: new checks for the log format, verdict/slot recording and archetype/transform names.
 - No new UI controls.
@@ -337,7 +337,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - Major, Minor, Dorian, Phrygian, Harmonic Minor, Melodic Minor and Pentatonic scales
 - Multiple progression styles: Auto, Pop, Dark, Emotional, Cinematic, Jazz-like, Looping
 - Melody roles: Hook, Vocal-like, Riff, Ostinato, Arp, Counter, Sparse Lead, Phrase
-- Genre DNA for Trap, House, Techno, BoomBap, Ambient, Cinematic, RnB, Pop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental and Lofi
+- Open-ended Creative DNA with hidden melodic behavior profiles
 - Mood, era and energy controls
 - Sound-target profiles for Piano, Pluck, Synth Lead, Bell/Mallet, Pad/Strings, Brass, 808/Sub Lead and Guitar
 
@@ -369,7 +369,7 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - The first 600 candidates explore the current musical space broadly.
 - The best 48 first-pass candidates are rank-weighted to build an adaptive profile of density, space, rhythm, motif, leap, register, surprise, loop quality, groove and motif memory.
 - The remaining 400 candidates are generated with their melody controls, phrasing, swing, register and variation amount nudged toward that discovered neighborhood.
-- Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing genre, DNA, archetype, Judge or diversity systems.
+- Second-pass candidates also receive a soft feature-distance bonus, so adaptive exploitation cannot erase the existing DNA, archetype, Judge or diversity systems.
 - Local deterministic jitter keeps the adaptive phase exploratory instead of collapsing all candidates into clones.
 - The final eight-variation bank and one-winner-per-archetype behavior remain unchanged.
 
@@ -653,7 +653,7 @@ The repository previously contained many small README files created for individu
 - Rhythm Engine
 - Harmony work
 - Mutation / evolution
-- Genre DNA and hybrid DNA
+- Creative DNA and hybrid context
 - Advanced MAGIC composition
 - Larger candidate search and diversity improvements
 
