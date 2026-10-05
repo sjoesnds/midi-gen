@@ -2,7 +2,16 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.86.2**
+**Current version: 0.95.0**
+
+### 0.95.0 — Workflow, Stability & Musical QA
+- Melody generation remains a single deterministic Melody Core; no additional parallel melody author was added.
+- Humanize is completely separate from authored generation: the generator/export remain clean, while LIVE HUMANIZE is a playback layer and Piano Roll HUMANIZE is an explicit edit.
+- Piano Roll workflow now includes safe click audition, corrected phrase selection, explicit REVERT, bounded note editing, zoom/pan controls, and undo/redo integration.
+- MIDI drag/export now reports real file-write success instead of returning a path after a failed write.
+- Taste ML now ranks generated candidates without mutating Melody Density, Energy or Complexity controls and without rewriting the current MIDI after LIKE/DISLIKE.
+- QA includes BPM coverage, 1024-seed release preflight, editor bounds, MIDI export parsing, edited-MIDI state round-trip, Taste isolation and a 256-cycle structural stress batch.
+- Public versioning is now 0.95.0; final FL Studio long-session validation is still required before a 1.0 release.
 
 ### 0.86.2 — Unified Melody Intent
 - Removes Era as a user-facing musical parameter; legacy project state remains load/save compatible while the internal context is fixed to the modern 20s profile.
