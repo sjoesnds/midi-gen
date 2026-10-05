@@ -68,6 +68,8 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     intent.language = CreativeRange::makePlan (type, safeMood, e, c, identity);
     intent.grammar = ComposerGrammar::makePlan (
         bars, e, c, type, safeMood, mix32 (identity ^ 0xC0A70970u));
+    intent.motif = MotifSemantics::makePlan (
+        type, safeMood, e, c, mix32 (identity ^ 0xC0DE1234u));
 
     switch (safeMood)
     {
