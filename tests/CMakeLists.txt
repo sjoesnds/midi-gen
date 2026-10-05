@@ -15,7 +15,6 @@ juce_add_console_app(MidiForgeQA PRODUCT_NAME "MidiForgeQA")
 
 target_sources(MidiForgeQA PRIVATE
     qa_main.cpp
-    preview_main.cpp
     ../Source/PluginProcessor.cpp
     ../Source/RhythmGrammar.cpp
     ../Source/ComposerGrammar.cpp
@@ -36,6 +35,40 @@ target_compile_definitions(MidiForgeQA PRIVATE
 )
 
 target_link_libraries(MidiForgeQA PRIVATE
+    juce::juce_audio_processors_headless
+    juce::juce_audio_formats
+    juce::juce_audio_basics
+    juce::juce_data_structures
+    juce::juce_events
+    juce::juce_core
+    juce::juce_recommended_config_flags
+)
+
+ 
+juce_add_console_app(MidiForgePreview PRODUCT_NAME "MidiForgePreview")
+
+target_sources(MidiForgePreview PRIVATE
+    preview_main.cpp
+    ../Source/PluginProcessor.cpp
+    ../Source/RhythmGrammar.cpp
+    ../Source/ComposerGrammar.cpp
+    ../Source/MelodicProsody.cpp
+    ../Source/CreativeRange.cpp
+    ../Source/MotifSemantics.cpp
+    ../Source/LoopClosure.cpp
+)
+target_include_directories(MidiForgePreview PRIVATE ../Source)
+juce_generate_juce_header(MidiForgePreview)
+
+target_compile_features(MidiForgePreview PRIVATE cxx_std_17)
+target_compile_definitions(MidiForgePreview PRIVATE
+    MIDIFORGE_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    MIDIFORGE_ENGINE_VERSION="${PROJECT_VERSION}"
+)
+
+target_link_libraries(MidiForgePreview PRIVATE
     juce::juce_audio_processors_headless
     juce::juce_audio_formats
     juce::juce_audio_basics
