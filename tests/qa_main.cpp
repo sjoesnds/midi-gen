@@ -2790,6 +2790,127 @@ int main()
                      simplePitchSpan, complexPitchSpan));
     }
 
+    // ------------------------------------------------------------------ 21. broad melody-core benchmark (0.86.3)
+    // This intentionally measures the final musical result across several sound
+    // contexts instead of checking one hand-picked seed. It is a regression gate
+    // for tonal safety, register spread, complexity reachability, variation family
+    // diversity and the end-to-end Sound Profile contract.
+    {
+        const int testedSounds[] = { 0, 1, 2, 4 }; // Piano, Pluck, Lead, Pad
+        int loops = 0;
+        int invalidPitches = 0;
+        int invalidLeaps = 0;
+        int wideLoops = 0;
+        int narrowLoops = 0;
+        double registerSum = 0.0;
+        double registerSq = 0.0;
+        double padMeanLen = 0.0;
+        double pluckMeanLen = 0.0;
+        double leadMeanLen = 0.0;
+        int padNotes = 0, pluckNotes = 0, leadNotes = 0;
+        std::set<int> observedComplexity;
+        std::set<int> observedCharacters;
+
+        for (const int sound : testedSounds)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setSoundTarget (sound);
+
+            for (int seed = 0; seed < 16; ++seed)
+            {
+                p.setSeed (51000 + sound * 1000 + seed * 37);
+                for (int k = 0; k < p.getVariationCount(); ++k)
+                {
+                    p.chooseVariation (k);
+                    const auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+                    if (mel.empty())
+                        continue;
+
+                    int minPitch = 127;
+                    int maxPitch = 0;
+                    double meanPitch = 0.0;
+                    int previous = -1;
+                    int duplicateOnsets = 0;
+
+                    for (const auto& n : mel)
+                    {
+                        minPitch = std::min (minPitch, n.note);
+                        maxPitch = std::max (maxPitch, n.note);
+                        meanPitch += (double) n.note;
+                        if (n.note < 0 || n.note > 127)
+                            ++invalidPitches;
+                        if (sound == 4) { padMeanLen += n.length; ++padNotes; }
+                        if (sound == 1) { pluckMeanLen += n.length; ++pluckNotes; }
+                        if (sound == 2) { leadMeanLen += n.length; ++leadNotes; }
+                    }
+
+                    for (size_t i = 1; i < mel.size(); ++i)
+                    {
+                        const int leap = std::abs (mel[i].note - mel[i - 1].note);
+                        if (leap > 12)
+                            ++invalidLeaps;
+                        if (mel[i].step == mel[i - 1].step)
+                            ++duplicateOnsets;
+                        previous = mel[i].note;
+                    }
+                    juce::ignoreUnused (previous, duplicateOnsets);
+
+                    const int range = maxPitch - minPitch;
+                    if (range >= 30) ++wideLoops;
+                    if (range <= 18) ++narrowLoops;
+
+                    meanPitch /= (double) mel.size();
+                    registerSum += meanPitch;
+                    registerSq += meanPitch * meanPitch;
+                    observedComplexity.insert (p.getVariationMelodyComplexityClass (k));
+                    observedCharacters.insert (p.getVariationMelodyCharacter (k));
+                    ++loops;
+                }
+            }
+        }
+
+        const double meanRegister = loops > 0 ? registerSum / (double) loops : 0.0;
+        const double variance = loops > 0
+            ? std::max (0.0, registerSq / (double) loops - meanRegister * meanRegister)
+            : 0.0;
+        const double registerStd = std::sqrt (variance);
+
+        report ("melody benchmark: final pitches stay in MIDI range",
+                loops > 0 && invalidPitches == 0,
+                fmt ("%.0f loops, %.0f invalid pitches", (double) loops, (double) invalidPitches));
+        report ("melody benchmark: safety never exceeds 12 semitones",
+                loops > 0 && invalidLeaps == 0,
+                fmt ("%.0f loops, %.0f overshoots", (double) loops, (double) invalidLeaps));
+        report ("melody benchmark: register distribution is not collapsed",
+                loops > 0 && registerStd >= 4.0,
+                fmt ("register mean %.2f, std %.2f", meanRegister, registerStd));
+        report ("melody benchmark: both compact and wide ranges are reachable",
+                loops > 0 && wideLoops >= 16 && narrowLoops >= 16,
+                fmt ("%.0f wide / %.0f narrow / %.0f total loops",
+                     (double) wideLoops, (double) narrowLoops, (double) loops));
+        report ("melody benchmark: all three complexity classes are reachable",
+                observedComplexity.size() == 3,
+                fmt ("%.0f / 3 classes", (double) observedComplexity.size()));
+        report ("melody benchmark: character families remain diverse",
+                observedCharacters.size() >= 8,
+                fmt ("%.0f distinct characters", (double) observedCharacters.size()));
+
+        const double padLength = padNotes > 0 ? padMeanLen / (double) padNotes : 0.0;
+        const double pluckLength = pluckNotes > 0 ? pluckMeanLen / (double) pluckNotes : 0.0;
+        const double leadLength = leadNotes > 0 ? leadMeanLen / (double) leadNotes : 0.0;
+
+        report ("sound profile benchmark: Pad remains genuinely sustained",
+                padNotes > 0 && padLength >= 3.0,
+                fmt ("mean Pad length %.2f", padLength));
+        report ("sound profile benchmark: Pluck remains genuinely short",
+                pluckNotes > 0 && pluckLength <= 3.5,
+                fmt ("mean Pluck length %.2f", pluckLength));
+        report ("sound profile benchmark: Synth Lead retains connected notes",
+                leadNotes > 0 && leadLength >= 2.0,
+                fmt ("mean Lead length %.2f", leadLength));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
