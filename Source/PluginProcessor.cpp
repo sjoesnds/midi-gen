@@ -8306,6 +8306,63 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::transformLoop (Section
                     return source.notes[a].note < source.notes[b].note;
                 });
 
+            // Long-sustain profiles need actual breathing room between attacks.
+            // Merely increasing note length cannot survive cleanMelodyLine when
+            // the next onset is too close. For Pad/Strings (minLen >= 4), prune
+            // conflicting near-neighbour onsets while keeping strong structural
+            // beats whenever possible.
+            if (prof.minLen >= 4 && mel.size() >= 2)
+            {
+                std::vector<bool> drop (source.notes.size(), false);
+                size_t lastKept = 0;
+                for (size_t i = 1; i < mel.size(); ++i)
+                {
+                    const auto& prev = source.notes[mel[lastKept]];
+                    const auto& cur  = source.notes[mel[i]];
+                    if (cur.step - prev.step < prof.minLen)
+                    {
+                        const bool prevStrong = (prev.step % 16) == 0 || (prev.step % 16) == 8;
+                        const bool curStrong  = (cur.step % 16) == 0 || (cur.step % 16) == 8;
+
+                        if (curStrong && ! prevStrong)
+                        {
+                            drop[mel[lastKept]] = true;
+                            lastKept = i;
+                        }
+                        else
+                        {
+                            drop[mel[i]] = true;
+                        }
+                    }
+                    else
+                    {
+                        lastKept = i;
+                    }
+                }
+
+                source.notes.erase (
+                    std::remove_if (source.notes.begin(), source.notes.end(),
+                        [&] (const NoteEvent& n)
+                        {
+                            const size_t index = (size_t) (&n - source.notes.data());
+                            return index < drop.size() && drop[index];
+                        }),
+                    source.notes.end());
+
+                mel.clear();
+                for (size_t i = 0; i < source.notes.size(); ++i)
+                    if (source.notes[i].channel == 3)
+                        mel.push_back (i);
+
+                std::stable_sort (mel.begin(), mel.end(),
+                    [&] (size_t a, size_t b)
+                    {
+                        if (source.notes[a].step != source.notes[b].step)
+                            return source.notes[a].step < source.notes[b].step;
+                        return source.notes[a].note < source.notes[b].note;
+                    });
+            }
+
             for (size_t i = 0; i < mel.size(); ++i)
             {
                 auto& n = source.notes[mel[i]];
