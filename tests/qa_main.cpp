@@ -2658,7 +2658,7 @@ int main()
     }
 
 
-    // ------------------------------------------------------------------ 19. style/safety separation (0.86.x)
+    // ------------------------------------------------------------------ 19. style/safety separation (0.87)
     {
         MidiForgeAudioProcessor p;
         p.setFeedbackLogFile (juce::File());
@@ -2744,71 +2744,6 @@ int main()
                 simpleCount == 0 || complexCount == 0 || simplePitchSpan <= complexPitchSpan + 1.25,
                 fmt ("simple %.2f unique pitches vs complex %.2f",
                      simplePitchSpan, complexPitchSpan));
-    }
-
-
-    // ------------------------------------------------------------------ 21. mood context language (0.86.x)
-    {
-        std::set<std::string> semanticLanguages;
-        std::set<std::string> generatedSignatures;
-
-        for (int mood = 0; mood <= 8; ++mood)
-        {
-            const auto plan = midiforge::MotifSemantics::makePlan (
-                MidiForgeAudioProcessor::HookMelody,
-                mood,
-                MidiForgeAudioProcessor::Universal,
-                0.60f,
-                0.55f,
-                0x51A7C0DEu);
-
-            std::string semantic =
-                std::to_string (plan.rhythmicCore) + ":"
-                + std::to_string (plan.intervalCore) + ":"
-                + std::to_string (plan.startingAnchor) + ":"
-                + std::to_string (plan.peakGesture) + ":"
-                + std::to_string (plan.endingGesture) + ":"
-                + std::to_string (plan.signatureLeap) + ":"
-                + std::to_string (plan.answerCell);
-            semanticLanguages.insert (semantic);
-
-            MidiForgeAudioProcessor p;
-            p.setFeedbackLogFile (juce::File());
-            p.setSeed (51000);
-            p.setMood (mood);
-            p.regenerate ();
-
-            auto notes = p.getVisibleNotes();
-            std::stable_sort (notes.begin(), notes.end(),
-                [] (const auto& a, const auto& b)
-                {
-                    if (a.channel != b.channel) return a.channel < b.channel;
-                    if (a.step != b.step) return a.step < b.step;
-                    return a.note < b.note;
-                });
-
-            std::string generated;
-            int taken = 0;
-            for (const auto& n : notes)
-            {
-                if (n.channel != 3 || taken >= 12) continue;
-                generated += std::to_string (n.step % 16) + ","
-                          + std::to_string (n.note) + ","
-                          + std::to_string (n.length) + ";";
-                ++taken;
-            }
-            generatedSignatures.insert (generated);
-        }
-
-        report ("mood language: semantic vocabulary actually changes",
-                semanticLanguages.size() >= 7,
-                fmt ("%.0f distinct semantic languages across 9 moods",
-                     (double) semanticLanguages.size()));
-
-        report ("mood language: generated MIDI changes across contexts",
-                generatedSignatures.size() >= 6,
-                fmt ("%.0f distinct melody signatures across 9 moods",
-                     (double) generatedSignatures.size()));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");

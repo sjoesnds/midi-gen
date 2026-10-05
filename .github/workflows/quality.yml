@@ -47,27 +47,11 @@ jobs:
           echo "Running $QA with melody pipeline trace"
           "$QA" | tee qa-report.txt
 
-      - name: Generate fast musical preview suite
-        if: success()
-        run: |
-          set -e
-          PREVIEW=$(find build-qa -type f -name MidiForgePreview -perm -u+x | head -n 1)
-          mkdir -p mood-preview
-          echo "Running $PREVIEW"
-          "$PREVIEW" mood-preview
-          ls -lh mood-preview
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: quality-report
           path: qa-report.txt
-
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: fast-musical-preview
-          path: mood-preview/
 
   sanitizers:
     runs-on: ubuntu-latest
