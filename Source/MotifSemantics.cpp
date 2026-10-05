@@ -29,7 +29,6 @@ namespace midiforge
 {
 MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
                                                int mood,
-                                               int genre,
                                                float energy,
                                                float complexity,
                                                uint32_t identity)
@@ -95,12 +94,9 @@ MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
     // completely reshuffles every axis independently.
     const uint32_t familyHash = mix32 (
         identity ^ (uint32_t) (melodyType + 1) * 0x9e3779b9u
-        ^ (uint32_t) (genre + 17) * 0x85ebca6bu);
+        ^ 0x85ebca6bu);
     if ((familyHash % 100u) < 28u)
         family = (family + 1 + (int) ((familyHash >> 8) & 1u)) % 8;
-
-    if (genre == 14 && (familyHash % 100u) < 52u)
-        family = (family + 2) % 8;
 
     const int variant = (int) ((familyHash >> 16) & 1u);
 
