@@ -3614,10 +3614,10 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // then keep that decision through every bar and every downstream safety/judge stage.
     // The loopSeed is stable across bars; using identitySeed here would silently
     // re-roll the complexity class for each bar.
-    if (section.melodyComplexityClass < 0)
+    if (s.melodyComplexityClass < 0)
     {
         const uint32_t complexityRoll = hash32 (loopSeed ^ 0xA11CE55u) % 1000u;
-        section.melodyComplexityClass =
+        s.melodyComplexityClass =
             complexityRoll < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f)
                 ? 0
                 : complexityRoll < (uint32_t) juce::roundToInt (
@@ -3626,7 +3626,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
                     : 1; // 0 = Simple, 1 = Medium, 2 = Complex
     }
 
-    const int melodyComplexityClass = juce::jlimit (0, 2, section.melodyComplexityClass);
+    const int melodyComplexityClass = juce::jlimit (0, 2, s.melodyComplexityClass);
     const bool simpleCandidate = melodyComplexityClass == 0;
     const bool complexCandidate = melodyComplexityClass == 2;
 
