@@ -22,7 +22,6 @@ struct LoopClosure
 
     static Plan makePlan (int melodyType,
                           int mood,
-                          int genre,
                           float energy,
                           float complexity,
                           uint32_t identity);
