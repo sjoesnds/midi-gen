@@ -2,7 +2,12 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.86.0**
+**Current version: 0.87.0**
+
+### 0.87.0 — Style / Safety Separation
+- Melody Foundation, Pleasantness and the final register contract now share a hard safety ceiling without using Simple / Medium / Complex as hidden pitch-style rules.
+- The safety contract allows expressive scale-safe leaps up to 12 semitones; melodic style is left to generation, character and Judge.
+- Added regression QA proving expressive 10–12 semitone movement can survive while >12 semitone jumps remain blocked.
 
 ### 0.86.0 — Unified Melody Intent
 - Simple / Medium / Complex is now a single loop-level composition intent stored on the generated Section as melodyComplexityClass.
