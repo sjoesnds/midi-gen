@@ -2023,7 +2023,7 @@ int main()
             juce::MemoryInputStream in (mb.getData(), mb.getSize(), false);
             versionedHeader = in.getNumBytesRemaining() >= 8
                            && in.readInt() == 0x4D464752
-                           && in.readInt() == 2;
+                           && in.readInt() == 3;
         }
         report ("state uses a versioned header", versionedHeader,
                 versionedHeader ? "magic + version 3" : "missing/invalid header");
