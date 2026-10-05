@@ -517,7 +517,6 @@ void buildVariationBank();
 void startGeneration (int selectionAfter);
 void regenerateBlocking (int selectionAfter);
 void refreshHostBpm();
-Section mergedSelectedSong() const;
 void emitNote(const NoteEvent&, juce::MidiBuffer&, int sampleOffset, int velocityBias, int stepStartOffset);
 JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessor)
 };
