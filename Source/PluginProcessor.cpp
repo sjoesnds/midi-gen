@@ -3600,15 +3600,23 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     if (simpleProbability + complexProbability > 0.90f)
         complexProbability = juce::jmax (0.08f, 0.90f - simpleProbability);
 
-    const uint32_t complexityRoll = hash32 (identitySeed ^ 0xA11CE55u) % 1000u;
-    const int melodyComplexityClass =
-        complexityRoll < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f)
-            ? 0
-            : complexityRoll < (uint32_t) juce::roundToInt (
-                  (simpleProbability + complexProbability) * 1000.0f)
-                ? 2
-                : 1; // 0 = Simple, 1 = Medium, 2 = Complex
+    // 0.86 Unified Melody Intent: choose the complexity class once per loop,
+    // then keep that decision through every bar and every downstream safety/judge stage.
+    // The loopSeed is stable across bars; using identitySeed here would silently
+    // re-roll the complexity class for each bar.
+    if (section.melodyComplexityClass < 0)
+    {
+        const uint32_t complexityRoll = hash32 (loopSeed ^ 0xA11CE55u) % 1000u;
+        section.melodyComplexityClass =
+            complexityRoll < (uint32_t) juce::roundToInt (simpleProbability * 1000.0f)
+                ? 0
+                : complexityRoll < (uint32_t) juce::roundToInt (
+                      (simpleProbability + complexProbability) * 1000.0f)
+                    ? 2
+                    : 1; // 0 = Simple, 1 = Medium, 2 = Complex
+    }
 
+    const int melodyComplexityClass = juce::jlimit (0, 2, section.melodyComplexityClass);
     const bool simpleCandidate = melodyComplexityClass == 0;
     const bool complexCandidate = melodyComplexityClass == 2;
 
