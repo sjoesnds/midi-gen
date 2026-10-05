@@ -30,7 +30,6 @@ namespace midiforge
 {
 CreativeRange::Plan CreativeRange::makePlan (int melodyType,
                                              int mood,
-                                             int genre,
                                              float energy,
                                              float complexity,
                                              uint32_t identity)
@@ -163,19 +162,8 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     if (mood == 3 || mood == 7) p.leapBias += 0.06f;
     if (mood == 4 || mood == 6) p.repetition -= 0.04f;
 
-    // Genre can open the language a little, but it cannot create an unrelated
-    // contour/interval/rhythm combination.
-    if (genre == 14 || genre == 13 || genre == 6)
-    {
-        p.novelty += 0.06f;
-        p.asymmetry += 0.05f;
-        p.leapBias += 0.06f;
-    }
-    if (genre == 4 || genre == 15)
-    {
-        p.repetition += 0.04f;
-        p.durationContrast += 0.06f;
-    }
+    // No genre conditioning. Creativity comes from the language profile,
+    // identity, mood, role, energy and complexity.
 
     p.novelty = std::clamp (p.novelty, 0.10f, 0.94f);
     p.asymmetry = std::clamp (p.asymmetry, 0.08f, 0.92f);
