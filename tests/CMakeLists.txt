@@ -15,6 +15,7 @@ juce_add_console_app(MidiForgeQA PRODUCT_NAME "MidiForgeQA")
 
 target_sources(MidiForgeQA PRIVATE
     qa_main.cpp
+    preview_main.cpp
     ../Source/PluginProcessor.cpp
     ../Source/RhythmGrammar.cpp
     ../Source/ComposerGrammar.cpp
@@ -36,6 +37,7 @@ target_compile_definitions(MidiForgeQA PRIVATE
 
 target_link_libraries(MidiForgeQA PRIVATE
     juce::juce_audio_processors_headless
+    juce::juce_audio_formats
     juce::juce_audio_basics
     juce::juce_data_structures
     juce::juce_events
