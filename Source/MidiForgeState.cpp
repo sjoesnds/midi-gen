@@ -3,16 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-static juce::File& settingsDirectoryOverride()
-{
-    static juce::File dir;
-    return dir;
-}
-
-void MidiForgeAudioProcessor::setSettingsDirectoryOverride (const juce::File& dir)
-{
-    settingsDirectoryOverride() = dir;
-}
+#include "MidiForgeShared.h"
 
 void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
