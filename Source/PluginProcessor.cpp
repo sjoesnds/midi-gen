@@ -3025,24 +3025,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // 0.58.1 Melody Diversity 2.0: expand the melodic search space instead of
     // merely adding more random seeds. Each loop now receives an independent
     // contour language, interval language, tension profile and register behavior.
-    // These axes come from the creative language itself and can produce soft, tense, angular,
-    // 0.72 Creative Range: choose a coherent musical language before writing notes.
-    // The plan expands the *creative* search space rather than simply adding pitch
-    // randomness: contour, interval vocabulary, rhythm family, repetition behavior,
-    // register journey, harmonic color and duration language are selected together.
-    // CreativeRange owns the discrete melodic language. Character is a soft
-    // behavioral flavor layered on top; it must not independently replace the
-    // contour, interval, rhythm or register grammar selected above.
-    const int phraseStyle = creativeRange.contourFamily;
-    const int intervalLanguage = creativeRange.intervalFamily;
-    const int tensionProfile =
-        (int) (hash32 (identitySeed
-                       ^ 0x7f4a7c15u
-                       ^ (uint32_t) creativeRange.harmonyPersonality
-                       ^ (uint32_t) (character.tensionBias + 17) * 0x9e3779b9u) % 8u);
-    const int registerProfile = creativeRange.registerJourney;
-    const int rhythmicLanguage = creativeRange.rhythmFamily;
-
+    // Phrase contour and interval language are part of the unified intent.
     const float poolTension = juce::jlimit(0.05f, 0.88f,
         0.10f
         + 0.34f * ((float)tensionProfile / 7.0f)
@@ -8340,8 +8323,8 @@ float MidiForgeAudioProcessor::creativeRangeScore (const Section& sec, uint32_t 
             return a->note < b->note;
         });
 
-    const auto plan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity, identity);
+    const auto plan = midiforge::MelodyIntent::makePlan (
+        section.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     int minPitch = 127, maxPitch = 0;
     int leapCount = 0;
@@ -8845,8 +8828,8 @@ float MidiForgeAudioProcessor::composerJudgeScore (const Section& section, uint3
         arc = 0.62f * features.phraseArc + 0.38f * features.tensionArc;
     }
 
-    const auto creativePlan = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity, identity);
+    const auto creativePlan = midiforge::MelodyIntent::makePlan (
+        section.bars, melodyType, mood, energy, complexity, identity, 0).language;
 
     const float actualNovelty = juce::jlimit (
         0.0f, 1.0f, 0.55f * features.variety + 0.45f * features.surprise);
@@ -9115,9 +9098,9 @@ void MidiForgeAudioProcessor::finalizeLoop (Section& sec) const
 void MidiForgeAudioProcessor::buildVariationBank()
 {
     // Candidate-judge targets come from the same kind of open-ended creative language.
-    const auto judgeCreativeRange = midiforge::CreativeRange::makePlan (
-        melodyType, mood, energy, complexity,
-        hash32 (generationSeed ^ 0x8B1A5EEDu));
+    const auto judgeCreativeRange = midiforge::MelodyIntent::makePlan (
+        bars, melodyType, mood, energy, complexity,
+        hash32 (generationSeed ^ 0x8B1A5EEDu), 0).language;
 
     float dnaSpace = juce::jlimit (0.0f, 1.0f,
         0.30f + 0.55f * judgeCreativeRange.durationContrast);
