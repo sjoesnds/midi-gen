@@ -11889,7 +11889,7 @@ void MidiForgeAudioProcessor::syncEditedNotesToSelectedVariation (const std::vec
 
 bool MidiForgeAudioProcessor::addVisibleNote (int step, int note, int length, int velocity, int channel)
 {
-    const int totalSteps = juce::jmax (16, activeBars * 16);
+    const int totalSteps = juce::jmax (16, getVisibleBars() * 16);
     const int safeStep = juce::jlimit (0, totalSteps - 1, step);
     const int safeLength = juce::jlimit (1, juce::jmax (1, totalSteps - safeStep), length);
     VisibleNote created { safeStep, safeLength,
