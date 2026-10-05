@@ -10277,145 +10277,95 @@ void MidiForgeAudioProcessor::buildVariationBank()
         selected.push_back (std::move (candidates[(size_t) best]));
     }
 
-    // A candidate may be excellent on paper but still be the same musical
-    // thought as a selected slot. Idea Memory remains a soft selection pressure:
-    // it never alters a candidate's intrinsic musical quality.
-    // 0.56 Loop Transformation: MAGIC 3 discovers multiple strong archetypal
-    // candidates first, then this stage picks the strongest discovered loop and
-    // turns it into a coherent family of standalone transformations. The musical
-    // identity stays anchored in the same source loop; only one intentional
-    // transformation domain changes per variant.
-    
-
-    static constexpr const char* transformationNames[8] =
-    {
-        "ORIGINAL", "CLOSE", "RHYTHMIC", "CONTRAST",
-        "REGISTER", "MOTIF", "EXPERIMENTAL", "WILDCARD"
-    };
-
-    // 0.60 Loop Forge: final integration pass after generation, judging,
-    // diversity and transformation. A transformed loop must survive one
-    // last coherence check before entering the final variation bank.
-    
-
-    
-    // 0.63 Melodic Memory 3.0 + 0.76 Variation Intelligence:
-    // keep the selected idea bank alive, but stop assigning transformations by
-    // arbitrary slot order. A dark source should be allowed to feed DARK, a
-    // rhythmic source should feed TIGHT, and a high-surprise source should feed
-    // WEIRD. The assignment is globally optimized and remains one-to-one.
-    std::vector<Section> transformationSources;
-    transformationSources.reserve (8);
-    std::vector<uint32_t> transformationSeeds;
-    transformationSeeds.reserve (8);
-    std::vector<midiforge::VariationTraits> transformationTraits;
-    transformationTraits.reserve (8);
-
-    for (const auto& candidate : selected)
-    {
-        transformationSources.push_back (candidate.section);
-        transformationSeeds.push_back (candidate.identity);
-
-        midiforge::VariationTraits traits;
-        traits.density = candidate.density;
-        traits.space = candidate.space;
-        traits.rhythm = candidate.rhythm;
-        traits.motif = candidate.motif;
-        traits.leap = candidate.leap;
-        traits.reg = candidate.reg;
-        traits.surprise = candidate.surprise;
-        traits.context = candidate.context;
-        traits.loop = candidate.loop;
-        traits.groove = candidate.groove;
-        traits.memory = candidate.memory;
-        traits.phraseArc = candidate.phraseArc;
-        traits.tension = candidate.tension;
-        traits.development = candidate.development;
-        transformationTraits.push_back (traits);
-    }
-
-    const auto intelligentSourceByMode =
-        midiforge::VariationIntelligence::assign (transformationTraits);
-
+    // Creator-first generation:
+    // The search has already found independent musical ideas and the diversity gate
+    // has deliberately separated them. Do not immediately collapse those ideas back
+    // into one source loop plus eight post-transformations. For a working musician,
+    // the bank itself is the creative material: each slot should be an independently
+    // discovered phrase that can be auditioned, edited and kept.
     std::vector<Section> result;
-    result.reserve (8);
+    result.reserve (selected.size());
 
-    if (! transformationSources.empty())
+    for (size_t slot = 0; slot < selected.size(); ++slot)
     {
-        for (int mode = 0; mode < 8; ++mode)
+        const auto& candidate = selected[slot];
+        Section flat = candidate.section;
+        const uint32_t candidateSeed = candidate.identity;
+
+        flat.sourceArchetype = candidate.archetype;
+        flat.transformMode = -1;
+        flat.melodyCharacter = candidate.section.melodyCharacter;
+        flat.name = "IDEA " + juce::String ((int) slot + 1);
+
+        auto applyLock = [&] (int channel, bool locked)
         {
-            int sourceSlot = intelligentSourceByMode[(size_t) mode];
-            if (sourceSlot < 0)
-                sourceSlot = juce::jmin (mode, (int) transformationSources.size() - 1);
+            if (! locked) return;
+            flat.notes.erase (std::remove_if (flat.notes.begin(), flat.notes.end(),
+                [channel] (const NoteEvent& n) { return n.channel == channel; }),
+                flat.notes.end());
 
-            const size_t sourceIndex = (size_t) sourceSlot;
+            for (const auto& n : previousSelected.notes)
+                if (n.channel == channel && n.step < flat.bars * 16)
+                    flat.notes.push_back (n);
+        };
 
-            Section flat = transformLoop (
-                transformationSources[sourceIndex],
-                mode,
-                hash32 (transformationSeeds[sourceIndex]
-                        ^ (uint32_t) (mode + 1) * 0x6D2B79F5u));
+        applyLock (1, lockChordsLayer);
+        applyLock (2, lockBassLayer);
+        applyLock (3, lockMelodyLayer);
+        applyLock (4, lockArpLayer);
 
-            flat.sourceArchetype = selected[sourceIndex].archetype;
-            flat.transformMode = mode;
-            // Preserve the latent melodic character through final transformations.
-            flat.melodyCharacter = selected[sourceIndex].section.melodyCharacter;
-            flat.name = "VARIATION " + juce::String (mode + 1)
-                      + " • " + juce::String (transformationNames[mode]);
+        removeDuplicateNotes (flat.notes);
+        cleanMelodyLine (flat.notes);
+        std::sort (flat.notes.begin(), flat.notes.end(),
+                   [] (const NoteEvent& a, const NoteEvent& b)
+                   {
+                       if (a.step != b.step) return a.step < b.step;
+                       if (a.channel != b.channel) return a.channel < b.channel;
+                       return a.note < b.note;
+                   });
 
-            auto applyLock = [&] (int channel, bool locked)
-            {
-                if (! locked) return;
-                flat.notes.erase (std::remove_if (flat.notes.begin(), flat.notes.end(),
-                    [channel] (const NoteEvent& n) { return n.channel == channel; }),
-                    flat.notes.end());
+        // Preserve the selected candidate whenever possible. The finishing/safety
+        // stages are still allowed to enforce hard musical validity, but they no
+        // longer have a second stylistic transformation pass to overwrite the idea.
+        const Section beforeSafety = flat;
+        applyMelodyFoundation (flat, candidateSeed);
+        enforceFinalMelodyContract (flat, candidateSeed);
+        removeDuplicateNotes (flat.notes);
+        cleanMelodyLine (flat.notes);
+        std::sort (flat.notes.begin(), flat.notes.end(),
+                   [] (const NoteEvent& a, const NoteEvent& b)
+                   {
+                       if (a.step != b.step) return a.step < b.step;
+                       if (a.channel != b.channel) return a.channel < b.channel;
+                       return a.note < b.note;
+                   });
 
-                for (const auto& n : previousSelected.notes)
-                    if (n.channel == channel && n.step < flat.bars * 16)
-                        flat.notes.push_back (n);
-            };
+        // The foundation/contract path is hard-safety only. If it ever produces a
+        // materially different invalidating rewrite, retain the original selected
+        // candidate; the next regeneration can produce another idea instead of
+        // silently turning this one into a different composition.
+        const auto selectedMelodyPitch = [&] (const Section& section)
+        {
+            std::vector<int> pitches;
+            for (const auto& n : section.notes)
+                if (n.channel == 3) pitches.push_back (n.note);
+            return pitches;
+        };
 
-            applyLock (1, lockChordsLayer);
-            applyLock (2, lockBassLayer);
-            applyLock (3, lockMelodyLayer);
-            applyLock (4, lockArpLayer);
+        const auto beforePitches = selectedMelodyPitch (beforeSafety);
+        const auto afterPitches = selectedMelodyPitch (flat);
+        if (! beforePitches.empty() && ! afterPitches.empty())
+        {
+            int changed = 0;
+            const int comparable = juce::jmin ((int) beforePitches.size(), (int) afterPitches.size());
+            for (int i = 0; i < comparable; ++i)
+                if (beforePitches[(size_t) i] != afterPitches[(size_t) i]) ++changed;
 
-            removeDuplicateNotes (flat.notes);
-            cleanMelodyLine (flat.notes);
-            std::sort (flat.notes.begin(), flat.notes.end(),
-                       [] (const NoteEvent& a, const NoteEvent& b)
-                       {
-                           if (a.step != b.step) return a.step < b.step;
-                           if (a.channel != b.channel) return a.channel < b.channel;
-                           return a.note < b.note;
-                       });
-
-            // Final Forge gate: transformations are valuable only when they
-            // preserve the musical coherence established by the Judge stack.
-            // Keep the pre-finalized form when cleanup materially hurts it.
-            const Section beforeForge = flat;
-            const float beforeForgeScore = loopForgeScore (beforeForge);
-            finalizeLoop (flat);
-            const float afterForgeScore = loopForgeScore (flat);
-            if (afterForgeScore + 0.055f < beforeForgeScore)
-                flat = beforeForge;
-
-            // Safety is outside the Forge rollback. A score regression may undo
-            // a stylistic transform, but it must never undo tonal/register safety.
-            applyMelodyFoundation (flat, transformationSeeds[sourceIndex]);
-            enforceFinalMelodyContract (flat, transformationSeeds[sourceIndex]);
-            removeDuplicateNotes (flat.notes);
-            cleanMelodyLine (flat.notes);
-            std::sort (flat.notes.begin(), flat.notes.end(),
-                       [] (const NoteEvent& a, const NoteEvent& b)
-                       {
-                           if (a.step != b.step) return a.step < b.step;
-                           if (a.channel != b.channel) return a.channel < b.channel;
-                           return a.note < b.note;
-                       });
-
-            result.push_back (std::move (flat));
+            if (comparable > 0 && changed > juce::jmax (2, comparable / 3))
+                flat = beforeSafety;
         }
+
+        result.push_back (std::move (flat));
     }
 
     // Defensive fallback: the bank should never become empty.
