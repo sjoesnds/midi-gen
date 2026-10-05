@@ -29,6 +29,13 @@ namespace
         return x;
     }
 
+    // Genre-free accompaniment texture. This is an internal creative texture family,
+    // selected from generation identity rather than exposed as a named style.
+    static int creativeTextureFamily (uint32_t seed)
+    {
+        return (int) (hash32 (seed ^ 0xC4E7A11Cu) % 8u);
+    }
+
     // Project-state envelope. Legacy states had no header and started directly
     // with rootPc, so a non-matching first word is treated as the legacy format.
     static constexpr int kStateMagic = 0x4D464752; // "MFGR"
