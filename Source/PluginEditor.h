@@ -276,7 +276,7 @@ bool magicPending = false;
 
          g.setColour (juce::Colours::white.withAlpha (0.65f));
          g.setFont (11.0f);
-         const juce::String help = "LMB move/add  Ctrl/Shift=multi-select  drag=group  RMB delete  Ctrl+A  Ctrl+C/V  Ctrl+Z/Y  wheel=scroll  Ctrl+wheel=zoom";
+         const juce::String help = "Click = audition  LMB move/add  Ctrl/Shift multi-select  Alt marquee  RMB delete  Ctrl+C/V  Ctrl+Z/Y  wheel scroll  Shift wheel time  Ctrl wheel zoom";
          g.drawFittedText (help, (int) pianoWidth + 6, getHeight() - 18, getWidth() - (int) pianoWidth - 12, 16,
                            juce::Justification::centredLeft, 1);
 
@@ -323,6 +323,10 @@ bool magicPending = false;
 
          if (hit >= 0)
          {
+              const auto& auditionNote = notes[(size_t) hit];
+              processor.previewNote (auditionNote.note,
+                                     juce::jlimit (1, 127, auditionNote.velocity), 1);
+
              if (modifiers.isCtrlDown())
              {
                  auto it = std::find (selectedIndices.begin(), selectedIndices.end(), hit);
@@ -382,6 +386,7 @@ bool magicPending = false;
              const int note = yToPitch (e.position.y);
              beginEditHistory();
              processor.addVisibleNote (step, note, defaultLengthSteps, 100, selectedChannel);
+              processor.previewNote (note, 100, 1);
              selectedNote = (int) processor.getVisibleNotes().size() - 1;
              selectedIndices = { selectedNote };
              dragMode = DragMode::newNote;
@@ -712,14 +717,16 @@ bool magicPending = false;
      }
 
      void resetView()
-     {
-         viewStartStep = 0;
-         viewLowNote = 36;
-         zoom = 1.0f;
-         repaint();
-     }
+      {
+          viewStartStep = 0;
+          viewLowNote = 36;
+          zoom = 1.0f;
+          lastMouseX = 450.0f;
+          clearSelection();
+          repaint();
+      }
 
-     bool hasSelection() const { return ! selectedIndices.empty(); }
+      bool hasSelection() const { return ! selectedIndices.empty(); }
      int getSelectionCount() const { return (int) selectedIndices.size(); }
 
      void selectBar()
@@ -944,44 +951,39 @@ bool magicPending = false;
      }
 
      void selectPhrase()
-     {
-         const auto notes = processor.getVisibleNotes();
-         int baseStep = viewStartStep;
-         if (selectedNote >= 0 && selectedNote < (int) notes.size())
-             baseStep = notes[(size_t) selectedNote].step;
+      {
+          const auto notes = processor.getVisibleNotes();
+          if (notes.empty())
+          {
+              clearSelection();
+              return;
+          }
 
-         selectedIndices.clear();
-         selectedNote = -1;
+          int baseStep = viewStartStep;
+          const int anchorIndex = selectedNote;
+          if (anchorIndex >= 0 && anchorIndex < (int) notes.size())
+              baseStep = notes[(size_t) anchorIndex].step;
 
-         if (notes.empty())
-         {
-             repaint();
-             updateHistoryButtons();
-             return;
-         }
+          const int phraseStart = (juce::jmax (0, baseStep) / 64) * 64;
+          const int phraseEnd = phraseStart + 64;
+          selectedIndices.clear();
+          selectedNote = -1;
 
-         if (selectedNote >= 0 && selectedNote < (int) notes.size())
-             baseStep = notes[(size_t) selectedNote].step;
-         else
-             baseStep = viewStartStep;
+          for (int i = 0; i < (int) notes.size(); ++i)
+          {
+              const auto& n = notes[(size_t) i];
+              if (n.channel != 5 && n.step >= phraseStart && n.step < phraseEnd)
+                  selectedIndices.push_back (i);
+          }
 
-         const int phraseStart = (juce::jmax (0, baseStep) / 64) * 64;
-         const int phraseEnd = phraseStart + 64;
-         for (int i = 0; i < (int) notes.size(); ++i)
-         {
-             const auto& n = notes[(size_t) i];
-             if (n.channel != 5 && n.step >= phraseStart && n.step < phraseEnd)
-                 selectedIndices.push_back (i);
-         }
+          if (! selectedIndices.empty())
+              selectedNote = selectedIndices.front();
 
-         if (! selectedIndices.empty())
-             selectedNote = selectedIndices.front();
+          updateHistoryButtons();
+          repaint();
+      }
 
-         updateHistoryButtons();
-         repaint();
-     }
-
-     void transposeSelected (int semitones)
+      void transposeSelected (int semitones)
      {
          if (selectedIndices.empty())
              return;
