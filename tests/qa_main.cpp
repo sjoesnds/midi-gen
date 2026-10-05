@@ -436,7 +436,7 @@ int main()
         for (uint32_t seed = 1; seed <= 160; ++seed)
         {
             const auto plan = midiforge::CreativeRange::makePlan (
-                0, 4, 0, 0.70f, 0.65f, seed);
+                0, 4, 0.70f, 0.65f, seed);
 
             languages.insert (
                 std::to_string (plan.contourFamily) + ":"
@@ -535,7 +535,7 @@ int main()
         for (uint32_t seed = 1; seed <= 160; ++seed)
         {
             const auto plan = midiforge::MotifSemantics::makePlan (
-                seed % 8, (int) (seed % 9), (int) (seed % 16),
+                seed % 8, (int) (seed % 9),
                 0.45f + 0.5f * ((float) (seed % 7) / 6.0f),
                 0.35f + 0.6f * ((float) (seed % 5) / 4.0f),
                 seed);
