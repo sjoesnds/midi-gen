@@ -14,7 +14,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.85.5"
+#define MIDIFORGE_ENGINE_VERSION "0.85.6"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -282,6 +282,7 @@ struct Candidate
     float phraseArc = 0.5f;
     float tension = 0.5f;
     float development = 0.5f;
+    float characterFit = 0.5f;   // 0.85.6: how closely the candidate expresses its latent character
     IdeaFingerprint idea {};
 };
 
