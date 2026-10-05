@@ -25,6 +25,8 @@ juce_add_plugin(MidiForge
 target_sources(MidiForge PRIVATE
     Source/PluginProcessor.cpp
     Source/MidiForgeMidiIO.cpp
+    Source/MidiForgeState.cpp
+    Source/MidiForgeTaste.cpp
     Source/PluginProcessor.h
     Source/RhythmGrammar.cpp
     Source/RhythmGrammar.h
