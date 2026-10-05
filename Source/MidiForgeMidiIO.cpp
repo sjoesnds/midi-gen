@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 
+#include <algorithm>
+#include <cmath>
+
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForDrumRow(int row) const
 {
     auto file=juce::File::getSpecialLocation(juce::File::tempDirectory)
