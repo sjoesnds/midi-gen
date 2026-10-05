@@ -1,58 +1,59 @@
 # Melody Pipeline Contract
 
-This document defines the active melody-generation ownership rules for the 0.86.x development cycle.
+This document defines the active melody-generation ownership rules for the 0.95.x development cycle.
 
 ## Core rule
 
-There is one musical author, with a small number of explicitly scoped development/safety stages:
+There is one authored melody identity. Musical stages must refine, validate, transform, or rank that identity; they must not create a hidden competing melody.
 
-1. **addMelody() is the primary melody author.**
-   It chooses the melodic language, rhythm vocabulary, interval language, register journey, complexity class, motif vocabulary, and tonal context.
+1. **MelodyIntent + addMelody() own authorship.**
+   MelodyIntent defines the coherent language, phrase grammar, motif vocabulary, complexity class, register intent, rhythm language and tonal context. addMelody() realizes that plan as the base MIDI line.
 
-2. **applyMotifDevelopment() and applyMotifSemantics() are the phrase-development authors.**
-   They may reshape a complete phrase because their responsibility is contextual A / A' / B / A'' development. They must remain coherent with the melodic language already selected by addMelody().
+2. **Phrase memory is contextual development, not a second generator.**
+   A / A' / B / A'' development may reuse contour and rhythmic gestures from the existing phrase. B may contrast; A' and A'' may remember. The development layer cannot replace the whole idea with an unrelated melody.
 
-3. **Harmony and prosody are constrained corrections, not replacement composers.**
-   applyMelodicProsody() assigns note roles, velocity, and sustain shape; it is pitch-neutral.
-   applyHarmonicIntelligence() supplies limited chord gravity and anticipation only for structurally important non-chord tones.
-   Neither may replace the whole contour with a generic arpeggio language.
+3. **Harmony, prosody and sound profiles are constrained context.**
+   They may pull notes toward active scale/chord tones, shape articulation, sustain, density and register, or protect instrument-specific contracts. They cannot become independent melody authors.
 
-4. **applyMelodyFoundation() is safety only.**
-   It protects scale, register, and leap contracts. It must not decide the musical idea.
+4. **Foundation / final contract are safety only.**
+   Scale validity, MIDI bounds, register ceiling and leap limits are hard invariants. Safety code must not invent a musical style.
 
-5. **repairLocalMelodyQuality() is repair only.**
-   It may fix a severe local transition, but only when the local quality measurably improves.
+5. **Judge / Taste ML only rank.**
+   Composer Judge, local quality metrics, Creative Range scoring and Taste ML evaluate candidates. They must not rewrite MIDI or mutate generation controls. Taste ML may change ranking, not authorship.
 
-6. **applyLoopClosure() owns only the loop ending.**
-   It may shape the final destination note/gesture, not rewrite the phrase.
+6. **Variation transforms are explicit post-selection thoughts.**
+   The eight final slots are Original, Close, Rhythmic, Contrast, Register, Motif, Experimental and Wildcard. Each transform changes a defined musical dimension while remaining anchored to the selected source idea.
 
-7. **Judge/score functions never rewrite MIDI.**
-   Quality systems such as Composer Judge, local quality, rhythm quality, character fit, memorability, and creative-range scores evaluate candidates and influence selection.
+7. **Humanize is outside authored generation.**
+   LIVE HUMANIZE is a playback/performance layer. Piano Roll HUMANIZE is an explicit MIDI edit. Neither may silently alter the authored generation used for ranking or deterministic QA.
 
 8. **Candidate flattening is pitch-neutral.**
-   Candidate search may vary timing, length, velocity, and other presentation details, but it must not inject an independent random pitch author after the melody has been generated.
+   Flattening and selection may change presentation/timing details only. They must not inject an independent random pitch author.
 
-9. **Variation transforms happen after candidate selection.**
-   transformLoop() is allowed to create explicit final variations. Those transformations are not part of the base melody authoring pipeline.
+9. **Piano Roll edits are user-authored state.**
+   Manual edits are stored in the selected variation, participate in undo/redo and REVERT, and are persisted in project state v3.
 
 ## Removed anti-patterns
 
-The following patterns are intentionally not part of the active candidate pipeline:
+The following patterns are intentionally not part of the active pipeline:
 
 - a second full melody rewrite after addMelody();
-- one-per-archetype candidate selection used as a proxy for musical diversity;
-- independent random pitch mutations in flatten();
-- redundant pleasantness/expression/memory passes that rewrite the melody while a newer stage already owns the same responsibility;
-- dead phrase-rewriter functions left in the repository after their call sites are removed.
+- independent random pitch authors hidden inside judges, repairs or flattening;
+- using Taste feedback to rewrite Density / Energy / Complexity controls;
+- one-per-archetype selection as a proxy for musical diversity;
+- cosmetic variations that apply multiple unrelated transforms just to make MIDI different;
+- generation-time Humanize that changes the MIDI identity;
+- stale phrase rewriters or compatibility layers whose call sites no longer exist.
 
 ## Change gate for future work
 
-Before adding a new melody-generation system, answer these questions in code review:
+Before adding any generation-related system, answer:
 
-- Which existing stage owns this musical decision today?
-- Is the new stage an author, a constrained correction, a safety gate, a transformation, or a judge?
-- Does it rewrite pitch that another stage already owns?
-- Can its purpose be achieved by improving the existing owner instead?
-- What QA assertion proves the new behavior is actually exercised?
+- Which existing stage owns this musical decision?
+- Is the new code authoring, contextual development, correction, safety, transformation, or ranking?
+- Does it rewrite pitch another stage already owns?
+- Can the change be made inside the existing owner instead?
+- Which deterministic QA assertion proves the behavior is exercised?
+- Does the change preserve clean MIDI determinism when Humanize is disabled?
 
-If a new system cannot have a unique answer to those questions, it should not be added as another generation layer.
+If the answer is not unique, the new system should not be added as another melody engine.
