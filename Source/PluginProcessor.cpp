@@ -8599,8 +8599,9 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
                             delta += (delta > 0 ? 1 : -1);
                         n.step = juce::jlimit(0, juce::jmax(0, flat.bars*16-1), n.step + delta);
                     }
-                    if(mode >= 19u && mode < 23u)
-                        n.note = foldIntoLane(snapToScale(n.note + (((h>>9)&1u) ? 4 : -4)), mLo, mHi);
+                    // Pitch is authored by addMelody() and its dedicated phrase stages.
+                    // Candidate flattening may vary timing/length/dynamics, but never
+                    // injects a second random pitch author.
                     if(mode >= 23u && mode < 27u && n.length > 2)
                         n.length = juce::jmax(2, n.length - (int)(h % 4u));
                     if(mode >= 27u && mode < 31u)
@@ -8614,9 +8615,9 @@ MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongDat
                         else if(accident == 1)
                             n.length = juce::jmax(1, n.length - 2);
                         else if(accident == 2)
-                            n.note = foldIntoLane(snapToScale(n.note + 5), mLo, mHi);
+                            n.velocity = juce::jlimit(35, 118, n.velocity + 6);
                         else if(accident == 3)
-                            n.note = foldIntoLane(snapToScale(n.note - 5), mLo, mHi);
+                            n.velocity = juce::jlimit(35, 118, n.velocity - 6);
                         else
                             n.velocity = juce::jlimit(35, 118, n.velocity + 9);
                     }
