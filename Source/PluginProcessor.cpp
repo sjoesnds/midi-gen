@@ -11544,6 +11544,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
             flat.sourceArchetype = selected[sourceIndex].archetype;
             flat.transformMode = mode;
+            // Preserve the latent melodic character through final transformations.
+            flat.melodyCharacter = selected[sourceIndex].section.melodyCharacter;
             flat.name = "VARIATION " + juce::String (mode + 1)
                       + " • " + juce::String (transformationNames[mode]);
 
