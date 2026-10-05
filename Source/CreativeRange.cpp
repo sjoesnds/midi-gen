@@ -212,35 +212,35 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     switch (safeMood)
     {
         case 1: // Dark
-            p.space = 0.62f; p.leapBias = 0.54f; p.repetition = 0.64f;
+            p.leapBias = 0.54f; p.repetition = 0.64f;
             p.novelty = 0.54f; p.asymmetry = 0.62f; p.durationContrast = 0.68f;
             break;
         case 2: // Melancholic
-            p.space = 0.72f; p.leapBias = 0.24f; p.repetition = 0.72f;
+            p.leapBias = 0.24f; p.repetition = 0.72f;
             p.novelty = 0.40f; p.asymmetry = 0.34f; p.durationContrast = 0.78f;
             break;
         case 3: // Euphoric
-            p.space = 0.32f; p.leapBias = 0.40f; p.repetition = 0.50f;
+            p.leapBias = 0.40f; p.repetition = 0.50f;
             p.novelty = 0.62f; p.asymmetry = 0.50f; p.durationContrast = 0.54f;
             break;
         case 4: // Aggressive
-            p.space = 0.28f; p.leapBias = 0.72f; p.repetition = 0.42f;
+            p.leapBias = 0.72f; p.repetition = 0.42f;
             p.novelty = 0.72f; p.asymmetry = 0.78f; p.durationContrast = 0.44f;
             break;
         case 5: // Dreamy
-            p.space = 0.80f; p.leapBias = 0.20f; p.repetition = 0.62f;
+            p.leapBias = 0.20f; p.repetition = 0.62f;
             p.novelty = 0.46f; p.asymmetry = 0.28f; p.durationContrast = 0.86f;
             break;
         case 6: // Nostalgic
-            p.space = 0.58f; p.leapBias = 0.28f; p.repetition = 0.76f;
+            p.leapBias = 0.28f; p.repetition = 0.76f;
             p.novelty = 0.34f; p.asymmetry = 0.24f; p.durationContrast = 0.60f;
             break;
         case 7: // Mysterious
-            p.space = 0.70f; p.leapBias = 0.52f; p.repetition = 0.48f;
+            p.leapBias = 0.52f; p.repetition = 0.48f;
             p.novelty = 0.68f; p.asymmetry = 0.72f; p.durationContrast = 0.74f;
             break;
         case 8: // Energetic
-            p.space = 0.24f; p.leapBias = 0.58f; p.repetition = 0.46f;
+            p.leapBias = 0.58f; p.repetition = 0.46f;
             p.novelty = 0.70f; p.asymmetry = 0.68f; p.durationContrast = 0.46f;
             break;
         default:
