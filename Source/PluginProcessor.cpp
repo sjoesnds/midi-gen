@@ -197,7 +197,6 @@ void MidiForgeAudioProcessor::dislikeAndAdvance()
     if (vi + 1 < count) chooseVariation(vi + 1);
     else magicRandomize();
 }
-void MidiForgeAudioProcessor::setEra(int v){era=juce::jlimit(0,5,v);regenerate();}
 void MidiForgeAudioProcessor::setProgression(int v){progression=juce::jlimit(0,6,v);regenerate();}
 void MidiForgeAudioProcessor::setRhythm(int v){rhythm=juce::jlimit(0,3,v);regenerate();}
 void MidiForgeAudioProcessor::setBars(int v){bars=juce::jlimit(1,16,v);regenerate();}
@@ -2764,9 +2763,6 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const float typeDensity[] = {.04f,-.10f,.06f,-.08f,.12f,-.04f,-.18f,.02f};
     const float typeLeap[]    = {.02f,.04f,.18f,-.02f,.08f,.12f,.06f,.10f};
     const float typeMotif[]   = {.16f,.12f,.10f,.18f,.04f,.08f,.14f,.10f};
-    const float eraSync[] = {-.05f,.02f,.08f,.12f,.16f,.20f};
-    const float eraSpace[] = {.02f,-.02f,.02f,-.01f,.02f,.04f};
-    const float eraNovelty[] = {.04f,.02f,.06f,.08f,.12f,.16f};
     const float roleSpace = typeSpace[juce::jlimit(0,7,melodyType)];
     const float roleDensity = typeDensity[juce::jlimit(0,7,melodyType)];
     const float roleLeap = typeLeap[juce::jlimit(0,7,melodyType)];
@@ -2794,7 +2790,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     // Generation identity is part of the musical seed.  Previously the melody
     // seed used to depend on narrow style state, so repeated GENERATE calls could rebuild the
     // exact same melody when the UI seed was unchanged.
-    dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + eraSpace[juce::jlimit(0,5,era)]);
+    // Era is no longer a musical control. Keep one fixed modern context under the hood.
+    constexpr float kModernSpaceBias = 0.04f;
+    dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + kModernSpaceBias);
     dnaLeap = juce::jlimit(0.0f, 1.0f, dnaLeap + moodLeap + roleLeap);
     dnaDensity = juce::jlimit(0.0f, 1.0f, dnaDensity + moodDensity + roleDensity);
     dnaMotif = juce::jlimit(0.0f, 1.0f, dnaMotif + roleMotif);
@@ -3150,7 +3148,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
         + 0.34f * ((float)tensionProfile / 7.0f)
         + 0.18f * moodTension
         + 0.12f * dnaSurprise
-        + 0.08f * ((float)eraNovelty[juce::jlimit(0,5,era)])
+        + 0.08f * 0.16f // fixed modern melodic context (20s)
         + 0.10f * dnaLeap
         + 0.08f * (composerState.tension - 0.50f));
 
@@ -9213,8 +9211,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // a random-note button.
     ++generationNonce;
     const uint32_t uiSeed = static_cast<uint32_t>(seed);
-    const uint32_t nonce = generationNonce * 0x9e3779b9u;
-    generationSeed = uiSeed ^ nonce ^ 0xA53C9E71u;
+    // User Seed is the musical identity. Generation nonce remains a UI/runtime
+    // counter only; it must never make the same Seed produce different music.
+    generationSeed = uiSeed ^ 0xA53C9E71u;
 
     auto hash32 = [](uint32_t x)
     {
@@ -10770,7 +10769,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     static constexpr int barChoices[] = {1,2,4,8,16};
     bars = barChoices[pick(5)];
     { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
-    era = pick(6);
+    era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
     swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
     humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
@@ -11538,7 +11537,7 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     o.writeFloat(motifStrength);o.writeFloat(variationAmount);o.writeFloat(fillAmount);o.writeFloat(energy);
     o.writeBool(chordsEnabled);o.writeBool(bassEnabled);o.writeBool(melodyEnabled);o.writeBool(arpEnabled);o.writeBool(hookMode);
     o.writeInt(selectedVariation);
-    o.writeInt(mood);o.writeInt(melodyType);o.writeInt(era);
+    o.writeInt(mood);o.writeInt(melodyType);o.writeInt(5); // legacy Era slot, fixed to 20s
     o.writeInt(soundTarget);
     o.writeInt(articulation);o.writeInt(autoNextOnDislike?1:0);
     o.writeInt(chordStyle);o.writeInt(drumsEnabled?1:0);
@@ -11614,7 +11613,10 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
 
     if (i.getNumBytesRemaining() >= 4) readIntClamped(mood,0,8);
     if (i.getNumBytesRemaining() >= 4) readIntClamped(melodyType,0,7);
-    if (i.getNumBytesRemaining() >= 4) readIntClamped(era,0,5);
+    // Legacy project states stored Era here. Parse it to keep the byte layout
+    // compatible, then intentionally discard it in favour of the fixed 20s context.
+    if (i.getNumBytesRemaining() >= 4) { int legacyEra = 5; readIntClamped(legacyEra,0,5); }
+    era = 5;
     if (i.getNumBytesRemaining() >= 4) readIntClamped(soundTarget,0,7);
     if (i.getNumBytesRemaining() >= 8)
     {
