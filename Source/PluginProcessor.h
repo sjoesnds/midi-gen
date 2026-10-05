@@ -52,6 +52,9 @@ bool producesMidi() const override { return true; }
 bool isMidiEffect() const override { return false; }
 double getTailLengthSeconds() const override { return 0.0; }
 double getHostBpm() const { return currentBpm.load(); }
+#ifdef MIDIFORGE_HEADLESS
+void setTestHostBpm (double bpm) { currentBpm.store (juce::jlimit (40.0, 240.0, bpm)); }
+#endif
 int getNumPrograms() override { return 1; }
 int getCurrentProgram() override { return 0; }
 void setCurrentProgram(int) override {}
