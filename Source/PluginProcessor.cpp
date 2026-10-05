@@ -2769,7 +2769,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const bool hook = hookMode;
 
     // 0.22 Phrase Memory + Humanization: Musical DNA is coordinated across open-ended creative axes.
-    // dimension; mood, melody role and era alter the composition language too.
+    // dimension; mood, melody role and energy/complexity shape the composition language.
     float moodSpace = 0.0f, moodLeap = 0.0f, moodDensity = 0.0f, moodTension = 0.0f;
     switch (mood)
     {
@@ -9766,8 +9766,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality += 0.20f * adaptiveFit;
         }
 
-        // Hybrid DNA 1.0: combine creative context + Mood + Era + Melody Type into one
-        // coherent target fingerprint. Each axis contributes softly, so no single
+        // Hybrid DNA 1.0: combine creative context + Mood + Melody Type into one
+        // coherent target fingerprint. The historical Era axis is intentionally fixed to the modern (20s) context.
+        // Each remaining axis contributes softly, so no single
         // preset can collapse the search into one exact pattern.
         float hybridLeap = 0.30f, hybridRhythm = 0.48f, hybridMotif = 0.48f;
         float hybridSurprise = 0.30f, hybridRepeat = 0.50f;
@@ -9787,10 +9788,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
             case PhraseMelody: hybridRhythm -= .16f; hybridRepeat -= .08f; break;
             default: break;
         }
-        // Era is deliberately a small modifier, not a historical stereotype.
-        hybridSurprise += (era - 2.5f) * .018f;
-        hybridRhythm += (era < 2 ? -.04f : (era > 3 ? .05f : 0.0f));
-        hybridLeap += (era > 3 ? .025f : -.01f);
+        // Fixed modern context (20s), kept only as a subtle internal bias.
+        hybridSurprise += 0.045f;
+        hybridRhythm += 0.05f;
+        hybridLeap += 0.025f;
         hybridLeap = juce::jlimit(.05f,.90f,hybridLeap);
         hybridRhythm = juce::jlimit(.05f,.90f,hybridRhythm);
         hybridMotif = juce::jlimit(.05f,.90f,hybridMotif);
