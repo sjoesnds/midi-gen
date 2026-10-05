@@ -419,8 +419,8 @@ int main()
 
     // ------------------------------------------------------------------ 0. Creative Range
     {
-        const auto a = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
-        const auto b = midiforge::CreativeRange::makePlan (0, 4, 0, 0.70f, 0.65f, 123456u);
+        const auto a = midiforge::CreativeRange::makePlan (0, 4, 0.70f, 0.65f, 123456u);
+        const auto b = midiforge::CreativeRange::makePlan (0, 4, 0.70f, 0.65f, 123456u);
 
         const bool deterministic =
             a.contourFamily == b.contourFamily
@@ -517,9 +517,9 @@ int main()
         };
 
         const auto a = midiforge::MotifSemantics::makePlan (
-            0, 4, 0, 0.70f, 0.65f, 991234u);
+            0, 4, 0.70f, 0.65f, 991234u);
         const auto b = midiforge::MotifSemantics::makePlan (
-            0, 4, 0, 0.70f, 0.65f, 991234u);
+            0, 4, 0.70f, 0.65f, 991234u);
         const bool deterministic =
             a.rhythmicCore == b.rhythmicCore
             && a.intervalCore == b.intervalCore
@@ -821,9 +821,9 @@ int main()
     // ------------------------------------------------------------------ 0c. Cadence & Loop Closure 2.0
     {
         const auto a = midiforge::LoopClosure::makePlan (
-            0, 4, 0, 0.70f, 0.65f, 775533u);
+            0, 4, 0.70f, 0.65f, 775533u);
         const auto b = midiforge::LoopClosure::makePlan (
-            0, 4, 0, 0.70f, 0.65f, 775533u);
+            0, 4, 0.70f, 0.65f, 775533u);
 
         const bool deterministic =
             a.bridgeStyle == b.bridgeStyle
@@ -839,7 +839,6 @@ int main()
             const auto plan = midiforge::LoopClosure::makePlan (
                 (int) (seed % 8),
                 (int) (seed % 9),
-                (int) (seed % 16),
                 0.40f + 0.55f * ((float) (seed % 11) / 10.0f),
                 0.30f + 0.65f * ((float) (seed % 9) / 8.0f),
                 seed);
@@ -1638,11 +1637,11 @@ int main()
     // ------------------------------------------------------------------ 2f. Composer Grammar 0.70
     {
         const auto p4 = midiforge::ComposerGrammar::makePlan (
-            16, 0.72f, 0.66f, 0, 4, 0, 0x12345678u);
+            16, 0.72f, 0.66f, 0, 4, 0x12345678u);
         const auto p12 = midiforge::ComposerGrammar::makePlan (
-            12, 0.70f, 0.62f, 0, 4, 0, 0x12345678u);
+            12, 0.70f, 0.62f, 0, 4, 0x12345678u);
         const auto p4b = midiforge::ComposerGrammar::makePlan (
-            16, 0.72f, 0.66f, 0, 4, 0, 0x9abcdef0u);
+            16, 0.72f, 0.66f, 0, 4, 0x9abcdef0u);
 
         const bool fourBarArc =
             p4.phrases.size() == 4
