@@ -3099,10 +3099,22 @@ int main()
             && (std::abs (b - a) >= 0.75 || counts[2] != counts[0])
             && (std::abs (ap - a) >= 0.25 || counts[1] != counts[0]);
 
-        const int sharedAPBits = __builtin_popcount ((unsigned) (rhythmA & rhythmAP));
-        const int sharedBBits = __builtin_popcount ((unsigned) (rhythmA & rhythmB));
-        const int sharedAPPBits = __builtin_popcount ((unsigned) (rhythmA & rhythmAPP));
-        const int rhythmABits = __builtin_popcount ((unsigned) rhythmA);
+        const auto bitCount = [] (int value)
+        {
+            int count = 0;
+            unsigned v = (unsigned) value;
+            while (v != 0u)
+            {
+                v &= v - 1u;
+                ++count;
+            }
+            return count;
+        };
+
+        const int sharedAPBits = bitCount (rhythmA & rhythmAP);
+        const int sharedBBits = bitCount (rhythmA & rhythmB);
+        const int sharedAPPBits = bitCount (rhythmA & rhythmAPP);
+        const int rhythmABits = bitCount (rhythmA);
 
         const bool rhythmicMemory =
             rhythmABits >= 2
