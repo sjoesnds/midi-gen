@@ -2583,9 +2583,9 @@ int main()
             behaviorSignatures.insert (sig);
         }
 
-        // Candidate search creates one candidate per native archetype, and the
-        // current bank keeps one candidate per archetype. Their rotated latent
-        // characters therefore form eight distinct families in every bank.
+        // Candidate search no longer depends on one-per-archetype buckets.
+        // The active generator owns melodic language; character diversity and the
+        // final bank gate must therefore be measured from the resulting music.
         report ("melody character diversity: bank keeps all distinct latent families",
                 a.getVariationCount() == 8 && characters.size() == 8,
                 fmt ("%.0f distinct characters across %.0f variations",
