@@ -21,10 +21,6 @@ inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 class MidiForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
-enum Genre {
-    Universal, Trap, House, Techno, BoomBap, Ambient, Cinematic,
-    RnB, GenrePop, Drill, DnB, Jersey, Afro, Hyperpop, Experimental, Lofi
-};
 enum ScaleType { Major, Minor, Dorian, Phrygian, HarmonicMinor, MelodicMinor, Pentatonic, Lydian, Mixolydian, Locrian, HarmonicMajor, Blues };
 enum Progression { AutoProg, Pop, Dark, Emotional, CinematicProg, JazzLike, Looping };
 enum Rhythm { Straight, Syncopated, Broken, Euclidean };
@@ -88,7 +84,7 @@ int similarToSelected();
 void chooseVariation(int index);
 bool exportMidi(const juce::File& targetFile) const;
 // Main controls
-void setRoot(int); void setGenre(int); void setScale(int);
+void setRoot(int); void setScale(int);
 void setMood(int); void setMelodyType(int); void setEra(int);
 void setProgression(int); void setRhythm(int); void setBars(int);
 void setSeed(int); void setOctave(int); void setSectionMode(int);
@@ -117,7 +113,6 @@ bool getLockMelody() const { return lockMelodyLayer; }
 bool getLockArp() const    { return lockArpLayer; }
 int getRoot() const { return rootPc; }
 int snapPitchToScale (int midi) const { return snapToScale (midi); }
-int getGenre() const { return genre; }
 int getScale() const { return scale; }
 int getProgression() const { return progression; }
 int getRhythm() const { return rhythm; }
@@ -356,7 +351,7 @@ int activeBars = 4;
 std::shared_ptr<const std::vector<NoteEvent>> activeNotesSnapshot;
 std::atomic<int> activeBarsSnapshot { 4 };
 double sampleRate = 44100.0;
-int rootPc = 0, genre = Universal, scale = Minor, progression = AutoProg;
+int rootPc = 0, scale = Minor, progression = AutoProg;
 int mood = NeutralMood, melodyType = HookMelody, era = 5;
 int soundTarget = 0; // 0 Piano, 1 Pluck, 2 Synth Lead, 3 Bell, 4 Pad/Strings, 5 Brass, 6 808/Sub Lead, 7 Guitar
 int chordStyle = 0;
