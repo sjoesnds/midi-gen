@@ -11320,9 +11320,22 @@ void MidiForgeAudioProcessor::buildVariationBank()
         if (localMelodyQuality < 0.30f)
             quality -= 0.10f * (0.30f - localMelodyQuality);
         const float pleasantness = melodyPleasantnessScore (flat);
-        quality += 0.24f * pleasantness;
+        // 0.86.x: pleasantness is now a soft safety preference, not a dominant
+        // musical preference. Otherwise stepwise / polite candidates can beat
+        // more memorable but slightly rougher ideas.
+        quality += 0.17f * pleasantness;
         if (pleasantness < 0.48f)
-            quality -= 0.12f * (0.48f - pleasantness);
+            quality -= 0.08f * (0.48f - pleasantness);
+
+        // Explicit memorability gate. This is intentionally orthogonal to
+        // pleasantness: a strong idea should survive even when it is not bland.
+        const float memorability = juce::jlimit (
+            0.0f, 1.0f,
+            0.34f * f.hook
+            + 0.30f * f.motifIdentity
+            + 0.20f * f.phraseMemory
+            + 0.16f * f.rhythmIdentity);
+        quality += 0.12f * memorability;
 
         // Archetype-specific focus: the generic judge remains dominant, while
         // this pass makes sure each creative route gets a meaningful chance.
@@ -11359,7 +11372,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float archetypeTargetsSpace[8]   = { .42f, .28f, .44f, .40f, .84f, .34f, .46f, .48f };
         archetypeFit += 0.14f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.density - archetypeTargetsDensity[archetype])));
         archetypeFit += 0.12f * (1.0f - juce::jlimit (0.0f, 1.0f, std::abs (f.space - archetypeTargetsSpace[archetype])));
-        quality += 0.19f * juce::jlimit (0.0f, 1.0f, archetypeFit);
+        // Archetype should open a creative route, not overwhelm the
+        // shared musical-quality judge.
+        quality += 0.15f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
         {
             const IdeaFingerprint idea = makeIdeaFingerprint (flat);
