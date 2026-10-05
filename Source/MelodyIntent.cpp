@@ -140,10 +140,14 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     intent.dnaMotif = std::clamp (intent.dnaMotif + intent.character.motifBias, 0.0f, 1.0f);
     intent.dnaRegister = std::clamp (intent.dnaRegister + intent.character.registerBias, 0.0f, 1.0f);
 
+    // 0.87 Fundamental Musicality:
+    // simple is a first-class output mode, not a low-complexity afterthought.
+    // Keep enough complex material for contrast, but bias the bank toward
+    // memorable 2-4 gesture phrases at ordinary complexity settings.
     intent.simpleProbability =
-        0.46f - 0.16f * c;
+        0.58f - 0.20f * c;
     intent.complexProbability =
-        0.10f + 0.17f * c;
+        0.11f + 0.15f * c;
 
     switch (intent.nativeArchetype)
     {
