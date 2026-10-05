@@ -2803,6 +2803,11 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const float complexProbability = melodyIntent.complexProbability;
 
     const auto composerState = composerPlan.stateFor (barOffset / 4);
+    const int phraseStyle = melodyIntent.phraseStyle;
+    const int intervalLanguage = melodyIntent.intervalLanguage;
+    const int tensionProfile = melodyIntent.tensionProfile;
+    const int registerProfile = melodyIntent.registerProfile;
+    const int rhythmicLanguage = melodyIntent.rhythmicLanguage;
 
     s.melodyCharacter = melodyCharacter;
 
@@ -2823,29 +2828,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     melodyCoreLane (melLo, melHi);
     const auto prof = soundProfileFor(soundTarget);
     const bool sparseAllowed = (melodyType == SparseLeadMelody);
-    // 0.83.0 Simple / Medium / Complex: complexity is now a real
-    // composition class instead of a binary "simple vs everything else".
-    // The middle class remains the default because most useful melodies live
-    // there; Complex is a minority language, while archetypes bias the odds.
-    float simpleProbability = 0.46f - 0.16f * juce::jlimit (0.0f, 1.0f, complexity);
-    float complexProbability = 0.10f + 0.17f * juce::jlimit (0.0f, 1.0f, complexity);
-    switch (nativeArchetype)
-    {
-        case 0: simpleProbability += 0.03f; complexProbability -= 0.02f; break; // HOOK
-        case 1: simpleProbability -= 0.01f; break; // GROOVE
-        case 2: simpleProbability += 0.01f; break; // HARMONY
-        case 3: simpleProbability += 0.05f; complexProbability -= 0.02f; break; // MOTIF
-        case 4: simpleProbability += 0.13f; complexProbability -= 0.06f; break; // MINIMAL
-        case 5: simpleProbability -= 0.10f; complexProbability += 0.10f; break; // WEIRD
-        case 6: simpleProbability += 0.04f; break; // EMOTIONAL
-        default: complexProbability += 0.03f; break; // WILDCARD
-    }
-
-    simpleProbability = juce::jlimit (0.18f, 0.68f, simpleProbability);
-    complexProbability = juce::jlimit (0.08f, 0.38f, complexProbability);
-    if (simpleProbability + complexProbability > 0.90f)
-        complexProbability = juce::jmax (0.08f, 0.90f - simpleProbability);
-
+    // 0.86.2 Complexity class comes from the unified Melody Intent.
     // 0.86 Unified Melody Intent: choose the complexity class once per loop,
     // then keep that decision through every bar and every downstream safety/judge stage.
     // The loopSeed is stable across bars; using identitySeed here would silently
