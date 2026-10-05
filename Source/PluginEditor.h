@@ -257,3 +257,1116 @@ bool magicPending = false;
                                          i == selectedNote ? 1.8f : 1.1f);
              }
          }
+
+         const int playStep = processor.getVisiblePlayheadStep();
+         if (playStep >= startStep && playStep < startStep + visibleSteps)
+         {
+             const float px = contentX + (float) (playStep - startStep) * stepW;
+             g.setColour (juce::Colours::white.withAlpha (0.78f));
+             g.fillRect (px, 0.0f, juce::jmax (1.5f, stepW * 0.25f), (float) getHeight());
+         }
+
+         if (dragMode == DragMode::marquee)
+         {
+             g.setColour (juce::Colours::white.withAlpha (0.18f));
+             g.fillRect (marqueeRect);
+             g.setColour (juce::Colours::white.withAlpha (0.85f));
+             g.drawRect (marqueeRect, 1.0f);
+         }
+
+         g.setColour (juce::Colours::white.withAlpha (0.65f));
+         g.setFont (11.0f);
+         const juce::String help = "LMB move/add  Ctrl/Shift=multi-select  drag=group  RMB delete  Ctrl+A  Ctrl+C/V  Ctrl+Z/Y  wheel=scroll  Ctrl+wheel=zoom";
+         g.drawFittedText (help, (int) pianoWidth + 6, getHeight() - 18, getWidth() - (int) pianoWidth - 12, 16,
+                           juce::Justification::centredLeft, 1);
+
+         const juce::String layer = "ADD: " + channelName (selectedChannel);
+         g.setColour (juce::Colours::black.withAlpha (0.65f));
+         g.fillRoundedRectangle (contentX + 6.0f, 6.0f, 100.0f, 20.0f, 5.0f);
+         g.setColour (juce::Colours::white.withAlpha (0.9f));
+         g.drawText (layer, (int) contentX + 10, 8, 92, 16, juce::Justification::centred, false);
+     }
+
+     void mouseDown (const juce::MouseEvent& e) override
+     {
+         grabKeyboardFocus();
+         const auto modifiers = e.mods;
+
+         if (e.mods.isRightButtonDown())
+         {
+             const int hit = hitTestNote (e.position);
+             if (hit >= 0)
+             {
+                 beginEditHistory();
+                 if (isSelectedIndex (hit) && selectedIndices.size() > 1)
+                 {
+                     auto notes = processor.getVisibleNotes();
+                     std::vector<MidiForgeAudioProcessor::VisibleNote> keep;
+                     keep.reserve (notes.size());
+                     for (int i = 0; i < (int) notes.size(); ++i)
+                         if (! isSelectedIndex (i)) keep.push_back (notes[(size_t) i]);
+                     processor.replaceVisibleNotes (keep);
+                 }
+                 else
+                     processor.deleteVisibleNote (hit);
+                 commitEditHistory();
+                 clearSelection();
+             }
+             return;
+         }
+
+         if (! e.mods.isLeftButtonDown())
+             return;
+
+         const int hit = hitTestNote (e.position);
+         const auto notes = processor.getVisibleNotes();
+
+         if (hit >= 0)
+         {
+             if (modifiers.isCtrlDown())
+             {
+                 auto it = std::find (selectedIndices.begin(), selectedIndices.end(), hit);
+                 if (it == selectedIndices.end()) selectedIndices.push_back (hit);
+                 else selectedIndices.erase (it);
+                 selectedNote = hit;
+                 dragMode = DragMode::none;
+             }
+             else if (modifiers.isShiftDown() && selectedNote >= 0)
+             {
+                 const int a = juce::jmin (selectedNote, hit);
+                 const int b = juce::jmax (selectedNote, hit);
+                 selectedIndices.clear();
+                 for (int i = a; i <= b && i < (int) notes.size(); ++i)
+                     if (notes[(size_t) i].channel != 5) selectedIndices.push_back (i);
+                 dragMode = DragMode::none;
+             }
+             else
+             {
+                 if (! isSelectedIndex (hit))
+                     selectedIndices = { hit };
+                 selectedNote = hit;
+                 dragMode = isResizeHit (e.position, notes[(size_t) hit]) ? DragMode::resize : DragMode::move;
+             }
+
+             if (dragMode != DragMode::none)
+             {
+                 beginEditHistory();
+                 dragStartSelection.clear();
+                 dragStartNotes.clear();
+                 for (const int index : selectedIndices)
+                     if (index >= 0 && index < (int) notes.size())
+                     {
+                         dragStartSelection.push_back (index);
+                         dragStartNotes.push_back (notes[(size_t) index]);
+                     }
+                 if (selectedNote >= 0 && selectedNote < (int) notes.size())
+                     dragStartNote = notes[(size_t) selectedNote];
+             }
+         }
+         else
+         {
+             if (modifiers.isAltDown())
+             {
+                 clearSelection();
+                 dragMode = DragMode::marquee;
+                 dragStartSelection.clear();
+                 dragStartNotes.clear();
+                 marqueeRect = { e.position.x, e.position.y, 0.0f, 0.0f };
+                 dragOrigin = e.position;
+                 repaint();
+                 return;
+             }
+
+             selectedIndices.clear();
+             const int step = snapStep (xToStep (e.position.x));
+             const int note = yToPitch (e.position.y);
+             beginEditHistory();
+             processor.addVisibleNote (step, note, defaultLengthSteps, 100, selectedChannel);
+             selectedNote = (int) processor.getVisibleNotes().size() - 1;
+             selectedIndices = { selectedNote };
+             dragMode = DragMode::newNote;
+             dragStartNote = { step, defaultLengthSteps, note, 100, selectedChannel };
+             dragStartSelection = { selectedNote };
+             dragStartNotes = { dragStartNote };
+         }
+
+         dragOrigin = e.position;
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void mouseDrag (const juce::MouseEvent& e) override
+     {
+         if (dragMode == DragMode::marquee)
+         {
+             const float x0 = juce::jmin (dragOrigin.x, e.position.x);
+             const float y0 = juce::jmin (dragOrigin.y, e.position.y);
+             const float x1 = juce::jmax (dragOrigin.x, e.position.x);
+             const float y1 = juce::jmax (dragOrigin.y, e.position.y);
+             marqueeRect = juce::Rectangle<float> (x0, y0, x1 - x0, y1 - y0);
+
+             const auto notes = processor.getVisibleNotes();
+             selectedIndices.clear();
+             for (int i = 0; i < (int) notes.size(); ++i)
+             {
+                 const auto& n = notes[(size_t) i];
+                 if (n.channel == 5) continue;
+                 const float x = 34.0f + (float) (n.step - viewStartStep) * stepWidthAtCursor();
+                 const float w = juce::jmax (4.0f, (float) n.length * stepWidthAtCursor() - 2.0f);
+                 const float y = pitchToY (n.note, viewLowNote, noteSpan);
+                 const juce::Rectangle<float> noteRect (x, y, w, juce::jmax (3.0f, pitchRowHeight (noteSpan) - 2.0f));
+                 if (marqueeRect.intersects (noteRect))
+                     selectedIndices.push_back (i);
+             }
+
+             selectedNote = selectedIndices.empty() ? -1 : selectedIndices.front();
+             updateHistoryButtons();
+             repaint();
+             return;
+         }
+
+         if (dragMode == DragMode::none || dragStartSelection.empty())
+             return;
+
+         auto notes = processor.getVisibleNotes();
+         if (notes.empty()) return;
+
+         const float dx = e.position.x - dragOrigin.x;
+         const float dy = e.position.y - dragOrigin.y;
+         const int stepDelta = juce::roundToInt (dx / juce::jmax (1.0f, stepWidthAtCursor()));
+         const int pitchDelta = juce::roundToInt (-dy / pitchRowHeight (noteSpan));
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+
+         if (dragMode == DragMode::resize)
+         {
+             const int index = selectedNote;
+             if (index >= 0 && index < (int) notes.size())
+             {
+                 const int length = juce::jmax (1, snapStep (juce::jmax (1.0f,
+                     dragStartNote.length + dx / stepWidthAtCursor())));
+                 const int maxLength = juce::jmax (1, totalSteps - notes[(size_t) index].step);
+                 notes[(size_t) index].length = juce::jmin (maxLength, length);
+             }
+         }
+         else if (e.mods.isAltDown())
+         {
+             for (size_t i = 0; i < dragStartSelection.size() && i < dragStartNotes.size(); ++i)
+             {
+                 const int index = dragStartSelection[i];
+                 if (index < 0 || index >= (int) notes.size()) continue;
+                 notes[(size_t) index].velocity = juce::jlimit (1, 127,
+                     dragStartNotes[i].velocity + juce::roundToInt (-dy));
+             }
+         }
+         else
+         {
+             for (size_t i = 0; i < dragStartSelection.size() && i < dragStartNotes.size(); ++i)
+             {
+                 const int index = dragStartSelection[i];
+                 if (index < 0 || index >= (int) notes.size()) continue;
+                 auto& n = notes[(size_t) index];
+                 const auto& start = dragStartNotes[i];
+                 n.step = snapStep (juce::jlimit (0, totalSteps - start.length, start.step + stepDelta));
+                 n.note = juce::jlimit (0, 127, start.note + pitchDelta);
+             }
+         }
+
+         processor.replaceVisibleNotes (notes);
+         repaint();
+     }
+
+     void mouseUp (const juce::MouseEvent&) override
+     {
+         if (dragMode == DragMode::marquee)
+         {
+             dragMode = DragMode::none;
+             marqueeRect = {};
+             updateHistoryButtons();
+             repaint();
+             return;
+         }
+
+         if (dragMode != DragMode::none)
+             commitEditHistory();
+         dragMode = DragMode::none;
+         repaint();
+     }
+
+     bool keyPressed (const juce::KeyPress& key) override
+     {
+         if (key.getKeyCode() >= '1' && key.getKeyCode() <= '4')
+         {
+             selectedChannel = key.getKeyCode() - '0';
+             repaint();
+             return true;
+         }
+
+         if (key == juce::KeyPress ('c', juce::ModifierKeys::ctrlModifier, 0))
+         {
+             copySelection();
+             return true;
+         }
+         if (key == juce::KeyPress ('v', juce::ModifierKeys::ctrlModifier, 0))
+         {
+             pasteSelection();
+             return true;
+         }
+         if (key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier, 0))
+         {
+             undo();
+             return true;
+         }
+         if (key == juce::KeyPress ('y', juce::ModifierKeys::ctrlModifier, 0)
+             || key == juce::KeyPress ('z', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
+         {
+             redo();
+             return true;
+         }
+         if (key == juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 0))
+         {
+             selectedIndices.clear();
+             const auto notes = processor.getVisibleNotes();
+             for (int i = 0; i < (int) notes.size(); ++i)
+                 if (notes[(size_t) i].channel != 5) selectedIndices.push_back (i);
+             selectedNote = selectedIndices.empty() ? -1 : selectedIndices.front();
+             updateHistoryButtons();
+             repaint();
+             return true;
+         }
+         if (key == juce::KeyPress::backspaceKey || key == juce::KeyPress::deleteKey)
+         {
+             if (! selectedIndices.empty())
+             {
+                 auto notes = processor.getVisibleNotes();
+                 beginEditHistory();
+                 std::vector<MidiForgeAudioProcessor::VisibleNote> keep;
+                 keep.reserve (notes.size());
+                 for (int i = 0; i < (int) notes.size(); ++i)
+                     if (! isSelectedIndex (i)) keep.push_back (notes[(size_t) i]);
+                 processor.replaceVisibleNotes (keep);
+                 commitEditHistory();
+                 clearSelection();
+             }
+             return true;
+         }
+         if (key.getTextCharacter() == 'q' || key.getTextCharacter() == 'Q')
+         {
+             quantizeSelected (gridSteps);
+             return true;
+         }
+         return false;
+     }
+
+     bool isSelectedIndex (int index) const
+     {
+         return std::find (selectedIndices.begin(), selectedIndices.end(), index) != selectedIndices.end();
+     }
+
+     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+     {
+         const float wheelY = wheel.isReversed ? -wheel.deltaY : wheel.deltaY;
+         if (juce::ModifierKeys::getCurrentModifiers().isCtrlDown())
+         {
+             const float centerRatio = juce::jlimit (0.0f, 1.0f, lastMouseX / (float) juce::jmax (1, getWidth()));
+             const float oldZoom = zoom;
+             zoom = juce::jlimit (0.5f, 4.0f, zoom + wheelY * 0.35f);
+             if (oldZoom != zoom)
+             {
+                 const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+                 const int oldVisible = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / oldZoom));
+                 const int newVisible = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+                 const int cursorStep = viewStartStep + juce::roundToInt (centerRatio * (float) oldVisible);
+                 viewStartStep = juce::jlimit (0, juce::jmax (0, totalSteps - newVisible), cursorStep - juce::roundToInt (centerRatio * (float) newVisible));
+             }
+         }
+         else if (juce::ModifierKeys::getCurrentModifiers().isShiftDown())
+         {
+             const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+             const int visible = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+             viewStartStep += wheelY > 0 ? -8 : 8;
+             viewStartStep = juce::jlimit (0, juce::jmax (0, totalSteps - visible), viewStartStep);
+         }
+         else
+         {
+             viewLowNote = juce::jlimit (0, 127 - noteSpan, viewLowNote + (wheelY > 0 ? 4 : -4));
+         }
+         repaint();
+     }
+
+ private:
+     enum class DragMode { none, move, resize, newNote, marquee };
+
+     static bool isBlackKey (int midiNote)
+     {
+         switch (midiNote % 12)
+         {
+             case 1: case 3: case 6: case 8: case 10: return true;
+             default: return false;
+         }
+     }
+
+     static juce::String channelName (int channel)
+     {
+         static const char* names[6] = { "", "CHORDS", "BASS", "MELODY", "ARP", "DRUMS" };
+         return names[juce::jlimit (1, 5, channel)];
+     }
+
+     float pitchRowHeight (int span) const
+     {
+         return juce::jmax (2.0f, ((float) getHeight() - 22.0f) / (float) (span + 1));
+     }
+
+     float pitchToY (int pitch, int low, int span) const
+     {
+         return (float) getHeight() - 22.0f - ((float) (pitch - low + 1)) * pitchRowHeight (span);
+     }
+
+     int yToPitch (float y) const
+     {
+         const float bodyH = (float) getHeight() - 22.0f;
+         const float units = pitchRowHeight (noteSpan);
+         const int pitch = viewLowNote + juce::roundToInt ((bodyH - y) / units) - 1;
+         return juce::jlimit (0, 127, pitch);
+     }
+
+     int xToStep (float x) const
+     {
+         const float contentX = 34.0f;
+         const float contentW = juce::jmax (1.0f, (float) getWidth() - contentX);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int visibleSteps = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+         const float stepW = contentW / (float) visibleSteps;
+         return viewStartStep + juce::roundToInt ((x - contentX) / juce::jmax (1.0f, stepW));
+     }
+
+     int snapStep (float step) const
+     {
+         const int value = juce::jmax (0, juce::roundToInt (step));
+         const int g = juce::jmax (1, gridSteps);
+         return (value + g / 2) / g * g;
+     }
+
+     int hitTestNote (juce::Point<float> p) const
+     {
+         const auto notes = processor.getVisibleNotes();
+         const float contentX = 34.0f;
+         const float contentW = juce::jmax (1.0f, (float) getWidth() - contentX);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int visibleSteps = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+         const float stepW = contentW / (float) visibleSteps;
+         const int pitch = yToPitch (p.y);
+         for (int i = (int) notes.size() - 1; i >= 0; --i)
+         {
+             const auto& n = notes[(size_t) i];
+             if (n.channel == 5) continue;            // drums are edited in the drum grid
+             const float x = contentX + (float) (n.step - viewStartStep) * stepW;
+             const float w = juce::jmax (4.0f, (float) n.length * stepW - 2.0f);
+             const float y = pitchToY (n.note, viewLowNote, noteSpan);
+             if (p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + pitchRowHeight (noteSpan))
+                 return i;
+         }
+         return -1;
+     }
+
+     bool isResizeHit (juce::Point<float> p, const MidiForgeAudioProcessor::VisibleNote& n) const
+     {
+         const float contentX = 34.0f;
+         const float contentW = juce::jmax (1.0f, (float) getWidth() - contentX);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int visibleSteps = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+         const float stepW = contentW / (float) visibleSteps;
+         const float right = contentX + (float) (n.step + n.length - viewStartStep) * stepW;
+         return p.x >= right - 7.0f && p.x <= right + 3.0f;
+     }
+
+     float stepWidthAtCursor() const
+     {
+         const float contentW = juce::jmax (1.0f, (float) getWidth() - 34.0f);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int visibleSteps = juce::jlimit (1, totalSteps, juce::roundToInt ((float) totalSteps / zoom));
+         return contentW / (float) visibleSteps;
+     }
+
+     juce::TextButton& undoBtn;
+     juce::TextButton& redoBtn;
+     juce::Label& historyLabel;
+
+     static bool sameNotes (const std::vector<MidiForgeAudioProcessor::VisibleNote>& a,
+                            const std::vector<MidiForgeAudioProcessor::VisibleNote>& b)
+     {
+         if (a.size() != b.size()) return false;
+         for (size_t i = 0; i < a.size(); ++i)
+         {
+             if (a[i].step != b[i].step || a[i].length != b[i].length ||
+                 a[i].note != b[i].note || a[i].velocity != b[i].velocity ||
+                 a[i].channel != b[i].channel) return false;
+         }
+         return true;
+     }
+
+ public:
+     void setGridSteps (int steps)
+     {
+         gridSteps = juce::jlimit (1, 16, steps);
+         repaint();
+     }
+
+     void resetView()
+     {
+         viewStartStep = 0;
+         viewLowNote = 36;
+         zoom = 1.0f;
+         repaint();
+     }
+
+     bool hasSelection() const { return ! selectedIndices.empty(); }
+     int getSelectionCount() const { return (int) selectedIndices.size(); }
+
+     void selectBar()
+     {
+         const auto notes = processor.getVisibleNotes();
+         int baseStep = viewStartStep;
+         if (selectedNote >= 0 && selectedNote < (int) notes.size())
+             baseStep = notes[(size_t) selectedNote].step;
+
+         const int barStart = (juce::jmax (0, baseStep) / 16) * 16;
+         const int barEnd = barStart + 16;
+         selectedIndices.clear();
+         selectedNote = -1;
+
+         for (int i = 0; i < (int) notes.size(); ++i)
+         {
+             const auto& n = notes[(size_t) i];
+             if (n.channel != 5 && n.step >= barStart && n.step < barEnd)
+                 selectedIndices.push_back (i);
+         }
+
+         if (! selectedIndices.empty())
+             selectedNote = selectedIndices.front();
+
+         updateHistoryButtons();
+         repaint();
+     }
+
+     std::vector<int> operationIndices() const
+     {
+         const auto notes = processor.getVisibleNotes();
+         if (! selectedIndices.empty())
+             return selectedIndices;
+
+         std::vector<int> all;
+         all.reserve (notes.size());
+         for (int i = 0; i < (int) notes.size(); ++i)
+             if (notes[(size_t) i].channel != 5)
+                 all.push_back (i);
+         return all;
+     }
+
+     void duplicateSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int span = juce::jmax (1, end - start);
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         if (start + span >= totalSteps)
+             return;
+
+         beginEditHistory();
+         const auto original = notes;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) original.size()) continue;
+             auto n = original[(size_t) i];
+             n.step += span;
+             if (n.step >= totalSteps) continue;
+             n.length = juce::jmin (n.length, totalSteps - n.step);
+             if (n.length > 0) notes.push_back (n);
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void reverseSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         beginEditHistory();
+         const auto original = notes;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) original.size()) continue;
+             const auto& src = original[(size_t) i];
+             auto& dst = notes[(size_t) i];
+             dst.step = juce::jlimit (start, juce::jmax (start, end - src.length),
+                                      start + end - (src.step + src.length));
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void scaleTimeSelected (bool faster)
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         beginEditHistory();
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             auto& n = notes[(size_t) i];
+             if (faster)
+             {
+                 n.step = start + (n.step - start) / 2;
+                 n.length = juce::jmax (1, n.length / 2);
+             }
+             else
+             {
+                 n.step = juce::jmin (totalSteps - 1, start + (n.step - start) * 2);
+                 n.length = juce::jmax (1, juce::jmin (totalSteps - n.step, n.length * 2));
+             }
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+         juce::ignoreUnused (end);
+     }
+
+     void rotateSelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int start = notes[(size_t) indices.front()].step;
+         int end = start;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 end = juce::jmax (end, notes[(size_t) i].step + notes[(size_t) i].length);
+
+         const int span = juce::jmax (1, end - start);
+         const int shift = juce::jmax (1, span / 4);
+
+         beginEditHistory();
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             auto& n = notes[(size_t) i];
+             const int local = n.step - start;
+             n.step = start + ((local + shift) % span);
+             n.step = juce::jmin (n.step, end - 1);
+         }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void normalizeVelocitySelected()
+     {
+         auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int sum = 0;
+         int count = 0;
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+             {
+                 sum += notes[(size_t) i].velocity;
+                 ++count;
+             }
+         if (count == 0) return;
+
+         const int target = juce::jlimit (1, 127, juce::roundToInt ((float) sum / (float) count));
+         beginEditHistory();
+         for (const int i : indices)
+             if (i >= 0 && i < (int) notes.size())
+                 notes[(size_t) i].velocity = target;
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         clearSelection();
+     }
+
+     void frameSelection()
+     {
+         const auto notes = processor.getVisibleNotes();
+         const auto indices = operationIndices();
+         if (indices.empty()) return;
+
+         int minStep = 100000;
+         int maxStep = 0;
+         int minPitch = 127;
+         int maxPitch = 0;
+         for (const int i : indices)
+         {
+             if (i < 0 || i >= (int) notes.size()) continue;
+             const auto& n = notes[(size_t) i];
+             minStep = juce::jmin (minStep, n.step);
+             maxStep = juce::jmax (maxStep, n.step + n.length);
+             minPitch = juce::jmin (minPitch, n.note);
+             maxPitch = juce::jmax (maxPitch, n.note);
+         }
+
+         if (minStep > maxStep) return;
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         const int targetSteps = juce::jlimit (4, totalSteps, maxStep - minStep + 2);
+         viewStartStep = juce::jlimit (0, juce::jmax (0, totalSteps - targetSteps), minStep - 1);
+         zoom = juce::jlimit (0.5f, 4.0f, (float) totalSteps / (float) targetSteps);
+
+         const int pitchCenter = (minPitch + maxPitch) / 2;
+         viewLowNote = juce::jlimit (0, 127 - noteSpan, pitchCenter - noteSpan / 2);
+         repaint();
+     }
+
+     void selectPhrase()
+     {
+         const auto notes = processor.getVisibleNotes();
+         int baseStep = viewStartStep;
+         if (selectedNote >= 0 && selectedNote < (int) notes.size())
+             baseStep = notes[(size_t) selectedNote].step;
+
+         selectedIndices.clear();
+         selectedNote = -1;
+
+         if (notes.empty())
+         {
+             repaint();
+             updateHistoryButtons();
+             return;
+         }
+
+         if (selectedNote >= 0 && selectedNote < (int) notes.size())
+             baseStep = notes[(size_t) selectedNote].step;
+         else
+             baseStep = viewStartStep;
+
+         const int phraseStart = (juce::jmax (0, baseStep) / 64) * 64;
+         const int phraseEnd = phraseStart + 64;
+         for (int i = 0; i < (int) notes.size(); ++i)
+         {
+             const auto& n = notes[(size_t) i];
+             if (n.channel != 5 && n.step >= phraseStart && n.step < phraseEnd)
+                 selectedIndices.push_back (i);
+         }
+
+         if (! selectedIndices.empty())
+             selectedNote = selectedIndices.front();
+
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void transposeSelected (int semitones)
+     {
+         if (selectedIndices.empty())
+             return;
+
+         auto notes = processor.getVisibleNotes();
+         beginEditHistory();
+         for (const auto index : selectedIndices)
+             if (index >= 0 && index < (int) notes.size())
+                 notes[(size_t) index].note = juce::jlimit (0, 127, notes[(size_t) index].note + semitones);
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         repaint();
+     }
+
+     void snapSelectedToScale()
+     {
+         if (selectedIndices.empty())
+             return;
+
+         auto notes = processor.getVisibleNotes();
+         beginEditHistory();
+         for (const auto index : selectedIndices)
+             if (index >= 0 && index < (int) notes.size())
+                 notes[(size_t) index].note = processor.snapPitchToScale (notes[(size_t) index].note);
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         repaint();
+     }
+
+     void quantizeSelected (int grid)
+     {
+         const int g = juce::jmax (1, grid);
+         auto notes = processor.getVisibleNotes();
+         if (selectedIndices.empty())
+         {
+             beginEditHistory();
+             processor.quantizeVisibleNotes (g);
+             commitEditHistory();
+             repaint();
+             return;
+         }
+
+         beginEditHistory();
+         for (const auto index : selectedIndices)
+             if (index >= 0 && index < (int) notes.size())
+             {
+                 const int step = notes[(size_t) index].step;
+                 notes[(size_t) index].step = juce::jmax (0, (step + g / 2) / g * g);
+             }
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         repaint();
+     }
+
+     void humanizeSelected()
+     {
+         if (selectedIndices.empty())
+             return;
+
+         auto notes = processor.getVisibleNotes();
+         juce::Random random ((juce::int64) juce::Time::currentTimeMillis() ^ (juce::int64) selectedIndices.size() * 0x9e3779b9LL);
+         beginEditHistory();
+
+         const int totalSteps = juce::jmax (16, processor.getVisibleBars() * 16);
+         for (const auto index : selectedIndices)
+             if (index >= 0 && index < (int) notes.size())
+             {
+                 auto& n = notes[(size_t) index];
+                 const int stepJitter = random.nextInt (3) - 1;
+                 n.step = juce::jlimit (0, totalSteps - 1, n.step + stepJitter);
+                 n.velocity = juce::jlimit (1, 127, n.velocity + random.nextInt (17) - 8);
+                 n.length = juce::jmax (1, n.length + random.nextInt (3) - 1);
+             }
+
+         processor.replaceVisibleNotes (notes);
+         commitEditHistory();
+         repaint();
+     }
+
+     void clearSelection()
+     {
+         selectedIndices.clear();
+         selectedNote = -1;
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void resetEditHistory()
+     {
+         history.clear();
+         historyCursor = -1;
+         selectedIndices.clear();
+         selectedNote = -1;
+         dragStartSelection.clear();
+         dragStartNotes.clear();
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void updateHistoryButtons()
+     {
+         const bool canUndo = historyCursor > 0 && historyCursor < (int) history.size();
+         const bool canRedo = historyCursor >= 0 && historyCursor + 1 < (int) history.size();
+         undoBtn.setEnabled (canUndo);
+         redoBtn.setEnabled (canRedo);
+         historyLabel.setText ("EDIT: " + juce::String (canUndo ? historyCursor : 0) + " undo / "
+                               + juce::String (canRedo ? (int) history.size() - historyCursor - 1 : 0) + " redo  •  SEL "
+                               + juce::String ((int) selectedIndices.size()), juce::dontSendNotification);
+     }
+
+     void beginEditHistory()
+     {
+         if (history.empty())
+         {
+             history.push_back (processor.getVisibleNotes());
+             historyCursor = 0;
+         }
+         else if (historyCursor < (int) history.size() - 1)
+         {
+             history.erase (history.begin() + historyCursor + 1, history.end());
+         }
+         updateHistoryButtons();
+     }
+
+     void commitEditHistory()
+     {
+         const auto snapshot = processor.getVisibleNotes();
+         if (history.empty())
+         {
+             history.push_back (snapshot);
+             historyCursor = 0;
+             return;
+         }
+         if (! sameNotes (history.back(), snapshot))
+         {
+             history.push_back (snapshot);
+             if (history.size() > 64)
+             {
+                 history.erase (history.begin());
+             }
+             historyCursor = (int) history.size() - 1;
+         }
+         updateHistoryButtons();
+     }
+
+     void undo()
+     {
+         if (history.empty())
+             history.push_back (processor.getVisibleNotes());
+         if (historyCursor <= 0)
+             return;
+         --historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void redo()
+     {
+         if (historyCursor + 1 >= (int) history.size())
+             return;
+         ++historyCursor;
+         processor.replaceVisibleNotes (history[(size_t) historyCursor]);
+         selectedNote = -1;
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void clearAllNotes()
+     {
+         const auto current = processor.getVisibleNotes();
+         if (current.empty())
+             return;
+         beginEditHistory();
+         processor.replaceVisibleNotes (std::vector<MidiForgeAudioProcessor::VisibleNote>{});
+         commitEditHistory();
+         selectedNote = -1;
+         repaint();
+     }
+
+     void copySelection()
+     {
+         if (selectedNote < 0)
+             return;
+         const auto notes = processor.getVisibleNotes();
+         if (selectedNote < (int) notes.size())
+             clipboard = notes[(size_t) selectedNote];
+     }
+
+     void pasteSelection()
+     {
+         if (! clipboard.has_value())
+             return;
+         beginEditHistory();
+         auto n = *clipboard;
+         n.step = juce::jlimit (0, juce::jmax (0, processor.getVisibleBars() * 16 - n.length), n.step + 1);
+         processor.addVisibleNote (n.step, n.note, n.length, n.velocity, n.channel);
+         commitEditHistory();
+         selectedNote = (int) processor.getVisibleNotes().size() - 1;
+         repaint();
+     }
+
+     void mouseMove (const juce::MouseEvent& e) override
+     {
+         lastMouseX = e.position.x;
+     }
+
+     MidiForgeAudioProcessor& processor;
+     int selectedNote = -1;
+     int selectedChannel = 3;
+     int defaultLengthSteps = 2;
+     int viewStartStep = 0;
+     int viewLowNote = 36;
+     float zoom = 1.0f;
+     int gridSteps = 1;
+     float lastMouseX = 450.0f;
+     const int noteSpan = 60;
+     DragMode dragMode = DragMode::none;
+     juce::Point<float> dragOrigin;
+     juce::Rectangle<float> marqueeRect;
+     MidiForgeAudioProcessor::VisibleNote dragStartNote { 0, 2, 60, 100, 3 };
+     std::optional<MidiForgeAudioProcessor::VisibleNote> clipboard;
+     std::vector<int> selectedIndices;
+     std::vector<int> dragStartSelection;
+     std::vector<MidiForgeAudioProcessor::VisibleNote> dragStartNotes;
+     std::vector<std::vector<MidiForgeAudioProcessor::VisibleNote>> history;
+     int historyCursor = -1;
+
+     void timerCallback() override { updateHistoryButtons(); repaint(); }
+ };
+ PianoRoll pianoRoll { processor, undoBtn, redoBtn, historyLabel };
+
+ // Drum section: a step grid with one labelled row per instrument (KICK, SNARE, CLAP, HAT ...),
+ // click a step to add / remove a hit, M = mute the instrument, DRAG = only this instrument.
+ struct DrumGrid : public juce::Component, private juce::Timer
+ {
+     explicit DrumGrid (MidiForgeAudioProcessorEditor& o) : owner (o), processor (o.processor), dragAll (o, -1, "DRAG ALL")
+     {
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+         {
+             muteBtn[(size_t) r].setButtonText ("M");
+             muteBtn[(size_t) r].setClickingTogglesState (true);
+             muteBtn[(size_t) r].setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffb03a3a));
+             muteBtn[(size_t) r].onClick = [this, r]
+             {
+                 int m = processor.getDrumMuteMask();
+                 if (muteBtn[(size_t) r].getToggleState()) m |= (1 << r); else m &= ~(1 << r);
+                 processor.setDrumMuteMask (m);
+                 repaint();
+             };
+             addAndMakeVisible (muteBtn[(size_t) r]);
+             dragRow[(size_t) r] = std::make_unique<DrumRowDragHandle> (o, r, "DRAG");
+             addAndMakeVisible (*dragRow[(size_t) r]);
+         }
+         prevBtn.setButtonText ("<");  nextBtn.setButtonText (">");
+         prevBtn.onClick = [this] { page = juce::jmax (0, page - 1); repaint(); };
+         nextBtn.onClick = [this] { page = juce::jmin (pageCount() - 1, page + 1); repaint(); };
+         addAndMakeVisible (prevBtn); addAndMakeVisible (nextBtn);
+         pitchBox.addItemList ({ "Pitch: all on C5 (one sample per channel)", "Pitch: General MIDI (drum kit)" }, 1);
+         pitchBox.setSelectedId (processor.getDrumPitchMode() + 1, juce::dontSendNotification);
+         pitchBox.onChange = [this] { processor.setDrumPitchMode (pitchBox.getSelectedId() - 1); };
+         addAndMakeVisible (pitchBox);
+         addAndMakeVisible (dragAll);
+         startTimerHz (15);
+     }
+     void resized() override
+     {
+         const int w = getWidth();
+         prevBtn.setBounds (4, 2, 24, headerH - 4);
+         nextBtn.setBounds (98, 2, 24, headerH - 4);
+         dragAll.setBounds (w - 84, 2, 80, headerH - 4);
+         pitchBox.setBounds (w - 84 - 6 - 250, 2, 250, headerH - 4);
+         const int rowH = rowHeight();
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+         {
+             const int y = headerH + r * rowH;
+             muteBtn[(size_t) r].setBounds (66, y + 1, 26, rowH - 2);
+             dragRow[(size_t) r]->setBounds (96, y + 1, 54, rowH - 2);
+         }
+     }
+     void paint (juce::Graphics& g) override
+     {
+         g.fillAll (juce::Colour (0xff15181e));
+         const int rows = MidiForgeAudioProcessor::kDrumRows;
+         const int rowH = rowHeight();
+         const int total = juce::jmax (1, processor.getVisibleBars() * 16);
+         const int first = page * stepsPerPage;
+         const int visible = juce::jmin (stepsPerPage, total - first);
+         const float cellW = (float) (getWidth() - gridX - 6) / (float) stepsPerPage;
+
+         g.setColour (juce::Colours::white.withAlpha (0.85f));
+         g.setFont (12.0f);
+         g.drawText ("BARS " + juce::String (first / 16 + 1) + "-" + juce::String (juce::jmin (processor.getVisibleBars(), (first + stepsPerPage) / 16)),
+                     30, 2, 66, headerH - 4, juce::Justification::centred);
+
+         const auto notes = processor.getVisibleNotes();
+         const int mask = processor.getDrumMuteMask();
+         for (int r = 0; r < rows; ++r)
+         {
+             const int y = headerH + r * rowH;
+             const bool muted = (mask & (1 << r)) != 0;
+             g.setColour ((r % 2) ? juce::Colour (0xff1b1f27) : juce::Colour (0xff181c23));
+             g.fillRect (0, y, getWidth(), rowH);
+             g.setColour (rowColour (r).withAlpha (muted ? 0.35f : 1.0f));
+             g.setFont (juce::Font (12.0f, juce::Font::bold));
+             g.drawText (MidiForgeAudioProcessor::drumRowName (r), 6, y, 60, rowH, juce::Justification::centredLeft);
+             for (int i = 0; i < stepsPerPage; ++i)
+             {
+                 const float x = (float) gridX + (float) i * cellW;
+                 g.setColour ((i % 4 == 0) ? juce::Colour (0xff2c333f) : juce::Colour (0xff222832));
+                 g.fillRect (x, (float) y + 1.0f, cellW - 1.0f, (float) rowH - 2.0f);
+                 if (i >= visible) { g.setColour (juce::Colour (0xff15181e)); g.fillRect (x, (float) y + 1.0f, cellW - 1.0f, (float) rowH - 2.0f); }
+             }
+         }
+         for (const auto& n : notes)
+         {
+             if (n.channel != 5) continue;
+             const int r = MidiForgeAudioProcessor::drumRowForNote (n.note);
+             if (r < 0 || n.step < first || n.step >= first + visible) continue;
+             const bool muted = (mask & (1 << r)) != 0;
+             const float x = (float) gridX + (float) (n.step - first) * cellW;
+             const int y = headerH + r * rowH;
+             const float w = juce::jmax (cellW - 1.0f, (float) juce::jmin (n.length, 4) * cellW - 1.0f);
+             g.setColour (rowColour (r).withAlpha ((0.45f + 0.55f * (float) n.velocity / 127.0f) * (muted ? 0.30f : 1.0f)));
+             g.fillRoundedRectangle (x, (float) y + 2.0f, w, (float) rowH - 4.0f, 2.0f);
+         }
+         const int playStep = processor.getVisiblePlayheadStep();
+         if (playStep >= first && playStep < first + visible)
+         {
+             g.setColour (juce::Colours::white.withAlpha (0.75f));
+             g.fillRect ((float) gridX + (float) (playStep - first) * cellW, (float) headerH, 1.5f, (float) (rows * rowH));
+         }
+     }
+     void mouseDown (const juce::MouseEvent& e) override
+     {
+         const int rowH = rowHeight();
+         if (e.y < headerH || e.x < gridX) return;
+         const int r = (e.y - headerH) / rowH;
+         if (r < 0 || r >= MidiForgeAudioProcessor::kDrumRows) return;
+         const float cellW = (float) (getWidth() - gridX - 6) / (float) stepsPerPage;
+         const int step = page * stepsPerPage + (int) ((float) (e.x - gridX) / cellW);
+         if (step < 0 || step >= processor.getVisibleBars() * 16) return;
+         processor.toggleDrumHit (step, r);
+         repaint();
+     }
+     static juce::Colour rowColour (int r)
+     {
+         static const juce::uint32 c[MidiForgeAudioProcessor::kDrumRows] =
+             { 0xffe05a4f, 0xfff0a640, 0xffe8d24a, 0xff5cc78e, 0xff4fb8c9, 0xff5a8de0, 0xffb279e0, 0xffd879b5 };
+         return juce::Colour (c[juce::jlimit (0, MidiForgeAudioProcessor::kDrumRows - 1, r)]);
+     }
+     int rowHeight() const { return juce::jmax (12, (getHeight() - headerH) / MidiForgeAudioProcessor::kDrumRows); }
+     int pageCount() const { return juce::jmax (1, (processor.getVisibleBars() * 16 + stepsPerPage - 1) / stepsPerPage); }
+     void timerCallback() override
+     {
+         page = juce::jlimit (0, pageCount() - 1, page);
+         const int m = processor.getDrumMuteMask();
+         for (int r = 0; r < MidiForgeAudioProcessor::kDrumRows; ++r)
+             if (muteBtn[(size_t) r].getToggleState() != ((m & (1 << r)) != 0))
+                 muteBtn[(size_t) r].setToggleState ((m & (1 << r)) != 0, juce::dontSendNotification);
+         if (pitchBox.getSelectedId() != processor.getDrumPitchMode() + 1)
+             pitchBox.setSelectedId (processor.getDrumPitchMode() + 1, juce::dontSendNotification);
+         if (isVisible()) repaint();
+     }
+     MidiForgeAudioProcessorEditor& owner;
+     MidiForgeAudioProcessor& processor;
+     std::array<juce::TextButton, MidiForgeAudioProcessor::kDrumRows> muteBtn;
+     std::array<std::unique_ptr<DrumRowDragHandle>, MidiForgeAudioProcessor::kDrumRows> dragRow;
+     DrumRowDragHandle dragAll;
+     juce::TextButton prevBtn, nextBtn;
+     juce::ComboBox pitchBox;
+     static constexpr int headerH = 24, gridX = 158, stepsPerPage = 32;
+     int page = 0;
+ };
+ DrumGrid drumGrid { *this };
+ bool drumView = false;
+ juce::TextButton drumViewBtn { "DRUM VIEW" };
+ void setDrumView (bool on)
+ {
+     drumView = on;
+     pianoRoll.setVisible (! on);
+     drumGrid.setVisible (on);
+     drumViewBtn.setButtonText (on ? "PIANO ROLL" : "DRUM VIEW");
+     repaint();
+ }
+ JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiForgeAudioProcessorEditor)
+};
