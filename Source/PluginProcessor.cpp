@@ -29,7 +29,7 @@ namespace
         return x;
     }
 
-    // Genre-free accompaniment texture. This is an internal creative texture family,
+    // Open-ended accompaniment texture. This is an internal creative texture family,
     // selected from generation identity rather than exposed as a named style.
     static int creativeTextureFamily (uint32_t seed)
     {
@@ -2456,7 +2456,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     const int textureFamily = creativeTextureFamily (generationSeed ^ (uint32_t) (barOffset * 37 + degree * 11));
 
     // 0.44 Chord comping.  Chords used to be one held block per bar.  Now they are played as
-    // a rhythm: each genre has its own comping cells (offbeat house stabs, boom-bap
+    // a rhythm: each creative texture family has its own comping cells,
     // long-short-long, afro 3-3-2 ...).  The cell repeats (A A' B A'') like the melody, so the
     // chords form a pattern.  Sound profiles that already stab (Pluck / Brass / Guitar) keep
     // their own two hits; Chords = Held keeps the old sustained block.
@@ -2504,7 +2504,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
         }
     }
 
-    // Genre-aware rhythmic chord punctuation, still scale-safe.
+    // Creative rhythmic chord punctuation, still scale-safe.
     if(!comping && !prof.chordTwoHits && (textureFamily==1 || textureFamily==4) && r.nextFloat()<(0.35f+0.45f*e))
         s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree,3),lo+12,hi+12)),63,1,false});
     if(!comping && !prof.chordTwoHits && chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
@@ -2518,7 +2518,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
 void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float e,juce::Random& r)
 {
     // 0.38 Bass Foundation: a guaranteed root on beat 1 of every bar, the rest
-    // of the genre pattern is optional.  The bass lives in its own lane
+    // of the texture pattern is optional. The bass lives in its own lane
     // (E1..E3) instead of drifting down to inaudible sub-frequencies.
     int lo=28, hi=52;
     registerLane(1,lo,hi);
@@ -2566,7 +2566,7 @@ void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Ra
     // 0.44 Drums - an optional layer (DRUMS button, off by default).  Internal channel 5,
     // written to the MIDI file as General-MIDI channel 10 (kick 36, snare 38, clap 39,
     // closed hat 42, open hat 46, crash 49, toms 45/47/50, shaker 70).
-    // Genre grooves; the kick cell repeats (A A' B A''); the last bar of a phrase may get a
+    // Creative grooves; the kick cell repeats (A A' B A''); the last bar of a phrase may get a
     // fill (Fill Amount); the 808 line locks to the kick when drums are on.
     enum { Kick=36, Snare=38, Clap=39, HatC=42, HatO=46, Crash=49, Shaker=70 };
     const int loopBar=barOffset%juce::jmax(1,bars);
@@ -2795,7 +2795,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int dnaRhythmBias = juce::jmax (0, creativeRange.rhythmFamily % 8);
 
     // Generation identity is part of the musical seed.  Previously the melody
-    // seed depended only on variationSalt/genre, so every GENERATE rebuilt the
+    // seed used to depend on narrow style state, so repeated GENERATE calls could rebuild the
     // exact same melody when the UI seed was unchanged.
     dnaSpace = juce::jlimit(0.0f, 1.0f, dnaSpace + moodSpace + roleSpace + eraSpace[juce::jlimit(0,5,era)]);
     dnaLeap = juce::jlimit(0.0f, 1.0f, dnaLeap + moodLeap + roleLeap);
@@ -2855,7 +2855,7 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int nativeArchetype = ((juce::jmax (0, variationSalt - 1)) % 8 + 8) % 8;
 
     // 0.85.5 Latent Melody Character Engine:
-    // The existing genre/mood/type controls describe context, while this hidden
+    // The visible mood/type controls describe context, while this hidden
     // profile chooses the *kind of melodic behavior* for the candidate itself.
     // It changes several musical axes together so two loops can share the same
     // harmonic setting yet still feel fundamentally different.
@@ -9714,7 +9714,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             quality += 0.20f * adaptiveFit;
         }
 
-        // Hybrid DNA 1.0: combine Genre + Mood + Era + Melody Type into one
+        // Hybrid DNA 1.0: combine creative context + Mood + Era + Melody Type into one
         // coherent target fingerprint. Each axis contributes softly, so no single
         // preset can collapse the search into one exact pattern.
         float hybridLeap = 0.30f, hybridRhythm = 0.48f, hybridMotif = 0.48f;
@@ -9746,7 +9746,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         hybridRepeat = juce::jlimit(.05f,.90f,hybridRepeat);
 
         // The Judge follows the same creative context as generation.
-        // No hidden genre target is allowed to pull candidates back toward named styles.
+        // No hidden named-style target is allowed to pull candidates back toward a preset vocabulary.
         const float creativeLeapTarget = hybridLeap;
         const float creativeRhythmTarget = hybridRhythm;
         const float creativeMotifTarget = hybridMotif;
@@ -9943,7 +9943,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
             }
 
             // The combined score is deliberately capped in influence. Existing
-            // DNA, genre, phrase and diversity systems remain the main search
+            // DNA, phrase and diversity systems remain the main search
             // drivers; this layer only helps the Judge reject technically valid
             // but musically disconnected candidates.
             const float musicalCoherence =
@@ -10785,7 +10785,7 @@ void MidiForgeAudioProcessor::magicRandomize()
     fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
     energy = dnaEnergy;
 
-    // Rhythm DNA and genre still get a chance to create distinct identities.
+    // Rhythm DNA still gets a chance to create distinct identities.
     if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
     if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
     hookMode = dnaMotif > .46f;
