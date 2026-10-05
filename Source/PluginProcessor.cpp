@@ -3803,9 +3803,9 @@ const std::vector<NoteEvent>* inherited, int variationSalt)
     const int intervalLanguage =
         (creativeRange.intervalFamily + character.intervalBias) % 12;
     const int tensionProfile =
-        (int) ((hash32(identitySeed ^ 0x7f4a7c15u
-                        ^ (uint32_t) creativeRange.harmonyPersonality) % 8u
-               + (uint32_t) character.tensionBias) % 8u;
+        (int) (((hash32 (identitySeed ^ 0x7f4a7c15u
+                          ^ (uint32_t) creativeRange.harmonyPersonality) % 8u)
+                + (uint32_t) character.tensionBias) % 8u);
     const int registerProfile =
         (creativeRange.registerJourney + character.registerJourneyBias) % 8;
     const int rhythmicLanguage =
