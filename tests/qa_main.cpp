@@ -3301,6 +3301,51 @@ int main()
                 parsedFailures == 0,
                 fmt ("%.0f parse failures", (double) parsedFailures));
 
+        int dragFailures = 0;
+        {
+            const auto all = p.writeTemporaryMidiFile();
+            if (all == juce::File{} || ! all.existsAsFile() || all.getSize() <= 0)
+                ++dragFailures;
+            all.deleteFile();
+
+            for (int channel = 1; channel <= 5; ++channel)
+            {
+                const auto part = p.writeTemporaryMidiFileForChannel (channel);
+                if (part == juce::File{} || ! part.existsAsFile() || part.getSize() <= 0)
+                    ++dragFailures;
+                part.deleteFile();
+            }
+
+            const auto drums = p.writeTemporaryMidiFileForDrumRow (-1);
+            if (drums == juce::File{} || ! drums.existsAsFile() || drums.getSize() <= 0)
+                ++dragFailures;
+            drums.deleteFile();
+        }
+
+        report ("workflow safety: FL drag/export temp files are real MIDI files",
+                dragFailures == 0,
+                fmt ("%.0f temporary-file failures", (double) dragFailures));
+
+        juce::AudioBuffer<float> previewBuffer (2, 512);
+        juce::MidiBuffer previewMidi;
+        p.previewNote (64, 111, 1);
+        p.processBlock (previewBuffer, previewMidi);
+
+        bool previewOn = false;
+        for (const auto metadata : previewMidi)
+        {
+            const auto message = metadata.getMessage();
+            if (message.isNoteOn() && message.getNoteNumber() == 64 && message.getVelocity() == 111)
+            {
+                previewOn = true;
+                break;
+            }
+        }
+
+        report ("workflow safety: Piano Roll audition reaches MIDI output",
+                previewOn,
+                previewOn ? "note-on observed" : "no audition note-on observed");
+
         // Save edited MIDI state and restore it into a fresh processor.
         p.setSeed (97231);
         p.regenerate ();
