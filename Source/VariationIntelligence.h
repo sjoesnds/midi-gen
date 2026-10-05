@@ -15,13 +15,13 @@ namespace midiforge
 enum class VariationMode : int
 {
     Original = 0,
-    Tight = 1,
-    Sparse = 2,
-    Dark = 3,
-    Bigger = 4,
-    Weird = 5,
-    TightWeird = 6,
-    SparseDark = 7
+    Close = 1,
+    Rhythmic = 2,
+    Contrast = 3,
+    Register = 4,
+    Motif = 5,
+    Experimental = 6,
+    Wildcard = 7
 };
 
 struct VariationTraits
@@ -66,7 +66,7 @@ public:
                       + 0.06f * target (t.density, 0.58f, 0.42f);
                 break;
 
-            case (int) VariationMode::Tight:
+            case (int) VariationMode::Close:
                 score = 0.28f * t.groove
                       + 0.22f * t.rhythm
                       + 0.18f * t.density
@@ -75,7 +75,7 @@ public:
                       + 0.10f * t.phraseArc;
                 break;
 
-            case (int) VariationMode::Sparse:
+            case (int) VariationMode::Rhythmic:
                 score = 0.34f * t.space
                       + 0.28f * inv (t.density)
                       + 0.14f * t.context
@@ -84,7 +84,7 @@ public:
                       + 0.06f * inv (t.groove);
                 break;
 
-            case (int) VariationMode::Dark:
+            case (int) VariationMode::Contrast:
                 score = 0.30f * inv (t.reg)
                       + 0.22f * t.tension
                       + 0.18f * inv (t.density)
@@ -93,7 +93,7 @@ public:
                       + 0.10f * t.context;
                 break;
 
-            case (int) VariationMode::Bigger:
+            case (int) VariationMode::Register:
                 score = 0.24f * t.reg
                       + 0.22f * t.leap
                       + 0.20f * t.density
@@ -102,7 +102,7 @@ public:
                       + 0.10f * t.motif;
                 break;
 
-            case (int) VariationMode::Weird:
+            case (int) VariationMode::Motif:
                 score = 0.34f * t.surprise
                       + 0.22f * t.leap
                       + 0.16f * inv (t.motif)
@@ -111,7 +111,7 @@ public:
                       + 0.06f * inv (t.memory);
                 break;
 
-            case (int) VariationMode::TightWeird:
+            case (int) VariationMode::Experimental:
                 score = 0.20f * t.surprise
                       + 0.18f * t.groove
                       + 0.18f * t.rhythm
@@ -121,7 +121,7 @@ public:
                       + 0.08f * t.tension;
                 break;
 
-            case (int) VariationMode::SparseDark:
+            case (int) VariationMode::Wildcard:
                 score = 0.30f * t.space
                       + 0.24f * inv (t.density)
                       + 0.20f * inv (t.reg)
