@@ -2657,6 +2657,42 @@ int main()
                      (double) observedClasses.size()));
     }
 
+
+    // ------------------------------------------------------------------ 19. style/safety separation (0.87)
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setMelodyType (MidiForgeAudioProcessor::CounterMelody);
+        p.setComplexity (1.0f, false);
+        p.setLeapChance (1.0f, false);
+
+        int maxObservedLeap = 0;
+        bool sawExpressiveLeap = false;
+        bool sawInvalidOvershoot = false;
+
+        for (int seed = 1; seed <= 128; ++seed)
+        {
+            p.setSeed (31000 + seed * 31);
+            p.regenerate ();
+
+            auto mel = layer ({ p.getVisibleNotes(), std::max (1, p.getVisibleBars()) }, 3);
+            for (size_t i = 1; i < mel.size(); ++i)
+            {
+                const int leap = std::abs (mel[i].note - mel[i - 1].note);
+                maxObservedLeap = std::max (maxObservedLeap, leap);
+                if (leap >= 10) sawExpressiveLeap = true;
+                if (leap > 12) sawInvalidOvershoot = true;
+            }
+        }
+
+        report ("style/safety: expressive leaps survive the safety pass",
+                sawExpressiveLeap,
+                fmt ("max observed leap %.0f semitones", (double) maxObservedLeap));
+        report ("style/safety: final melody safety ceiling is respected",
+                ! sawInvalidOvershoot,
+                fmt ("max observed leap %.0f semitones", (double) maxObservedLeap));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
