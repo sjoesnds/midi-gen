@@ -11307,10 +11307,64 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         {
             const IdeaFingerprint idea = makeIdeaFingerprint (flat);
+            // 0.85.6 Character Fit Judge: a character is only useful when the
+        // finished candidate actually expresses its intended behavior. The target
+        // vectors are deliberately broad; they guide the search without forcing
+        // every character into one rigid note pattern.
+        float characterFit = 0.5f;
+        if (flat.melodyCharacter >= 0 && flat.melodyCharacter < 12)
+        {
+            struct CharacterTarget
+            {
+                float density, space, rhythm, motif, leap, repetition, surprise, arc;
+            };
+
+            static constexpr CharacterTarget characterTargets[12] =
+            {
+                { 0.34f, 0.66f, 0.34f, 0.62f, 0.26f, 0.72f, 0.24f, 0.42f },
+                { 0.70f, 0.30f, 0.72f, 0.52f, 0.46f, 0.40f, 0.60f, 0.54f },
+                { 0.46f, 0.54f, 0.42f, 0.84f, 0.30f, 0.84f, 0.38f, 0.50f },
+                { 0.39f, 0.61f, 0.36f, 0.55f, 0.28f, 0.68f, 0.28f, 0.44f },
+                { 0.59f, 0.41f, 0.78f, 0.48f, 0.46f, 0.46f, 0.62f, 0.60f },
+                { 0.63f, 0.37f, 0.50f, 0.52f, 0.68f, 0.40f, 0.82f, 0.66f },
+                { 0.52f, 0.48f, 0.42f, 0.64f, 0.52f, 0.52f, 0.48f, 0.68f },
+                { 0.58f, 0.42f, 0.70f, 0.38f, 0.78f, 0.34f, 0.80f, 0.62f },
+                { 0.31f, 0.69f, 0.28f, 0.40f, 0.25f, 0.60f, 0.22f, 0.36f },
+                { 0.71f, 0.29f, 0.76f, 0.48f, 0.62f, 0.36f, 0.70f, 0.58f },
+                { 0.36f, 0.64f, 0.34f, 0.58f, 0.34f, 0.76f, 0.26f, 0.46f },
+                { 0.68f, 0.32f, 0.80f, 0.34f, 0.74f, 0.30f, 0.88f, 0.64f }
+            };
+
+            const auto& target = characterTargets[flat.melodyCharacter];
+            auto axisFit = [] (float actual, float desired, float tolerance)
+            {
+                return 1.0f - juce::jlimit (0.0f, 1.0f,
+                    std::abs (actual - desired) / juce::jmax (0.08f, tolerance));
+            };
+
+            characterFit =
+                  0.18f * axisFit (f.density, target.density, 0.34f)
+                + 0.12f * axisFit (f.space, target.space, 0.34f)
+                + 0.14f * axisFit (f.rhythmIdentity, target.rhythm, 0.36f)
+                + 0.16f * axisFit (f.motifIdentity, target.motif, 0.34f)
+                + 0.12f * axisFit (f.leap, target.leap, 0.38f)
+                + 0.10f * axisFit (f.repetition, target.repetition, 0.40f)
+                + 0.10f * axisFit (f.surprise, target.surprise, 0.42f)
+                + 0.08f * axisFit (0.5f * (f.phraseArc + f.tensionArc), target.arc, 0.42f);
+
+            // Give a candidate a meaningful advantage only when the character is
+            // actually present in the music; neutral fit contributes zero.
+            quality += 0.18f * (characterFit - 0.5f);
+        }
+
+        {
+            const IdeaFingerprint idea = makeIdeaFingerprint (flat);
             candidates.push_back({std::move(flat), quality, identity, archetype,
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
-                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development, idea});
+                                  grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
+                                  characterFit, idea});
+        }
         }
     }
 
