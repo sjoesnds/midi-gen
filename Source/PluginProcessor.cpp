@@ -456,8 +456,11 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     const bool expressiveIntent = complexity >= 0.80f
         && leapChance >= 0.45f
         && (melodyType == RiffMelody || melodyType == CounterMelody || melodyType == PhraseMelody);
-    const int profileLeap = profile.maxLeap > 0 ? profile.maxLeap : 12;
-    maxLeap = juce::jmin (12, profileLeap + (expressiveIntent ? 3 : 0));
+    const int profileLeap = profile.maxLeap > 0 ? profile.maxLeap : 9;
+    const int ordinaryLeap = juce::jmin (9, profileLeap);
+    maxLeap = expressiveIntent
+        ? juce::jmin (12, juce::jmax (ordinaryLeap, profileLeap + 3))
+        : ordinaryLeap;
 }
 int MidiForgeAudioProcessor::degreeToPitch(int degree,int baseOctave) const
 {
