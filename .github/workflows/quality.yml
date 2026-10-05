@@ -96,3 +96,14 @@ jobs:
         with:
           name: sanitized-quality-report
           path: sanitized-qa-report.txt
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Windows VST3
+        run: cmake -S . -B build-win
+
+      - name: Build Windows VST3
+        run: cmake --build build-win --config Release --parallel
