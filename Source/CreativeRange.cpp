@@ -44,83 +44,162 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     const uint32_t h2 = mix32 (identity ^ 0x51ED270Bu);
     const uint32_t h3 = mix32 (identity ^ 0xA17E5EEDu);
 
-    p.novelty = std::clamp (0.34f
-        + 0.34f * unit (h0)
-        + 0.18f * c
-        + 0.10f * e, 0.16f, 0.92f);
-    p.asymmetry = std::clamp (0.28f
-        + 0.34f * unit (h1)
-        + 0.16f * c
-        + 0.08f * e, 0.10f, 0.90f);
-    p.leapBias = std::clamp (0.18f
-        + 0.34f * unit (h2)
-        + 0.16f * c
-        + 0.08f * e, 0.08f, 0.86f);
-    p.repetition = std::clamp (0.38f
-        + 0.28f * unit (h3)
-        + 0.12f * (1.0f - c), 0.18f, 0.88f);
-    p.harmonyColor = std::clamp (0.30f
-        + 0.38f * unit (mix32 (h0 ^ h2)), 0.12f, 0.88f);
-    p.durationContrast = std::clamp (0.30f
-        + 0.44f * unit (mix32 (h1 ^ h3)), 0.12f, 0.90f);
+    /*
+        0.86.x Melody Language Pass:
+        The old plan rolled almost every melodic axis independently. That gave us
+        combinations that were numerically different but musically incoherent:
+        e.g. a rising contour + angular interval grammar + sparse rhythm + high
+        register could all come from unrelated random picks.
 
-    // Creative space is allowed to react to musical role, but never locks to a genre.
-    if (melodyType == 0)          p.repetition += 0.10f; // Hook
-    if (melodyType == 1)          p.durationContrast += 0.08f; // Vocal
-    if (melodyType == 2)          p.leapBias += 0.12f; // Riff
-    if (melodyType == 5)          p.repetition += 0.05f; // Counter
-    if (melodyType == 6)          p.asymmetry += 0.08f; // Sparse lead
-    if (melodyType == 7)          p.repetition -= 0.08f; // Phrase
+        A CreativeRange is now one coherent phrase language. Identity still chooses
+        among languages, but the contour / interval / rhythm / repetition /
+        register / duration decisions come from the same profile. Context only bends
+        that profile slightly.
+    */
+    struct Language
+    {
+        float novelty;
+        float asymmetry;
+        float leapBias;
+        float repetition;
+        float harmonyColor;
+        float durationContrast;
+        int contourFamily;
+        int intervalFamily;
+        int rhythmFamily;
+        int repetitionStyle;
+        int registerJourney;
+        int harmonyPersonality;
+        int durationStyle;
+    };
 
-    // Mood/genre only bend the distribution. The actual language remains identity-driven.
-    if (mood == 0 || mood == 1) p.durationContrast += 0.06f;
-    if (mood == 3 || mood == 7) p.leapBias += 0.08f;
-    if (mood == 4 || mood == 6) p.repetition -= 0.05f;
+    static constexpr Language languages[12] =
+    {
+        // memorable hook / chant
+        { 0.42f, 0.24f, 0.16f, 0.78f, 0.28f, 0.42f,  1, 1,  0, 7, 0, 0, 4 },
+        // call -> response / conversational
+        { 0.54f, 0.48f, 0.26f, 0.58f, 0.42f, 0.50f, 10, 7, 11, 1, 1, 3, 2 },
+        // lyrical / emotional arc
+        { 0.48f, 0.30f, 0.20f, 0.68f, 0.36f, 0.72f, 14, 1,  4, 4, 2, 2, 3 },
+        // pocket / groove
+        { 0.50f, 0.54f, 0.22f, 0.52f, 0.30f, 0.30f,  0, 1, 14, 2, 0, 1, 1 },
+        // riff / angular hook
+        { 0.66f, 0.58f, 0.54f, 0.46f, 0.52f, 0.38f,  6, 3,  8, 5, 3, 5, 5 },
+        // minimal / spacious
+        { 0.30f, 0.18f, 0.12f, 0.82f, 0.24f, 0.74f,  8, 0,  5, 0, 0, 0, 4 },
+        // descending / dark
+        { 0.58f, 0.46f, 0.38f, 0.56f, 0.66f, 0.60f, 11, 9, 10, 6, 2, 6, 5 },
+        // wide / dramatic
+        { 0.76f, 0.62f, 0.68f, 0.34f, 0.58f, 0.46f, 17, 5, 12, 3, 5, 7, 1 },
+        // playful / rebound
+        { 0.62f, 0.50f, 0.32f, 0.64f, 0.34f, 0.54f,  3, 2,  7, 5, 1, 2, 2 },
+        // vocal / held statement
+        { 0.38f, 0.28f, 0.18f, 0.74f, 0.40f, 0.78f,  2, 1,  4, 7, 0, 1, 3 },
+        // ostinato / driving cell
+        { 0.44f, 0.34f, 0.20f, 0.86f, 0.22f, 0.26f,  0, 0, 15, 7, 0, 0, 1 },
+        // late peak / phrase
+        { 0.60f, 0.42f, 0.30f, 0.60f, 0.46f, 0.66f, 13, 4,  5, 4, 4, 4, 3 }
+    };
 
-    // Experimental / Hyperpop / Cinematic receive more creative degrees of freedom,
-    // while Ambient / Lofi keep the freedom expressed through space and duration.
+    static constexpr int preferredLanguageByType[8] =
+    {
+        0,  // Hook
+        9,  // Vocal
+        4,  // Riff
+        10, // Ostinato
+        7,  // Arp
+        1,  // Counter
+        5,  // Sparse Lead
+        11  // Phrase
+    };
+
+    const int preferred = preferredLanguageByType[juce::jlimit (0, 7, melodyType)];
+    const bool usePreferred =
+        unit (mix32 (h0 ^ (uint32_t) (melodyType + 17) * 0x45d9f3bu)) < 0.62f;
+
+    const int randomLanguage = pick (mix32 (h1 ^ h2 ^ 0x6C8E9CF5u), 12);
+    const int languageIndex = usePreferred ? preferred : randomLanguage;
+    const auto& language = languages[languageIndex];
+
+    const float identityJitterA = unit (mix32 (h0 ^ h3 ^ 0x94D049BBu)) - 0.5f;
+    const float identityJitterB = unit (mix32 (h1 ^ h2 ^ 0x2545F491u)) - 0.5f;
+    const float identityJitterC = unit (mix32 (h0 ^ h2 ^ 0x5E2D58D8u)) - 0.5f;
+
+    p.novelty = std::clamp (
+        language.novelty + 0.08f * identityJitterA
+        + 0.08f * c + 0.04f * e, 0.12f, 0.90f);
+
+    p.asymmetry = std::clamp (
+        language.asymmetry + 0.08f * identityJitterB
+        + 0.10f * c + 0.03f * e, 0.08f, 0.90f);
+
+    p.leapBias = std::clamp (
+        language.leapBias + 0.07f * identityJitterC
+        + 0.12f * c + 0.05f * e, 0.06f, 0.86f);
+
+    p.repetition = std::clamp (
+        language.repetition - 0.05f * c + 0.06f * (1.0f - c)
+        + 0.06f * identityJitterA, 0.16f, 0.90f);
+
+    p.harmonyColor = std::clamp (
+        language.harmonyColor + 0.07f * identityJitterB
+        + 0.04f * c, 0.10f, 0.86f);
+
+    p.durationContrast = std::clamp (
+        language.durationContrast + 0.08f * identityJitterC
+        + 0.04f * c, 0.10f, 0.90f);
+
+    // Role tweaks remain intentionally small. They refine a language instead of
+    // replacing it with independent random axes.
+    if (melodyType == 0)          p.repetition += 0.08f; // Hook
+    if (melodyType == 1)          p.durationContrast += 0.06f; // Vocal
+    if (melodyType == 2)          p.leapBias += 0.08f; // Riff
+    if (melodyType == 5)          p.repetition += 0.04f; // Counter
+    if (melodyType == 6)          p.asymmetry += 0.06f; // Sparse lead
+    if (melodyType == 7)          p.repetition -= 0.06f; // Phrase
+
+    // Mood remains a soft coloration layer, as before.
+    if (mood == 0 || mood == 1) p.durationContrast += 0.05f;
+    if (mood == 3 || mood == 7) p.leapBias += 0.06f;
+    if (mood == 4 || mood == 6) p.repetition -= 0.04f;
+
+    // Genre can open the language a little, but it cannot create an unrelated
+    // contour/interval/rhythm combination.
     if (genre == 14 || genre == 13 || genre == 6)
     {
-        p.novelty += 0.08f;
-        p.asymmetry += 0.07f;
-        p.leapBias += 0.08f;
+        p.novelty += 0.06f;
+        p.asymmetry += 0.05f;
+        p.leapBias += 0.06f;
     }
     if (genre == 4 || genre == 15)
     {
-        p.repetition += 0.05f;
-        p.durationContrast += 0.08f;
+        p.repetition += 0.04f;
+        p.durationContrast += 0.06f;
     }
 
-    p.novelty = std::clamp (p.novelty, 0.10f, 0.96f);
-    p.asymmetry = std::clamp (p.asymmetry, 0.08f, 0.94f);
-    p.leapBias = std::clamp (p.leapBias, 0.06f, 0.92f);
+    p.novelty = std::clamp (p.novelty, 0.10f, 0.94f);
+    p.asymmetry = std::clamp (p.asymmetry, 0.08f, 0.92f);
+    p.leapBias = std::clamp (p.leapBias, 0.06f, 0.90f);
     p.repetition = std::clamp (p.repetition, 0.12f, 0.94f);
-    p.harmonyColor = std::clamp (p.harmonyColor, 0.08f, 0.94f);
+    p.harmonyColor = std::clamp (p.harmonyColor, 0.08f, 0.92f);
     p.durationContrast = std::clamp (p.durationContrast, 0.08f, 0.94f);
 
-    // 18 contour languages: familiar shapes plus less symmetrical human gestures.
-    p.contourFamily = pick (mix32 (h0 ^ (uint32_t) melodyType * 0x45d9f3bu), 18);
+    p.contourFamily = language.contourFamily;
+    p.intervalFamily = language.intervalFamily;
+    p.rhythmFamily = language.rhythmFamily;
 
-    // 12 interval vocabularies. The first ten align with the legacy engine; the last
-    // two deliberately create different leap/recovery grammars.
-    p.intervalFamily = pick (mix32 (h1 ^ 0x6C8E9CF5u), 12);
-
-    // Rhythm family is separate from raw density. This means a dense line can still
-    // be sparse in onset shape, and a sparse line can still have an unusual pocket.
-    p.rhythmFamily = pick (mix32 (h2 ^ 0x7A3C19E5u), 12);
     static constexpr int biases[12] = { -11, 8, -5, 13, -17, 5, 11, -8, 16, -14, 20, -20 };
     p.rhythmBias = biases[p.rhythmFamily];
 
-    p.repetitionStyle = pick (mix32 (h3 ^ 0x27D4EB2Du), 8);
-    p.registerJourney = pick (mix32 (h0 ^ h3 ^ 0x94D049BBu), 8);
-    p.harmonyPersonality = pick (mix32 (h1 ^ h2 ^ 0x2545F491u), 8);
-    p.durationStyle = pick (mix32 (h0 ^ h2 ^ 0x5E2D58D8u), 6);
+    p.repetitionStyle = language.repetitionStyle;
+    p.registerJourney = language.registerJourney;
+    p.harmonyPersonality = language.harmonyPersonality;
+    p.durationStyle = language.durationStyle;
 
-    // Register language is intentionally expressed as a bias plus a journey shape.
-    // This lets the widened pitch lane remain optional rather than mandatory.
     static constexpr int registerBiasTable[8] = { 0, 3, -3, 5, -5, 2, -2, 1 };
     p.registerBias = (float) registerBiasTable[p.registerJourney];
 
     return p;
+}
 }
 } // namespace midiforge
