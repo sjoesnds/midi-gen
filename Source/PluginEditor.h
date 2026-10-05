@@ -67,7 +67,7 @@ bool magicPending = false;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
  juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton,humanizeModeButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
- juce::TextButton generate,newSeed,applyVariation,exportMidi;
+ juce::TextButton generate,newSeed,applyVariation,exportMidi,revertBtn;
  juce::ComboBox pianoGridBox;
  juce::TextButton quantizeButton{"QUANTIZE"}, resetViewButton{"RESET VIEW"};
  juce::TextButton phraseButton{"PHRASE"}, barButton{"BAR"}, transposeDownButton{"-12"}, transposeUpButton{"+12"},
@@ -1073,12 +1073,24 @@ bool magicPending = false;
 
      void resetEditHistory()
      {
+         pristineNotes = processor.getVisibleNotes();
          history.clear();
          historyCursor = -1;
          selectedIndices.clear();
          selectedNote = -1;
          dragStartSelection.clear();
          dragStartNotes.clear();
+         updateHistoryButtons();
+         repaint();
+     }
+
+     void revertEdits()
+     {
+         processor.replaceVisibleNotes (pristineNotes);
+         history.clear();
+         history.push_back (pristineNotes);
+         historyCursor = 0;
+         clearSelection();
          updateHistoryButtons();
          repaint();
      }
@@ -1211,6 +1223,7 @@ bool magicPending = false;
      std::vector<int> dragStartSelection;
      std::vector<MidiForgeAudioProcessor::VisibleNote> dragStartNotes;
      std::vector<std::vector<MidiForgeAudioProcessor::VisibleNote>> history;
+     std::vector<MidiForgeAudioProcessor::VisibleNote> pristineNotes;
      int historyCursor = -1;
 
      void timerCallback() override { updateHistoryButtons(); repaint(); }
