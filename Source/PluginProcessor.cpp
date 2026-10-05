@@ -10421,8 +10421,8 @@ void MidiForgeAudioProcessor::magicRandomize()
     // Keep layer locks meaningful: a locked layer keeps its character controls.
     if (!lockChordsLayer)
     {
-        rootPc = pick(12);
-        scale = pick(12);
+        // Key and scale are explicit creator constraints. MAGIC explores the
+        // musical idea inside them instead of moving the goalposts.
         progression = pick(7);
         chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
         chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
@@ -10454,12 +10454,12 @@ void MidiForgeAudioProcessor::magicRandomize()
     }
 
     // Global musical identity. These affect all layers coherently.
-        mood = pick(9);
+        // Hidden strategy axes are still free to change on every MAGIC press.
+    // They are implementation detail, not user-facing genre/mood/type controls.
+    mood = pick(9);
     melodyType = pick(8);
     rhythm = pick(4);
-    static constexpr int barChoices[] = {1,2,4,8,16};
-    bars = barChoices[pick(5)];
-    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }   // 6 stays available manually
+    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
     era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
     swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
