@@ -57,7 +57,7 @@ struct ComposerJudge
                                + 0.20f * m.development
                                + 0.15f * m.motifDevelopment);
 
-        const float register = c (m.registerScore);
+        const float registerFit = c (m.registerScore);
 
         return std::clamp (
             0.22f * idea
@@ -65,7 +65,7 @@ struct ComposerJudge
             + 0.16f * harmony
             + 0.13f * rhythm
             + 0.11f * novelty
-            + 0.07f * register
+            + 0.07f * registerFit
             + 0.07f * c (m.closure)
             + 0.04f * c (m.densitySpace)
             + 0.02f * c (m.roleConsistency),
