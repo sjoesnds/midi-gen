@@ -2453,6 +2453,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     }
 
     const auto prof=soundProfileFor(soundTarget);
+    const int textureFamily = creativeTextureFamily (generationSeed ^ (uint32_t) (barOffset * 37 + degree * 11));
 
     // 0.44 Chord comping.  Chords used to be one held block per bar.  Now they are played as
     // a rhythm: each genre has its own comping cells (offbeat house stabs, boom-bap
@@ -2466,31 +2467,30 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
         hits={{0,prof.chordLen,0},{8,prof.chordLen,-6}};
     else
     {
-        const bool rhythmicGenre = genre==House||genre==Techno||genre==DnB||genre==Trap||genre==Drill||genre==Jersey
-                                   ||genre==Afro||genre==BoomBap||genre==RnB||genre==Lofi||genre==Hyperpop;
-        comping = (chordStyle==2) || (chordStyle==0 && rhythmicGenre);
+        const bool creativeCompingFamily = textureFamily >= 1 && textureFamily <= 6;
+         comping = (chordStyle==2) || (chordStyle==0 && creativeCompingFamily);
         if(!comping) hits={{0,prof.chordLen,0}};
         else
         {
             std::vector<std::vector<Hit>> cells;
-            if(genre==House||genre==Techno)
+            if(textureFamily==1)
                 cells={{{2,2,0},{6,2,-4},{10,2,0},{14,2,-4}},{{0,2,0},{6,2,-4},{10,3,0}},{{0,3,0},{4,2,-6},{8,3,-2},{12,2,-6}}};
-            else if(genre==DnB)
+            else if(textureFamily==2)
                 cells={{{0,3,0},{6,2,-6},{10,4,-2}},{{0,4,0},{8,3,-4},{12,2,-6}}};
-            else if(genre==Trap||genre==Drill)
+            else if(textureFamily==3)
                 cells={{{0,10,0},{10,6,-8}},{{0,12,0},{12,4,-8}},{{0,6,0},{8,8,-6}}};
-            else if(genre==Jersey)
+            else if(textureFamily==4)
                 cells={{{0,3,0},{6,3,-4},{10,3,-4},{14,2,-6}},{{0,2,0},{6,2,-4},{8,3,-2},{12,3,-4}}};
-            else if(genre==Afro)
+            else if(textureFamily==5)
                 cells={{{0,3,0},{3,3,-6},{6,4,-4},{10,3,-4},{12,4,-6}},{{0,4,0},{6,3,-4},{10,3,-4}}};
-            else if(genre==BoomBap)
+            else if(textureFamily==6)
                 cells={{{0,6,0},{6,3,-6},{10,6,-4}},{{0,5,0},{6,4,-6},{10,6,-2}}};
-            else if(genre==RnB||genre==Lofi)
+            else if(textureFamily==7)
                 cells={{{0,6,0},{6,4,-6},{10,6,-4}},{{0,8,0},{10,6,-6}},{{0,4,0},{4,3,-6},{8,6,-4},{12,4,-6}}};
             else
                 cells={{{0,4,0},{4,4,-4},{8,4,-2},{12,4,-4}},{{0,6,0},{6,2,-6},{8,8,-4}}};
             const int cyc=(barOffset%juce::jmax(1,bars))%4;
-            const uint32_t cSeed=hash32(generationSeed ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00C0FFEEu ^ (cyc==2 ? 0xB2B2B2B2u : 0u));
+            const uint32_t cSeed=hash32(generationSeed ^ (uint32_t)textureFamily*0xc2b2ae35u ^ 0x00C0FFEEu ^ (cyc==2 ? 0xB2B2B2B2u : 0u));
             hits=cells[(size_t)(cSeed%(uint32_t)cells.size())];
         }
     }
@@ -2505,7 +2505,7 @@ void MidiForgeAudioProcessor::addChords(Section& s,int barOffset,int degree,floa
     }
 
     // Genre-aware rhythmic chord punctuation, still scale-safe.
-    if(!comping && !prof.chordTwoHits && (genre==House||genre==Techno||genre==Jersey) && r.nextFloat()<(0.35f+0.45f*e))
+    if(!comping && !prof.chordTwoHits && (textureFamily==1 || textureFamily==4) && r.nextFloat()<(0.35f+0.45f*e))
         s.notes.push_back({barOffset*16+8,4,juce::jlimit(24,108,foldIntoLane(degreeToPitch(degree,3),lo+12,hi+12)),63,1,false});
     if(!comping && !prof.chordTwoHits && chordExtensions && hDNA>0.55f && r.nextFloat()<(0.08f+0.20f*hDNA))
     {
@@ -2524,10 +2524,10 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
     registerLane(1,lo,hi);
     const int root=foldIntoLane(degreeToPitch(degree,2),lo,hi);
     std::vector<int> steps;
-    if(genre==Trap || genre==Drill)steps={0,3,6,10,14};
-    else if(genre==House || genre==Techno || genre==DnB)steps={0,4,8,12};
-    else if(genre==Jersey || genre==Afro)steps={0,3,8,11,14};
-    else if(genre==RnB || genre==Lofi)steps={0,8,12};
+    const int textureFamily = creativeTextureFamily (generationSeed ^ (uint32_t) (barOffset * 41 + degree * 13));
+    if(textureFamily==0 || textureFamily==3) steps={0,3,6,10,14};
+    else if(textureFamily==1 || textureFamily==2) steps={0,4,8,12};
+    else if(textureFamily==4 || textureFamily==5) steps={0,3,8,11,14};
     else steps={0,8,12};
     const float hitChance=juce::jlimit(0.20f,0.95f,bassDensity*(0.62f+0.50f*e));
     for(int x:steps){
@@ -2552,14 +2552,13 @@ void MidiForgeAudioProcessor::addBass(Section& s,int barOffset,int degree,float 
         }
         note=foldIntoLane(snapToScale(note),lo,hi);
         bool ghost=r.nextFloat()<ghostChance*.5f&&x!=0;
-        int len=(genre==House||genre==Techno||genre==DnB)?3:
-                ((genre==RnB||genre==Lofi)?6:(x==0?7:3));
+        int len=((textureFamily==1 || textureFamily==2) ? 3 : (textureFamily==6 ? 6 : (x==0 ? 7 : 3)));
         int vel=juce::jlimit(1,127,92+(x==0?7:0)-(ghost?20:0));
         s.notes.push_back({barOffset*16+x,len,note,vel,2,ghost});
     }
     // FLAGSHIP: sub drop an octave down on the strong beat (trap/cinematic),
     // only when it stays above the audible floor.
-    if((genre==Trap||genre==Cinematic) && e>0.5f && r.nextFloat()<0.35f && root-12>=lo)
+    if((textureFamily==0 || textureFamily==6) && e>0.5f && r.nextFloat()<0.35f && root-12>=lo)
         s.notes.push_back({barOffset*16,8,root-12,100,2,false});
 }
 void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Random&,int variationSalt)
@@ -2572,28 +2571,24 @@ void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Ra
     enum { Kick=36, Snare=38, Clap=39, HatC=42, HatO=46, Crash=49, Shaker=70 };
     const int loopBar=barOffset%juce::jmax(1,bars);
     const int cycle=loopBar%4;
-    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00D20005u);
+    const int textureFamily = creativeTextureFamily (generationSeed ^ (uint32_t) variationSalt * 0x9e3779b9u ^ (uint32_t) (barOffset + 1) * 0x85ebca6bu);
+    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)textureFamily*0xc2b2ae35u ^ 0x00D20005u);
     const uint32_t idSeed=(cycle==2) ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset/4)*0x27d4eb2du) : loopSeed;
 
     using Cell=std::vector<int>;
     std::vector<Cell> kicks; Cell snares;
     int hatMode=1;                 // 0 none, 1 eighths, 2 sixteenths (with drop-outs), 3 open off-beats + light closed
     bool clap=false, both=false, shaker=false;
-    switch(genre)
+    switch(textureFamily)
     {
-        case Trap:     kicks={{0,10},{0,7,10},{0,6,10},{0,3,7,10}}; snares={8}; hatMode=2; clap=true; both=true; break;
-        case Drill:    kicks={{0,10},{0,3,10},{0,6,11}};            snares={8}; hatMode=1; clap=true; both=true; break;
-        case House:    kicks={{0,4,8,12}};                          snares={4,12}; hatMode=3; clap=true; break;
-        case Techno:   kicks={{0,4,8,12}};                          snares={12};   hatMode=2; clap=true; break;
-        case DnB:      kicks={{0,10},{0,6,10}};                     snares={4,12}; hatMode=1; break;
-        case BoomBap:  kicks={{0,10},{0,7,10},{0,2,10}};            snares={4,12}; hatMode=1; break;
-        case RnB:
-        case Lofi:     kicks={{0,10},{0,7,10}};                     snares={4,12}; hatMode=1; break;
-        case Afro:     kicks={{0,6,10},{0,3,6,10}};                 snares={4,12}; hatMode=0; shaker=true; break;
-        case Jersey:   kicks={{0,3,6,10},{0,3,7,10}};               snares={4,12}; hatMode=1; clap=true; break;
-        case Ambient:
-        case Cinematic: kicks={{0},{0,8}};                          snares={};    hatMode=0; break;
-        default:       kicks={{0,8},{0,6,8},{0,8,10}};              snares={4,12}; hatMode=1; break;
+        case 0: kicks={{0,10},{0,7,10},{0,6,10},{0,3,7,10}}; snares={8}; hatMode=2; clap=true; both=true; break;
+        case 1: kicks={{0,10},{0,3,10},{0,6,11}}; snares={8}; hatMode=1; clap=true; both=true; break;
+        case 2: kicks={{0,4,8,12}}; snares={4,12}; hatMode=3; clap=true; break;
+        case 3: kicks={{0,4,8,12}}; snares={12}; hatMode=2; clap=true; break;
+        case 4: kicks={{0,10},{0,6,10}}; snares={4,12}; hatMode=1; break;
+        case 5: kicks={{0,10},{0,7,10},{0,2,10}}; snares={4,12}; hatMode=1; break;
+        case 6: kicks={{0,10},{0,7,10}}; snares={4,12}; hatMode=1; break;
+        default: kicks={{0},{0,8}}; snares={}; hatMode=0; shaker=true; break;
     }
     const Cell& kick=kicks[(size_t)(hash32(idSeed ^ 0x11u)%(uint32_t)kicks.size())];
 
@@ -2614,7 +2609,7 @@ void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Ra
             put(x,1,clap ? Clap : Snare,108+jitter(x,4));
             if(both) put(x,1,Snare,82+jitter(x+1,4));
         }
-    if((genre==BoomBap||genre==RnB||genre==Lofi) && (float)(hash32(idSeed ^ 0x6057u)%1000u)/1000.0f < ghostChance*2.0f)
+    if((textureFamily==5 || textureFamily==6) && (float)(hash32(idSeed ^ 0x6057u)%1000u)/1000.0f < ghostChance*2.0f)
         put(11,1,Snare,40+jitter(11,3));                                  // ghost snare
 
     for(int x=0;x<16;++x)
@@ -2645,7 +2640,7 @@ void MidiForgeAudioProcessor::addDrums(Section& s,int barOffset,float e,juce::Ra
         else
             for(int x=12;x<16;++x) put(x,1,Snare,68+11*(x-12)+jitter(x,3));         // snare roll, rising
     }
-    if(barOffset==0 && (genre==House||genre==Techno||genre==GenrePop||genre==Hyperpop||genre==Universal)
+    if(barOffset==0 && (textureFamily==2 || textureFamily==3 || textureFamily==4)
        && (hash32(idSeed ^ 0xC2A5u)%100u)<30u)
         put(0,4,Crash,96);
 }
@@ -2667,7 +2662,8 @@ void MidiForgeAudioProcessor::add808(Section& s,int barOffset,float e,juce::Rand
     const int loopBar=barOffset%juce::jmax(1,bars);
     const int cycle=loopBar%4;
 
-    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)genre*0xc2b2ae35u ^ 0x00808808u);
+    const int textureFamily = creativeTextureFamily (generationSeed ^ (uint32_t) variationSalt * 0x9e3779b9u ^ (uint32_t) (barOffset + 1) * 0x27d4eb2du);
+    const uint32_t loopSeed=hash32(generationSeed ^ (uint32_t)variationSalt*0x9e3779b9u ^ (uint32_t)textureFamily*0xc2b2ae35u ^ 0x00808808u);
     const uint32_t idSeed=(cycle==2) ? hash32(loopSeed ^ 0xB2B2B2B2u ^ (uint32_t)(barOffset/4)*0x27d4eb2du) : loopSeed;
 
     // Octave placement follows the previous note (a bass line moves in small steps between roots).
@@ -2693,10 +2689,10 @@ void MidiForgeAudioProcessor::add808(Section& s,int barOffset,float e,juce::Rand
     // rhythm cells, sorted from sparse to busy (Melody Density and energy pick the busier ones)
     using Cell=std::vector<int>;
     std::vector<Cell> fam;
-    if(genre==Trap||genre==Drill)                     fam={{0},{0,10},{0,6,10},{0,7,10},{0,6,8,14},{0,3,8,11},{0,3,6,10,14}};
-    else if(genre==House||genre==Techno||genre==DnB)  fam={{0,8},{0,4,10},{0,6,8,14},{0,4,8,12}};
-    else if(genre==Jersey||genre==Afro)               fam={{0,10},{0,3,6,10},{0,6,10},{0,3,8,11,14}};
-    else if(genre==RnB||genre==Lofi||genre==BoomBap||genre==Ambient||genre==Cinematic)
+    if(textureFamily==0 || textureFamily==1)                     fam={{0},{0,10},{0,6,10},{0,7,10},{0,6,8,14},{0,3,8,11},{0,3,6,10,14}};
+    else if(textureFamily==2 || textureFamily==3 || textureFamily==4)  fam={{0,8},{0,4,10},{0,6,8,14},{0,4,8,12}};
+    else if(textureFamily==5)               fam={{0,10},{0,3,6,10},{0,6,10},{0,3,8,11,14}};
+    else if(textureFamily==6)
                                                       fam={{0},{0,10},{0,8},{0,6,12}};
     else                                              fam={{0},{0,10},{0,8},{0,6,10},{0,4,8,12}};
     std::stable_sort(fam.begin(),fam.end(),[](const Cell& a,const Cell& b){ return a.size()<b.size(); });
