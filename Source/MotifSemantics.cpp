@@ -36,55 +36,118 @@ MotifSemantics::Plan MotifSemantics::makePlan (int melodyType,
 {
     Plan p;
 
-    const uint32_t base = mix32 (
-        identity
-        ^ (uint32_t) (melodyType + 1) * 0x9e3779b9u
-        ^ (uint32_t) (mood + 11) * 0x85ebca6bu
-        ^ (uint32_t) (genre + 17) * 0xc2b2ae35u);
+    const float e = std::clamp (energy, 0.0f, 1.0f);
+    const float c = std::clamp (complexity, 0.0f, 1.0f);
 
-    p.rhythmicCore = pick (base ^ 0x13579bdu, 8);
-    p.intervalCore = pick (base ^ 0x2468aceu, 8);
-    p.startingAnchor = pick (base ^ 0x1020304u, 7);
-    p.peakGesture = pick (base ^ 0x55667788u, 7);
-    p.endingGesture = pick (base ^ 0x90abcdefu, 7);
-    p.signatureLeap = pick (base ^ 0x31415926u, 6);
-    p.answerCell = pick (base ^ 0x27182818u, 7);
+    // One semantic family controls all late phrase mutations. The old version
+    // rolled every axis independently, so the semantic pass could destroy the
+    // musical language already chosen by CreativeRange + addMelody().
+    static constexpr int rhythmic[8][2] =
+    {
+        { 0, 1 }, { 1, 2 }, { 2, 3 }, { 0, 5 },
+        { 3, 4 }, { 1, 2 }, { 4, 5 }, { 1, 5 }
+    };
+    static constexpr int interval[8][2] =
+    {
+        { 0, 1 }, { 1, 1 }, { 2, 3 }, { 0, 0 },
+        { 2, 4 }, { 3, 4 }, { 0, 1 }, { 1, 5 }
+    };
+    static constexpr int anchor[8][2] =
+    {
+        { 0, 1 }, { 0, 1 }, { 2, 3 }, { 0, 0 },
+        { 1, 2 }, { 2, 3 }, { 0, 1 }, { 0, 2 }
+    };
+    static constexpr int peak[8][2] =
+    {
+        { 1, 2 }, { 3, 4 }, { 3, 5 }, { 0, 1 },
+        { 2, 4 }, { 2, 3 }, { 1, 3 }, { 2, 4 }
+    };
+    static constexpr int ending[8][2] =
+    {
+        { 0, 1 }, { 1, 3 }, { 2, 3 }, { 4, 4 },
+        { 0, 1 }, { 1, 5 }, { 4, 4 }, { 0, 4 }
+    };
+    static constexpr int signature[8][2] =
+    {
+        { 0, 1 }, { 0, 1 }, { 2, 3 }, { 0, 0 },
+        { 1, 2 }, { 2, 3 }, { 0, 1 }, { 1, 2 }
+    };
+    static constexpr int answer[8][2] =
+    {
+        { 0, 1 }, { 2, 3 }, { 4, 5 }, { 2, 3 },
+        { 1, 3 }, { 0, 4 }, { 2, 3 }, { 0, 3 }
+    };
+    static constexpr int primary[8][2] =
+    {
+        { 4, 6 }, { 0, 4 }, { 1, 5 }, { 0, 4 },
+        { 3, 5 }, { 2, 6 }, { 4, 0 }, { 1, 4 }
+    };
+    static constexpr int secondary[8][2] =
+    {
+        { 0, 2 }, { 2, 6 }, { 3, 6 }, { 2, 4 },
+        { 1, 4 }, { 0, 5 }, { 2, 5 }, { 3, 6 }
+    };
 
-    // The same seven semantic parts are intentionally allowed to combine
-    // freely. Only the primary/secondary mutation roles are constrained so
-    // A' changes one idea and B changes another.
-    p.primaryMutation = pick (base ^ 0xdeadbeefu, 7);
-    p.secondaryMutation = (p.primaryMutation + 1 + pick (base ^ 0xabcdef01u, 6)) % 7;
+    const int typeFamily[8] = { 0, 7, 2, 3, 4, 1, 6, 7 };
+    int family = typeFamily[juce::jlimit (0, 7, melodyType)];
 
-    const float energyBias = std::clamp (energy, 0.0f, 1.0f);
-    const float complexityBias = std::clamp (complexity, 0.0f, 1.0f);
+    // Identity may switch to one neighboring semantic family, but never
+    // completely reshuffles every axis independently.
+    const uint32_t familyHash = mix32 (
+        identity ^ (uint32_t) (melodyType + 1) * 0x9e3779b9u
+        ^ (uint32_t) (genre + 17) * 0x85ebca6bu);
+    if ((familyHash % 100u) < 28u)
+        family = (family + 1 + (int) ((familyHash >> 8) & 1u)) % 8;
 
-    p.mutationStrength = 0.38f
-        + 0.24f * complexityBias
-        + 0.12f * unit (base ^ 0x11u);
+    if (genre == 14 && (familyHash % 100u) < 52u)
+        family = (family + 2) % 8;
 
-    p.contrastStrength = 0.50f
-        + 0.18f * energyBias
-        + 0.12f * complexityBias
-        + 0.10f * unit (base ^ 0x22u);
+    const int variant = (int) ((familyHash >> 16) & 1u);
 
-    p.returnStrength = 0.68f
-        + 0.16f * (1.0f - complexityBias)
-        + 0.08f * unit (base ^ 0x33u);
+    p.rhythmicCore = rhythmic[family][variant];
+    p.intervalCore = interval[family][variant];
+    p.startingAnchor = anchor[family][variant];
+    p.peakGesture = peak[family][variant];
+    p.endingGesture = ending[family][variant];
+    p.signatureLeap = signature[family][variant];
+    p.answerCell = answer[family][variant];
+    p.primaryMutation = primary[family][variant];
+    p.secondaryMutation = secondary[family][variant];
 
-    // Soft context biases. These do not lock the result to a genre or mood;
-    // they only nudge the semantic vocabulary toward useful musical behavior.
-    if (mood == 1 || mood == 7) // dark / mysterious
-        p.signatureLeap = (p.signatureLeap + 2) % 6;
-    if (mood == 2 || mood == 5) // melancholic / dreamy
+    // Strength is intentionally modest. The semantic pass should expose the
+    // phrase's identity, not replace it.
+    p.mutationStrength = std::clamp (
+        0.20f + 0.10f * c + 0.04f * unit (familyHash ^ 0x11u),
+        0.18f, 0.34f);
+
+    p.contrastStrength = std::clamp (
+        0.30f + 0.10f * e + 0.08f * c
+        + 0.05f * unit (familyHash ^ 0x22u),
+        0.26f, 0.52f);
+
+    p.returnStrength = std::clamp (
+        0.52f + 0.08f * (1.0f - c)
+        + 0.05f * unit (familyHash ^ 0x33u),
+        0.48f, 0.66f);
+
+    // Context bends one semantic dimension instead of replacing the family.
+    if (mood == 1 || mood == 7)
+        p.signatureLeap = (p.signatureLeap + 1) % 6;
+
+    if (mood == 2 || mood == 5)
         p.endingGesture = (p.endingGesture + 1) % 7;
-    if (mood == 3 || mood == 8) // euphoric / energetic
-        p.peakGesture = (p.peakGesture + 2) % 7;
-    if (melodyType == 1 || melodyType == 6) // vocal-like / sparse lead
+
+    if (mood == 3 || mood == 8)
+        p.peakGesture = (p.peakGesture + 1) % 7;
+
+    if (melodyType == 6)
+    {
+        p.rhythmicCore = (p.rhythmicCore + 1) % 8;
         p.answerCell = (p.answerCell + 2) % 7;
-    if (genre == 14) // experimental
-        p.primaryMutation = (p.primaryMutation + 3) % 7;
+        p.mutationStrength *= 0.72f;
+    }
 
     return p;
+}
 }
 } // namespace midiforge
