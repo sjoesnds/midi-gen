@@ -2658,7 +2658,7 @@ int main()
     }
 
 
-    // ------------------------------------------------------------------ 19. style/safety separation (0.87)
+    // ------------------------------------------------------------------ 19. style/safety separation (0.86.x)
     {
         MidiForgeAudioProcessor p;
         p.setFeedbackLogFile (juce::File());
