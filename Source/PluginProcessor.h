@@ -66,7 +66,7 @@ bool isGenerating() const { return generating.load(); }
 uint32_t getGenerationDoneCounter() const { return generationDone.load(); }
 void waitForGeneration();
 // 0.79 feedback log: one CSV row per LIKE / DISLIKE / export / drag, so the real like-rate of every archetype, transform,
-// genre and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
+// archetype and sound can be measured (see tools/analyze_feedback.py). Local file only, nothing is sent anywhere.
 void setFeedbackLogFile (const juce::File& f) { feedbackFile = f; }
 // Tests point this at a temporary folder BEFORE creating any processor, so taste.json / feedback.csv of the real user are never read or written.
 static void setSettingsDirectoryOverride (const juce::File& dir);
@@ -125,7 +125,7 @@ int getMelodyType() const { return melodyType; }
 int getSoundTarget() const { return soundTarget; }
 // 0.42 Articulation (0 off, 1 slides, 2 slides + vibrato) - applies to profiles that support it (Synth Lead, 808)
 int getArticulation() const { return articulation; }
-// 0.44 Chord style (0 Auto by genre, 1 Held, 2 Comping) and the optional Drums layer (MIDI channel 10)
+// 0.44 Chord style (0 Auto, 1 Held, 2 Comping) and the optional Drums layer (MIDI channel 10)
 int getChordStyle() const { return chordStyle; }
 void setChordStyle (int v);
 bool isDrumsEnabled() const { return drumsEnabled; }
