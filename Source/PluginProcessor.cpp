@@ -1020,8 +1020,7 @@ void MidiForgeAudioProcessor::applyRhythmGrammar (Section& section, uint32_t ide
         complexity,
         energy,
         identity ^ 0x52A11F7Du,
-        melodyType,
-        );
+        melodyType);
 
     for (size_t i = 0; i < melody.size() && i < indices.size(); ++i)
     {
