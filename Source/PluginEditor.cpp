@@ -506,6 +506,22 @@ addAndMakeVisible(lockMelodyBtn);addAndMakeVisible(lockArpBtn);
 addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
+
+// Creator-first UI: generation strategy controls stay internal. The visible surface
+// exposes only key/scale/length plus workflow, editing and explicit performance tools.
+for (auto* c : {
+    &progression, &rhythm, &mode, &octave,
+    &arpRate, &moodBox, &melodyTypeBox, &soundBox,
+    &articBox, &chordBox,
+    &newSeed,
+    &extensions, &inversions, &hookModeButton, &soundCloudButton,
+    &chordDensity, &bassDensity, &melodyDensity, &arpDensity,
+    &motifStrength, &variationAmount, &fillAmount, &energy,
+    &melodyLength, &pauseChance, &leapChance, &ghostChance,
+    &complexity, &tasteToggleBtn, &resetTasteBtn
+})
+    c->setVisible (false);
+
 addChildComponent (busyOverlay);
 lastGenerationDone = processor.getGenerationDoneCounter();
 startTimerHz (10);
