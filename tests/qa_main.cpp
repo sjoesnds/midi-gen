@@ -3660,6 +3660,33 @@ int main()
                      (double) complexityHits[0], (double) complexityHits[1], (double) complexityHits[2]));
     }
 
+    // ------------------------------------------------------------------ 16. creator-first constraints
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);   // G
+        p.setScale (2);  // Dorian
+        p.setBars (8);
+        p.waitForGeneration();
+
+        const int rootBefore = p.getRoot();
+        const int scaleBefore = p.getScale();
+        const int barsBefore = p.getBars();
+
+        for (int i = 0; i < 12; ++i)
+        {
+            p.magicRandomize();
+            p.waitForGeneration();
+        }
+
+        report ("creator-first: MAGIC preserves Key / Scale / Bars",
+                p.getRoot() == rootBefore
+                && p.getScale() == scaleBefore
+                && p.getBars() == barsBefore,
+                fmt ("key %d->%d scale %d->%d bars %d->%d",
+                     rootBefore, p.getRoot(), scaleBefore, p.getScale(), barsBefore, p.getBars()));
+    }
+
     // ------------------------------------------------------------------ 15. 0.97 Unified Melody Decision
     {
         using Decision = midiforge::MelodyDecision;
