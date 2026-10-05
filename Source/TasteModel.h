@@ -7,7 +7,7 @@
 //  * extractFeatures(): 17 musical features of a whole loop (melody + chords + bass)
 //  * Model: p(like) = sigmoid(b + (w + w_sound + w_genre) . z), z = standardised features
 //           - global weights w learn the general taste
-//           - small, strongly regularised residuals per Sound target and per Genre
+//           - small, strongly regularised residuals per Sound target
 //             learn context-specific taste without overfitting a handful of ratings
 //           - trained online by SGD from explicit LIKE / DISLIKE feedback only
 //
