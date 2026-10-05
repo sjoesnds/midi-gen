@@ -5697,6 +5697,8 @@ void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
     const auto plan = midiforge::MotifSemantics::makePlan (
         melodyType, mood, genre, energy, complexity, identity);
 
+    const bool simpleIntent = section.melodyComplexityClass == 0;
+
     auto collectBar = [&] (int bar)
     {
         std::vector<size_t> out;
