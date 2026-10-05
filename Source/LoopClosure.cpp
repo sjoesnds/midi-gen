@@ -30,8 +30,7 @@ namespace midiforge
 {
 LoopClosure::Plan LoopClosure::makePlan (int melodyType,
                                          int mood,
-                                         int genre,
-                                         float energy,
+                                                                                  float energy,
                                          float complexity,
                                          uint32_t identity)
 {
