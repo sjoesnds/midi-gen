@@ -201,5 +201,4 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
 
     return p;
 }
-}
 } // namespace midiforge
