@@ -4022,9 +4022,19 @@ int main()
                     melody.push_back (n.note);
                 }
 
-                std::sort (melody.begin(), melody.end());
-                for (size_t i = 1; i < melody.size(); ++i)
-                    leapSafe = leapSafe && std::abs (melody[i] - melody[i - 1]) <= 12;
+                // Preserve chronological order for the melodic leap contract.
+                std::vector<std::pair<int, int>> timeline;
+                for (const auto& n : notes)
+                    if (n.channel == 3)
+                        timeline.push_back ({ n.step, n.note });
+                std::stable_sort (timeline.begin(), timeline.end(),
+                    [] (const auto& a, const auto& b)
+                    {
+                        if (a.first != b.first) return a.first < b.first;
+                        return a.second < b.second;
+                    });
+                for (size_t i = 1; i < timeline.size(); ++i)
+                    leapSafe = leapSafe && std::abs (timeline[i].second - timeline[i - 1].second) <= 12;
             }
         }
 
