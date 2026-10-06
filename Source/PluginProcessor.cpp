@@ -9152,18 +9152,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
             oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
         buildBaseSong(song,local,c+1);
 
-        variationAmount = oldVariation;
-        melodyDensity = oldMelodyDensity;
-        pauseChance = oldPauseChance;
-        leapChance = oldLeapChance;
-        motifStrength = oldMotifStrength;
-        complexity = oldComplexity;
-        swing = oldSwing;
-        octave = oldOctave;
-
         // Keep this candidate's hidden strategy active while the complete
-        // generation and judging pipeline evaluates it. These values are restored
-        // only after the candidate has been fully scored.
+        // generation and judging pipeline evaluates it. Restore it only after
+        // the candidate has been fully scored and stored.
         const int archetype = c % 8;
         Section flat=flatten(song,c,local,mLo,mHi);
         traceMelodyStage (0, flat);
@@ -10147,6 +10138,22 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
                                   grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
                                   characterFit, idea});
+
+            // Restore the pre-candidate state after the complete generation/judge
+            // pipeline has finished. Each candidate therefore carries its own
+            // creative strategy without leaking that strategy into the next one.
+            mood = oldMood;
+            melodyType = oldMelodyType;
+            rhythm = oldRhythm;
+            progression = oldProgression;
+            octave = oldOctave;
+            variationAmount = oldVariation;
+            melodyDensity = oldMelodyDensity;
+            pauseChance = oldPauseChance;
+            leapChance = oldLeapChance;
+            motifStrength = oldMotifStrength;
+            complexity = oldComplexity;
+            swing = oldSwing;
         }
         // Restore hidden strategy state before moving to the next candidate.
         mood = oldMood;
