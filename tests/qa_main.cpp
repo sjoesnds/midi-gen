@@ -3687,6 +3687,37 @@ int main()
                      rootBefore, p.getRoot(), scaleBefore, p.getScale(), barsBefore, p.getBars()));
     }
 
+    // ------------------------------------------------------------------ 15. creator-first strategy diversity
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);
+        p.setScale (2);
+        p.setBars (4);
+
+        std::array<bool, 12> seenCharacters {};
+        int distinctCharacters = 0;
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            p.setSeed (106000 + seedIndex * 101);
+            p.regenerate();
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                const int character = p.getVariationMelodyCharacter (v);
+                if (character >= 0 && character < (int) seenCharacters.size()
+                    && ! seenCharacters[(size_t) character])
+                {
+                    seenCharacters[(size_t) character] = true;
+                    ++distinctCharacters;
+                }
+            }
+        }
+
+        report ("creator-first: repeated MAGIC exploration exposes multiple musical characters",
+                distinctCharacters >= 6,
+                fmt ("%.0f distinct latent characters across 48 ideas", (double) distinctCharacters));
+    }
+
     // ------------------------------------------------------------------ 15. 0.97 Unified Melody Decision
     {
         using Decision = midiforge::MelodyDecision;
