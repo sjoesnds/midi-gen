@@ -3954,6 +3954,93 @@ int main()
                 fmt ("contrast %d / %d phrases", contrast, measured));
     }
 
+
+
+    // ------------------------------------------------------------------ 20. 0.99.1 tonal + register hard contract
+    {
+        const isInScale = [] (const Note& n, int root, int scaleIndex)
+        {
+            static const std::array<std::array<int, 12>, 12> scales =
+            {{
+                {{0,2,4,5,7,9,11, -1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,9,10,-1,-1,-1,-1,-1}},
+                {{0,1,3,5,7,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,8,11,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,9,11,-1,-1,-1,-1,-1}},
+                {{0,2,4,7,9,-1,-1,-1,-1,-1,-1,-1}},
+                {{0,2,4,6,7,9,11,-1,-1,-1,-1,-1}},
+                {{0,2,4,5,7,9,10,-1,-1,-1,-1,-1}},
+                {{0,1,3,5,6,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,4,5,7,8,11,-1,-1,-1,-1,-1}},
+                {{0,3,5,6,7,10,-1,-1,-1,-1,-1,-1}}
+            }};
+
+            if (scaleIndex < 0 || scaleIndex >= (int) scales.size())
+                return false;
+
+            const int rel = ((n.note % 12) - root + 12) % 12;
+            for (const int degree : scales[(size_t) scaleIndex])
+            {
+                if (degree < 0) break;
+                if (degree == rel) return true;
+            }
+            return false;
+        };
+
+        bool tonal = true;
+        bool registerSafe = true;
+        bool leapSafe = true;
+        int checked = 0;
+        int highest = 0;
+
+        for (int scaleIndex = 0; scaleIndex < 12; ++scaleIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (scaleIndex);
+            p.setBars (4);
+            p.setSeed (110300 + scaleIndex * 53);
+            p.regenerate();
+            p.waitForGeneration();
+
+            std::vector<int> melody;
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+                melody.clear();
+
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3) continue;
+                    ++checked;
+                    highest = std::max (highest, n.note);
+                    tonal = tonal && isInScale (n, p.getRoot(), p.getScale());
+                    registerSafe = registerSafe && n.note >= 48 && n.note <= 90;
+                    melody.push_back (n.note);
+                }
+
+                std::sort (melody.begin(), melody.end());
+                for (size_t i = 1; i < melody.size(); ++i)
+                    leapSafe = leapSafe && std::abs (melody[i] - melody[i - 1]) <= 12;
+            }
+        }
+
+        report ("0.99.1 tonal/register: every generated melody note stays in the selected scale",
+                tonal && checked > 0,
+                fmt ("checked %d melody notes", checked));
+
+        report ("0.99.1 tonal/register: generated melody stays inside the safe register ceiling",
+                registerSafe && checked > 0,
+                fmt ("highest generated melody pitch %d", highest));
+
+        report ("0.99.1 tonal/register: final melodic leaps stay inside the hard contract",
+                leapSafe && checked > 0,
+                "all adjacent melody pitches differ by at most 12 semitones");
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
