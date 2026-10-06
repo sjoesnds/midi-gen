@@ -183,7 +183,7 @@ private:
         std::vector<std::pair<float, int>> ranked;
         ranked.reserve (16);
 
-        for (int step = 0; step < 16; ++step)
+        for (int step = 0; step < 16; step += 2)
             ranked.push_back ({
                 positionScore (step, shape, bpm, baseRhythm, complexity, energy,
                                hash32 (seed ^ 0xA511E9B3u)),
@@ -213,7 +213,7 @@ private:
         {
             addPreferred (0);
             addPreferred (8);
-            addPreferred (shape == Shape::Pickup ? 14 : 15);
+            addPreferred (shape == Shape::Pickup ? 14 : 14);
         }
         else if (shape == Shape::Repetitive)
         {
@@ -236,16 +236,17 @@ private:
 
     static int nearestFree (int target, const std::vector<int>& occupied)
     {
-        target = std::clamp (target, 0, 15);
+        target = std::clamp (target, 0, 14);
+        target = (target / 2) * 2;
         if (std::find (occupied.begin(), occupied.end(), target) == occupied.end())
             return target;
 
-        for (int d = 1; d <= 15; ++d)
+        for (int d = 2; d <= 14; d += 2)
         {
             const int a = target - d;
             const int b = target + d;
             if (a >= 0 && std::find (occupied.begin(), occupied.end(), a) == occupied.end()) return a;
-            if (b < 16 && std::find (occupied.begin(), occupied.end(), b) == occupied.end()) return b;
+            if (b <= 14 && std::find (occupied.begin(), occupied.end(), b) == occupied.end()) return b;
         }
         return target;
     }
