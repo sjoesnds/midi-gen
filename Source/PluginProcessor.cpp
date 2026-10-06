@@ -42,6 +42,11 @@ MidiForgeAudioProcessor::~MidiForgeAudioProcessor()
 {
     waitForGeneration();
 }
+
+void MidiForgeAudioProcessor::setSettingsDirectoryOverride (const juce::File& dir)
+{
+    settingsDirectoryOverride() = dir;
+}
 bool MidiForgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
 return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
