@@ -9090,6 +9090,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const uint32_t identity=hash32(generationSeed ^ (uint32_t)(c+1)*0x45d9f3bu);
         juce::Random local((juce::int64)identity);
         SongData song;
+        const int oldMood = mood;
+        const int oldMelodyType = melodyType;
+        const int oldRhythm = rhythm;
+        const int oldProgression = progression;
+        const int oldOctave = octave;
         const float oldVariation = variationAmount;
         const float oldMelodyDensity = melodyDensity;
         const float oldPauseChance = pauseChance;
@@ -9097,8 +9102,22 @@ void MidiForgeAudioProcessor::buildVariationBank()
         const float oldMotifStrength = motifStrength;
         const float oldComplexity = complexity;
         const float oldSwing = swing;
-        const int oldOctave = octave;
         const float randomJitter = ((float) ((identity >> 8) % 1000u) / 1000.0f - 0.5f);
+
+        // A single MAGIC press explores multiple internal musical personalities.
+        // Key, Scale and Bars remain the creator's fixed boundaries; hidden
+        // strategy axes are candidate-local so one bank is not trapped inside
+        // one mood/type/rhythm/progression vocabulary.
+        {
+            const uint32_t strategyHash = hash32 (
+                identity ^ 0xC7E4A1B3u ^ (uint32_t) (c + 1) * 0x9E3779B9u);
+            mood = (int) (strategyHash % 9u);
+            melodyType = (int) ((strategyHash >> 5) % 8u);
+            rhythm = (int) ((strategyHash >> 11) % 4u);
+            progression = (int) ((strategyHash >> 17) % 7u);
+            static constexpr int octaveChoices[] = { 3, 4, 4, 5, 6 };
+            octave = octaveChoices[(strategyHash >> 23) % 5u];
+        }
 
         // First pass explores broadly. After 600 candidates, MAGIC 4 nudges the
         // same generator toward the best discovered feature neighborhood while
@@ -9142,6 +9161,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         swing = oldSwing;
         octave = oldOctave;
 
+        // Keep this candidate's hidden strategy active while the complete
+        // generation and judging pipeline evaluates it. These values are restored
+        // only after the candidate has been fully scored.
         const int archetype = c % 8;
         Section flat=flatten(song,c,local,mLo,mHi);
         traceMelodyStage (0, flat);
@@ -10126,6 +10148,20 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
                                   characterFit, idea});
         }
+        // Restore hidden strategy state before moving to the next candidate.
+        mood = oldMood;
+        melodyType = oldMelodyType;
+        rhythm = oldRhythm;
+        progression = oldProgression;
+        octave = oldOctave;
+        variationAmount = oldVariation;
+        melodyDensity = oldMelodyDensity;
+        pauseChance = oldPauseChance;
+        leapChance = oldLeapChance;
+        motifStrength = oldMotifStrength;
+        complexity = oldComplexity;
+        swing = oldSwing;
+
         }
     }
 
