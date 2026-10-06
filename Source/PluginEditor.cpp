@@ -509,18 +509,38 @@ refreshTaste();
 
 // Creator-first UI: generation strategy controls stay internal. The visible surface
 // exposes only key/scale/length plus workflow, editing and explicit performance tools.
-for (auto* c : {
-    &progression, &rhythm, &mode, &octave,
-    &arpRate, &moodBox, &melodyTypeBox, &soundBox,
-    &articBox, &chordBox,
-    &newSeed,
-    &extensions, &inversions, &hookModeButton, &soundCloudButton,
-    &chordDensity, &bassDensity, &melodyDensity, &arpDensity,
-    &motifStrength, &variationAmount, &fillAmount, &energy,
-    &melodyLength, &pauseChance, &leapChance, &ghostChance,
-    &complexity, &tasteToggleBtn, &resetTasteBtn
-})
-    c->setVisible (false);
+auto hideCreatorControl = [] (juce::Component& c) { c.setVisible (false); };
+
+hideCreatorControl (progression);
+hideCreatorControl (rhythm);
+hideCreatorControl (mode);
+hideCreatorControl (octave);
+hideCreatorControl (arpRate);
+hideCreatorControl (moodBox);
+hideCreatorControl (melodyTypeBox);
+hideCreatorControl (soundBox);
+hideCreatorControl (articBox);
+hideCreatorControl (chordBox);
+hideCreatorControl (newSeed);
+hideCreatorControl (extensions);
+hideCreatorControl (inversions);
+hideCreatorControl (hookModeButton);
+hideCreatorControl (soundCloudButton);
+hideCreatorControl (chordDensity);
+hideCreatorControl (bassDensity);
+hideCreatorControl (melodyDensity);
+hideCreatorControl (arpDensity);
+hideCreatorControl (motifStrength);
+hideCreatorControl (variationAmount);
+hideCreatorControl (fillAmount);
+hideCreatorControl (energy);
+hideCreatorControl (melodyLength);
+hideCreatorControl (pauseChance);
+hideCreatorControl (leapChance);
+hideCreatorControl (ghostChance);
+hideCreatorControl (complexity);
+hideCreatorControl (tasteToggleBtn);
+hideCreatorControl (resetTasteBtn);
 
 addChildComponent (busyOverlay);
 lastGenerationDone = processor.getGenerationDoneCounter();
