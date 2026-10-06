@@ -46,6 +46,13 @@ namespace
         return buf;
     }
 
+    std::string fmt7 (const char* f,
+                      double a, double b, double c, double d,
+                      double e, double g, double h)
+    {
+        return fmt (f, a, b, c, d, e, g, h);
+    }
+
     struct Loop { std::vector<Note> notes; int bars = 1; };
 
     std::vector<Loop> makeLoops (MidiForgeAudioProcessor& p, int n)
