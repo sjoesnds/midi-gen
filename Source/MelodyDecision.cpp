@@ -151,6 +151,102 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     const float strongChordRatio = strongCount > 0
         ? (float) strongChord / (float) strongCount : 0.65f;
 
+    // Phrase integrity catches musical failure modes that global averages miss:
+    // unrecovered leaps, tiny mechanical rocking, excessive exact repeats, and
+    // weak phrase endings. It remains a soft preference rather than a hard rule.
+    float transitionIntegrity = 1.0f;
+    if (ordered.size() >= 3)
+    {
+        float sum = 0.0f;
+        int count = 0;
+        int sameRun = 1;
+        for (size_t i = 1; i < ordered.size(); ++i)
+        {
+            const int d0 = ordered[i].note - ordered[i - 1].note;
+            const int ad0 = std::abs (d0);
+            float q = 1.0f;
+
+            if (i + 1 < ordered.size())
+            {
+                const int d1 = ordered[i + 1].note - ordered[i].note;
+                const int ad1 = std::abs (d1);
+
+                if (ad0 >= 8)
+                {
+                    const bool recovered = d0 != 0 && d1 != 0
+                        && ((d0 > 0) != (d1 > 0)) && ad1 <= 5;
+                    q = recovered ? 1.0f : 0.18f;
+                }
+
+                if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0
+                    && ((d0 > 0) != (d1 > 0)))
+                    q *= 0.62f;
+
+                if (d0 == 0)
+                    ++sameRun;
+                else
+                    sameRun = 1;
+
+                if (sameRun >= 4)
+                    q *= 0.48f;
+                else if (sameRun >= 3)
+                    q *= 0.72f;
+            }
+
+            sum += q;
+            ++count;
+        }
+
+        transitionIntegrity = count > 0
+            ? std::clamp (sum / (float) count, 0.0f, 1.0f)
+            : 1.0f;
+    }
+
+    float pitchMin = (float) ordered.front().note;
+    float pitchMax = pitchMin;
+    for (const auto& n : ordered)
+    {
+        pitchMin = std::min (pitchMin, (float) n.note);
+        pitchMax = std::max (pitchMax, (float) n.note);
+    }
+
+    const float pitchSpan = pitchMax - pitchMin;
+    float spanTarget = 12.0f;
+    if (complexityClass == Simple)
+        spanTarget = 7.5f;
+    else if (complexityClass == Complex)
+        spanTarget = 19.0f;
+
+    const float spanTolerance = complexityClass == Simple ? 8.0f : 12.0f;
+    const float contourFit = fit (pitchSpan, spanTarget, spanTolerance);
+
+    float cadence = 0.45f;
+    if (ordered.size() >= 2)
+    {
+        const auto& last = ordered.back();
+        const auto& previousNote = ordered[ordered.size() - 2];
+        const int finalDelta = last.note - previousNote.note;
+        const int finalLeap = std::abs (finalDelta);
+
+        cadence = last.chordTone ? 0.84f : 0.42f;
+        if (last.length >= 3)
+            cadence += 0.08f;
+        if (finalLeap <= 5)
+            cadence += 0.05f;
+        else if (finalLeap >= 10)
+            cadence -= 0.16f;
+
+        cadence = std::clamp (cadence, 0.0f, 1.0f);
+    }
+
+    out.cadenceFit = cadence;
+    out.contourFit = contourFit;
+    out.phraseIntegrity = std::clamp (
+        0.58f * transitionIntegrity
+        + 0.22f * out.cadenceFit
+        + 0.20f * out.contourFit,
+        0.0f, 1.0f);
+
     float targetDensity = 0.48f;
     float targetIntervals = 0.45f;
     float targetRhythm = 0.48f;
@@ -230,9 +326,10 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
         0.0f, 1.0f);
 
     out.score = std::clamp (
-          0.40f * out.complexityFit
-        + 0.34f * out.structuralFit
-        + 0.17f * out.memorability
+          0.34f * out.complexityFit
+        + 0.29f * out.structuralFit
+        + 0.16f * out.phraseIntegrity
+        + 0.14f * out.memorability
         - 0.15f * genericityPenalty
         - 0.09f * repeatedPitchPenalty,
         0.0f, 1.0f);
