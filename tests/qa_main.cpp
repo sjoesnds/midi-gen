@@ -38,19 +38,11 @@ namespace
         std::printf ("[%s] %s  %s\n", ok ? "PASS" : "FAIL", name.c_str(), detail.c_str());
         if (! ok) ++failures;
     }
-    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
+    template <typename... Args>
+    std::string fmt (const char* f, Args... args)
     {
         char buf[512];
-        std::snprintf (buf, sizeof buf, f, a, b, c, d);
-        return buf;
-    }
-
-    std::string fmt7 (const char* f,
-                      double a, double b, double c, double d,
-                      double e, double g, double h)
-    {
-        char buf[512];
-        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h);
+        std::snprintf (buf, sizeof buf, f, args...);
         return buf;
     }
 
