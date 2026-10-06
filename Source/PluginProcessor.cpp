@@ -361,8 +361,12 @@ void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
         return;
     }
 
-    int baseLo = 48, baseHi = 96;
+    // 0.99.1: keep the melodic ceiling below the old C6-ish territory.
+    // The source lane still allows useful register variety, but the upper
+    // extreme is no longer a default destination for generated ideas.
+    int baseLo = 48, baseHi = 90;
     registerLane (2, baseLo, baseHi);
+
 
     // 0.82.3: the Melody Core was hard-pinned to roughly C4..D5 (62..86),
     // so later safety stages inherited a narrow source phrase and could not
@@ -393,11 +397,11 @@ void MidiForgeAudioProcessor::melodyCoreLane (int& lo, int& hi) const
         ^ 0x4D454C52u);
     const uint32_t placementRoll = placementHash % 100u;
     const int centreShift =
-        placementRoll < 24u ? -7
-        : placementRoll >= 84u ? 5
+        placementRoll < 24u ? -6
+        : placementRoll >= 84u ? 4
         : 0;
 
-    const int nominalCentre = (baseLo + baseHi) / 2;
+    const int nominalCentre = 69;
     const int centre = juce::jlimit (
         baseLo + targetSpan / 2,
         baseHi - targetSpan / 2,
@@ -427,7 +431,9 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
 
     melodyCoreLane (lo, hi);
 
-    constexpr int maxPracticalSpan = 44;
+    // 0.99.1: tonal/register safety is a hard invariant after every authoring
+    // pass. Keep the lane compact enough to avoid accidental extreme voicings.
+    constexpr int maxPracticalSpan = 42;
     if (hi - lo > maxPracticalSpan)
         hi = lo + maxPracticalSpan;
 
