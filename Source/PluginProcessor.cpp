@@ -10674,13 +10674,6 @@ void MidiForgeAudioProcessor::buildVariationBank()
                        return a.note < b.note;
                    });
 
-        // 0.99: preserve phrase architecture in the final bank too.
-        if (! lockMelodyLayer)
-        {
-            applyPhraseArchitecture (flat, candidate.identity);
-            enforceFinalMelodyContract (flat, candidate.identity);
-        }
-
         // Grid is a hard timing invariant, including after layer locks.
         snapMelodyOnsetsToGrid (flat.notes, flat.bars);
         result.push_back (std::move (flat));
