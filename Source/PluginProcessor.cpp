@@ -5906,6 +5906,213 @@ buildSection(sec,i,prog,r,inherited,variationSalt);
 song.sections.push_back(std::move(sec));
 }
 }
+
+void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_t identity) const
+{
+    // 0.99 Phrase Architecture: author the phrase from a stable motif core.
+    if (! melodyEnabled || soundProfileFor (soundTarget).soloLine || section.bars < 4)
+        return;
+
+    auto collectBar = [&] (int bar)
+    {
+        std::vector<size_t> out;
+        for (size_t i = 0; i < section.notes.size(); ++i)
+            if (section.notes[i].channel == 3 && section.notes[i].step / 16 == bar)
+                out.push_back (i);
+
+        std::stable_sort (out.begin(), out.end(),
+            [&] (size_t a, size_t b)
+            {
+                if (section.notes[a].step != section.notes[b].step)
+                    return section.notes[a].step < section.notes[b].step;
+                return section.notes[a].note < section.notes[b].note;
+            });
+        return out;
+    };
+
+    int laneLo = 40, laneHi = 96, maxLeap = 9;
+    melodyRegisterContract (laneLo, laneHi, maxLeap);
+    const auto scale = scaleSemitones();
+
+    auto pitchClass = [] (int n) { return (n % 12 + 12) % 12; };
+    auto inScale = [&] (int pitch)
+    {
+        const int rel = (pitchClass (pitch) - rootPc + 12) % 12;
+        return std::find (scale.begin(), scale.end(), rel) != scale.end();
+    };
+
+    auto safePitch = [&] (int pitch)
+    {
+        pitch = juce::jlimit (laneLo, laneHi, pitch);
+        int best = pitch, bestDistance = 1000;
+        for (int p = laneLo; p <= laneHi; ++p)
+        {
+            if (! inScale (p)) continue;
+            const int d = std::abs (p - pitch);
+            if (d < bestDistance) { bestDistance = d; best = p; }
+        }
+        return best;
+    };
+
+    auto nearestChordTone = [&] (int bar, int pitch, int fallback)
+    {
+        int best = fallback, bestDistance = 1000;
+        for (const auto& n : section.notes)
+        {
+            if (n.channel != 1 || n.step / 16 != bar) continue;
+            for (int oct = -3; oct <= 3; ++oct)
+            {
+                const int candidate = n.note + 12 * oct;
+                if (candidate < laneLo || candidate > laneHi) continue;
+                const int d = std::abs (candidate - pitch);
+                if (d < bestDistance) { bestDistance = d; best = candidate; }
+            }
+        }
+        return safePitch (best);
+    };
+
+    auto snapEvenLocal = [] (int local)
+    {
+        local = juce::jlimit (0, 14, local);
+        return juce::jlimit (0, 14, ((local + 1) / 2) * 2);
+    };
+
+    for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
+    {
+        std::array<std::vector<size_t>, 4> phraseBars;
+        for (int role = 0; role < 4; ++role)
+            phraseBars[(size_t) role] = collectBar (phraseStart + role);
+
+        if (phraseBars[0].size() < 2 || phraseBars[1].empty()
+            || phraseBars[2].empty() || phraseBars[3].empty())
+            continue;
+
+        const auto motif = extractPhraseMotif (section, phraseStart);
+        if (motif.relativePitches.size() < 2)
+            continue;
+
+        const bool simple = section.melodyComplexityClass
+            == (int) midiforge::MelodyDecision::Simple;
+        const int anchor = section.notes[phraseBars[0].front()].note;
+
+        auto sourceFor = [&] (size_t index, size_t count)
+        {
+            const float t = count <= 1
+                ? 0.0f
+                : (float) index / (float) (count - 1);
+            return (size_t) juce::jlimit (
+                0, (int) motif.relativePitches.size() - 1,
+                juce::roundToInt (t * (float) (motif.relativePitches.size() - 1)));
+        };
+
+        for (int role = 1; role <= 3; ++role)
+        {
+            auto& current = phraseBars[(size_t) role];
+            const float pitchBlend = simple
+                ? (role == 1 ? 0.78f : role == 2 ? 0.58f : 0.84f)
+                : (role == 1 ? 0.84f : role == 2 ? 0.64f : 0.90f);
+
+            const float rhythmBlend = role == 1 ? 0.64f : role == 2 ? 0.28f : 0.72f;
+            const int currentAnchor = section.notes[current.front()].note;
+
+            for (size_t i = 0; i < current.size(); ++i)
+            {
+                auto& n = section.notes[current[i]];
+                const size_t src = sourceFor (i, current.size());
+                const int rel = motif.relativePitches[src];
+                int motifPitch = currentAnchor + rel;
+
+                if (role == 2)
+                {
+                    const int shift = ((identity ^ (uint32_t) (i * 0x9e3779b9u)) & 1u) ? 3 : -3;
+                    motifPitch = currentAnchor - rel + shift;
+                }
+                else if (role == 1)
+                {
+                    motifPitch += ((identity >> ((i & 3u) + 1u)) & 1u) ? 1 : 0;
+                }
+                else
+                {
+                    motifPitch += ((identity >> ((i & 3u) + 4u)) & 1u) ? -1 : 0;
+                }
+
+                const int local = n.step % 16;
+                if (local == 0 || local == 8 || n.length >= 3)
+                {
+                    const int chordPitch = nearestChordTone (
+                        phraseStart + role, motifPitch, currentAnchor);
+                    const float harmonyBlend = simple ? 0.34f : 0.28f;
+                    motifPitch = juce::roundToInt (
+                        (float) motifPitch * (1.0f - harmonyBlend)
+                        + (float) chordPitch * harmonyBlend);
+                }
+
+                int blended = juce::roundToInt (
+                    (float) n.note * (1.0f - pitchBlend)
+                    + (float) safePitch (motifPitch) * pitchBlend);
+
+                if (i > 0)
+                {
+                    const int previous = section.notes[current[i - 1]].note;
+                    blended = juce::jlimit (
+                        previous - maxLeap, previous + maxLeap, blended);
+                }
+
+                n.note = safePitch (blended);
+
+                const int baseLocal = motif.relativeSteps[src];
+                const int targetLocal = snapEvenLocal (baseLocal);
+                const int currentLocal = snapEvenLocal (local);
+                const int mixedLocal = juce::roundToInt (
+                    (float) currentLocal * (1.0f - rhythmBlend)
+                    + (float) targetLocal * rhythmBlend);
+                n.step = (phraseStart + role) * 16 + snapEvenLocal (mixedLocal);
+            }
+
+            std::stable_sort (current.begin(), current.end(),
+                [&] (size_t a, size_t b)
+                {
+                    if (section.notes[a].step != section.notes[b].step)
+                        return section.notes[a].step < section.notes[b].step;
+                    return section.notes[a].note < section.notes[b].note;
+                });
+
+            int lastStep = (phraseStart + role) * 16 - 2;
+            for (size_t i = 0; i < current.size(); )
+            {
+                auto& n = section.notes[current[i]];
+                n.step = (phraseStart + role) * 16 + snapEvenLocal (n.step % 16);
+
+                if (n.step < lastStep + 2)
+                    n.step = juce::jmin ((phraseStart + role) * 16 + 14, lastStep + 2);
+
+                if (n.step < lastStep + 2)
+                {
+                    current.erase (current.begin() + (long long) i);
+                    continue;
+                }
+
+                lastStep = n.step;
+                ++i;
+            }
+
+            if (role == 3 && ! current.empty())
+            {
+                auto& tail = section.notes[current.back()];
+                const int openingTarget = nearestChordTone (phraseStart, tail.note, anchor);
+                const float returnBlend = simple ? 0.68f : 0.58f;
+                tail.note = safePitch (juce::roundToInt (
+                    (float) tail.note * (1.0f - returnBlend)
+                    + (float) openingTarget * returnBlend));
+                tail.length = juce::jmin (6, juce::jmax (2, tail.length));
+            }
+        }
+    }
+
+    cleanMelodyLine (section.notes);
+    removeDuplicateNotes (section.notes);
+}
+
 void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const
 {
     // 0.64 Motif Development Engine:
@@ -9245,6 +9452,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         applyMelodyFoundation (flat, identity);
         repairLocalMelodyQuality (flat, identity);
+        applyPhraseArchitecture (flat, identity);
+        enforceFinalMelodyContract (flat, identity);
         snapMelodyOnsetsToGrid (flat.notes, flat.bars);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
@@ -10464,6 +10673,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
                        if (a.channel != b.channel) return a.channel < b.channel;
                        return a.note < b.note;
                    });
+
+        // 0.99: preserve phrase architecture in the final bank too.
+        if (! lockMelodyLayer)
+        {
+            applyPhraseArchitecture (flat, candidate.identity);
+            enforceFinalMelodyContract (flat, candidate.identity);
+        }
 
         // Grid is a hard timing invariant, including after layer locks.
         snapMelodyOnsetsToGrid (flat.notes, flat.bars);
