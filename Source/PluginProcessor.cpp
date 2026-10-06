@@ -5377,9 +5377,10 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
 
         const auto initialDecision = decisionEvaluation();
         float bestScore =
-            0.58f * localMelodyQualityScore (section, identity ^ (uint32_t) i)
-            + 0.20f * melodyPleasantnessScore (section)
-            + 0.22f * initialDecision.score;
+            0.54f * localMelodyQualityScore (section, identity ^ (uint32_t) i)
+            + 0.18f * melodyPleasantnessScore (section)
+            + 0.22f * initialDecision.score
+            + 0.06f * initialDecision.phraseIntegrity;
         int bestPitch = original;
 
         const int prev = section.notes[melody[(size_t) i - 1]].note;
@@ -5402,9 +5403,10 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
             const float decision =
                 decisionEvaluation().score;
             const float score =
-                0.58f * local
-                + 0.20f * pleasant
-                + 0.22f * decision;
+                0.54f * local
+                + 0.18f * pleasant
+                + 0.22f * decision
+                + 0.06f * decisionEvaluation().phraseIntegrity;
 
             const bool improves = score > bestScore + 0.018f;
             if (improves)
@@ -10236,7 +10238,31 @@ void MidiForgeAudioProcessor::buildVariationBank()
         return 1.0f - maxIdeaSimilarity;
     };
 
-    
+    // Complexity is hidden implementation detail, but the final idea bank still
+    // needs a healthy mixture of simple, medium and complex material. Otherwise
+    // the strongest global scores can crowd simple ideas out of the eight slots.
+    auto complexityCoverageBonus = [&] (const Candidate& candidate)
+    {
+        const int cls = juce::jlimit (0, 2, candidate.section.melodyComplexityClass);
+        int count = 0;
+        for (const auto& s : selected)
+            if (juce::jlimit (0, 2, s.section.melodyComplexityClass) == cls)
+                ++count;
+
+        if (cls == 0)
+        {
+            if (count == 0) return 0.085f;
+            if (count == 1) return 0.045f;
+            if (count >= 3) return -0.022f;
+        }
+        else
+        {
+            if (count == 0) return 0.028f;
+            if (count >= 4) return -0.012f;
+        }
+
+        return 0.0f;
+    };
 
     for (int slot = 0; slot < 8; ++slot)
     {
@@ -10271,7 +10297,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                               + 0.13f * diversity
                               + 0.11f * ideaNovelty
                               - 0.035f * familyCollision
-                              + characterBonus;
+                              + characterBonus
+                              + complexityCoverageBonus (candidates[i]);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -10310,7 +10337,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   + 0.08f * diversity
                                   + 0.075f * ideaNovelty
                                   - 0.025f * familyCollision
-                                  + characterBonus;
+                                  + characterBonus
+                                  + complexityCoverageBonus (candidates[i]);
                 if (score > relaxedBest)
                 {
                     relaxedBest = score;
