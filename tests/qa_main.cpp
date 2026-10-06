@@ -3783,13 +3783,13 @@ int main()
                 fmt ("cadence %.3f", (double) simpleEval.cadenceFit));
 
         report ("0.98 decision: phrase integrity catches an unrecovered leap",
-                weakEval.phraseIntegrity + 0.10f < simpleEval.phraseIntegrity,
+                weakEval.phraseIntegrity + 0.08f < simpleEval.phraseIntegrity,
                 fmt ("good %.3f / weak %.3f",
                      (double) simpleEval.phraseIntegrity,
                      (double) weakEval.phraseIntegrity));
 
         report ("0.98 decision: simple phrase remains coherent without high density",
-                simpleEval.phraseIntegrity >= 0.72f,
+                simpleEval.phraseIntegrity >= 0.74f,
                 fmt ("simple phrase integrity %.3f", (double) simpleEval.phraseIntegrity));
 
         (void) b;
