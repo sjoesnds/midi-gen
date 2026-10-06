@@ -3767,7 +3767,61 @@ int main()
                      (double) simpleEval.complexityFit,
                      (double) complexEval.complexityFit));
 
+        std::vector<Decision::NoteView> weakSpot =
+        {
+            { 0, 4, 60, true },
+            { 4, 1, 72, false },
+            { 8, 4, 73, false },
+            { 12, 5, 71, true }
+        };
+
+        const auto weakEval = Decision::evaluate (
+            weakSpot, 1, Decision::Medium, 66.0f, 9);
+
+        report ("0.98 decision: phrase integrity rewards a stable cadence",
+                simpleEval.cadenceFit >= 0.80f,
+                fmt ("cadence %.3f", (double) simpleEval.cadenceFit));
+
+        report ("0.98 decision: phrase integrity catches an unrecovered leap",
+                weakEval.phraseIntegrity + 0.10f < simpleEval.phraseIntegrity,
+                fmt ("good %.3f / weak %.3f",
+                     (double) simpleEval.phraseIntegrity,
+                     (double) weakEval.phraseIntegrity));
+
+        report ("0.98 decision: simple phrase remains coherent without high density",
+                simpleEval.phraseIntegrity >= 0.72f,
+                fmt ("simple phrase integrity %.3f", (double) simpleEval.phraseIntegrity));
+
         (void) b;
+    }
+
+    // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
+    {
+        int simpleSlots = 0;
+        int complexSlots = 0;
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (106700 + seedIndex * 97);
+            p.regenerate();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                const int cls = p.getVariationMelodyComplexityClass (v);
+                if (cls == (int) midiforge::MelodyDecision::Simple)
+                    ++simpleSlots;
+                else if (cls == (int) midiforge::MelodyDecision::Complex)
+                    ++complexSlots;
+            }
+        }
+
+        report ("0.98 creative bank keeps both simple and complex ideas reachable",
+                simpleSlots >= 3 && complexSlots >= 3,
+                fmt ("simple %d / complex %d across 48 ideas", simpleSlots, complexSlots));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
