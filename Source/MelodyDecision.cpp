@@ -158,6 +158,7 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     if (ordered.size() >= 3)
     {
         float sum = 0.0f;
+        float worst = 1.0f;
         int count = 0;
         int sameRun = 1;
         for (size_t i = 1; i < ordered.size(); ++i)
@@ -175,12 +176,12 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
                 {
                     const bool recovered = d0 != 0 && d1 != 0
                         && ((d0 > 0) != (d1 > 0)) && ad1 <= 5;
-                    q = recovered ? 1.0f : 0.18f;
+                    q = recovered ? 1.0f : 0.05f;
                 }
 
                 if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0
                     && ((d0 > 0) != (d1 > 0)))
-                    q *= 0.62f;
+                    q *= 0.78f;
 
                 if (d0 == 0)
                     ++sameRun;
@@ -213,7 +214,7 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     const float pitchSpan = pitchMax - pitchMin;
     float spanTarget = 12.0f;
     if (complexityClass == Simple)
-        spanTarget = 7.5f;
+        spanTarget = 5.5f;
     else if (complexityClass == Complex)
         spanTarget = 19.0f;
 
