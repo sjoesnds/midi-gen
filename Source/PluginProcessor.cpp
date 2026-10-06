@@ -256,6 +256,69 @@ static void cleanMelodyLine (std::vector<T>& v)
     for (size_t i = 0; i < v.size(); ++i) if (! drop[i]) out.push_back (v[i]);
     v.swap (out);
 }
+// Generated melody onsets follow a deliberate eighth-note lattice: 0,2,4...14
+// within each bar. This removes arbitrary one-step timing nudges while keeping
+// enough positions for syncopated but clearly grid-based phrases.
+template <typename T>
+static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
+{
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < v.size(); ++i)
+        if (v[i].channel == 3)
+            idx.push_back (i);
+
+    if (idx.empty())
+        return;
+
+    std::stable_sort (idx.begin(), idx.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (v[a].step != v[b].step)
+                return v[a].step < v[b].step;
+            return v[a].note < v[b].note;
+        });
+
+    const int maxStep = juce::jmax (0, bars * 16 - 1);
+    int previous = -2;
+    std::vector<bool> drop (v.size(), false);
+
+    for (const auto index : idx)
+    {
+        const int original = juce::jlimit (0, maxStep, v[index].step);
+        int target = ((original + 1) / 2) * 2;
+        target = juce::jmin (target, maxStep - (maxStep & 1));
+
+        const int minimum = previous + 2;
+        if (minimum > maxStep)
+        {
+            drop[index] = true;
+            continue;
+        }
+
+        target = juce::jmax (target, minimum);
+        if (target & 1)
+            ++target;
+
+        if (target > maxStep)
+        {
+            drop[index] = true;
+            continue;
+        }
+
+        v[index].step = target;
+        previous = target;
+    }
+
+    std::vector<T> out;
+    out.reserve (v.size());
+    for (size_t i = 0; i < v.size(); ++i)
+        if (! drop[i])
+            out.push_back (v[i]);
+
+    v.swap (out);
+    cleanMelodyLine (v);
+}
+
 static int foldIntoLane (int note, int lo, int hi)
 {
     if (hi - lo < 11) return juce::jlimit (lo, hi, note);
@@ -9180,6 +9243,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         applyMelodyFoundation (flat, identity);
         repairLocalMelodyQuality (flat, identity);
+        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
@@ -10399,10 +10463,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                        return a.note < b.note;
                    });
 
-        // Candidates have already passed generation-time foundation, local repair,
-        // harmonic checks and the complete judge stack. Keep that authored result
-        // intact here; hard safety belongs to generation, not a second stylistic
-        // rewrite after the user has selected the idea bank.
+        // Grid is a hard timing invariant, including after layer locks.
+        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
         result.push_back (std::move (flat));
     }
 
