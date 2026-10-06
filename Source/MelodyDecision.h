@@ -28,6 +28,9 @@ struct MelodyDecision
         float structuralFit = 0.5f;
         float genericity = 0.0f;
         float memorability = 0.5f;
+        float phraseIntegrity = 0.5f;
+        float cadenceFit = 0.5f;
+        float contourFit = 0.5f;
         float score = 0.5f;
     };
 
