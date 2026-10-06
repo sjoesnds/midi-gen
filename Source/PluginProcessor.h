@@ -16,7 +16,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.98.0"
+#define MIDIFORGE_ENGINE_VERSION "0.99.0"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -319,6 +319,7 @@ struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
 
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+void applyPhraseArchitecture (Section& section, uint32_t identity) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
