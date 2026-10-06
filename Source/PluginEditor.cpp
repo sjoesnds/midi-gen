@@ -672,12 +672,11 @@ void MidiForgeAudioProcessorEditor::resized()
     resetTasteBtn.setBounds (margin + 800, footerY, 92, 28);
 
     const int dragFooterY = 704;
-    for (int i = 0; i < 8; ++i)
-    {
-        const int bx = margin + 12 + i * 92;
-        const int by = dragFooterY;
-        partDrag[(size_t) i]->setBounds (bx, by, 84, 24);
-    }
+    dragChords.setBounds (margin + 12,  dragFooterY, 84, 24);
+    dragBass.setBounds   (margin + 104, dragFooterY, 84, 24);
+    dragMelody.setBounds (margin + 196, dragFooterY, 84, 24);
+    dragArp.setBounds    (margin + 288, dragFooterY, 84, 24);
+    dragDrums.setBounds  (margin + 380, dragFooterY, 84, 24);
 
     busyOverlay.toFront (false);
 }
