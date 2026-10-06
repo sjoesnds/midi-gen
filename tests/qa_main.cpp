@@ -3795,6 +3795,55 @@ int main()
         (void) b;
     }
 
+    // ------------------------------------------------------------------ 18. rhythm grid contract
+    {
+        bool onGrid = true;
+        bool noOneStepGaps = true;
+        int checkedMelodyNotes = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (108100 + seedIndex * 131);
+            p.regenerate();
+            p.waitForGeneration();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+
+                std::vector<int> steps;
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    ++checkedMelodyNotes;
+                    onGrid = onGrid && ((n.step & 1) == 0);
+                    steps.push_back (n.step);
+                }
+
+                std::sort (steps.begin(), steps.end());
+                for (size_t i = 1; i < steps.size(); ++i)
+                    noOneStepGaps = noOneStepGaps
+                        && (steps[i] - steps[i - 1] >= 2);
+            }
+        }
+
+        report ("0.98 rhythm: melody onsets stay on the 1/8 grid",
+                onGrid,
+                fmt ("checked %d melody notes", checkedMelodyNotes));
+
+        report ("0.98 rhythm: no accidental one-step onset gaps",
+                noOneStepGaps,
+                "all melody onset gaps >= 2 steps");
+    }
+
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
     {
         int simpleSlots = 0;
