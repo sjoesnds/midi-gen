@@ -285,7 +285,9 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
     for (const auto index : idx)
     {
         const int original = juce::jlimit (0, maxStep, v[index].step);
-        int target = ((original + 1) / 2) * 2;
+        const int barStart = (original / 16) * 16;
+        const int localStep = original - barStart;
+        int target = barStart + juce::jmin (14, ((localStep + 1) / 2) * 2);
         target = juce::jmin (target, maxStep - (maxStep & 1));
 
         const int minimum = previous + 2;
