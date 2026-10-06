@@ -3873,6 +3873,87 @@ int main()
                 fmt ("simple %d / complex %d across 48 ideas", simpleSlots, complexSlots));
     }
 
+
+
+    // ------------------------------------------------------------------ 19. 0.99 Phrase Architecture
+    {
+        auto collectBar = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes, int bar)
+        {
+            std::vector<MidiForgeAudioProcessor::VisibleNote> out;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step / 16 == bar)
+                    out.push_back (n);
+
+            std::stable_sort (out.begin(), out.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            return out;
+        };
+
+        auto contourSimilarity = [] (const auto& a, const auto& b)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0f;
+
+            const size_t pairs = juce::jmin (a.size(), b.size());
+            int matches = 0;
+            for (size_t i = 1; i < pairs; ++i)
+            {
+                const int da = a[i].note - a[i - 1].note;
+                const int db = b[i].note - b[i - 1].note;
+                if ((da == 0 && db == 0) || (da > 0 && db > 0) || (da < 0 && db < 0))
+                    ++matches;
+            }
+            return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
+        };
+
+        int coherent = 0;
+        int measured = 0;
+        int contrast = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (109100 + seedIndex * 137);
+            p.regenerate();
+            p.waitForGeneration();
+
+            const auto notes = p.getVisibleNotes();
+            const auto a = collectBar (notes, 0);
+            const auto ap = collectBar (notes, 1);
+            const auto b = collectBar (notes, 2);
+            const auto app = collectBar (notes, 3);
+
+            if (a.size() >= 2 && ! ap.empty() && ! b.empty() && ! app.empty())
+            {
+                ++measured;
+                const float apSim = contourSimilarity (a, ap);
+                const float bSim = contourSimilarity (a, b);
+                const float returnSim = contourSimilarity (a, app);
+
+                if (apSim >= 0.34f && returnSim >= 0.30f)
+                    ++coherent;
+                if (bSim + 0.10f < apSim || returnSim + 0.10f > bSim)
+                    ++contrast;
+            }
+        }
+
+        report ("0.99 phrase architecture: A -> A' -> B -> A'' remains recognizable",
+                measured > 0 && coherent >= juce::jmax (2, measured / 2),
+                fmt ("coherent %d / %d phrases", coherent, measured));
+
+        report ("0.99 phrase architecture: B provides a distinct contrast",
+                measured > 0 && contrast >= juce::jmax (2, measured / 2),
+                fmt ("contrast %d / %d phrases", contrast, measured));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
