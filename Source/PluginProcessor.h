@@ -402,7 +402,8 @@ float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
 int arpRate = 4;
 bool chordExtensions = true, inversions = true;
-bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
+// Chords are intentionally disabled: MIDI Forge is currently melody-first.
+bool chordsEnabled = false, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
 bool hookMode = true;
 // "SoundCloud"-лид: реже, разреженнее, меньше украшений, больше "чант"-повторов
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
