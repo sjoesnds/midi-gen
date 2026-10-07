@@ -265,6 +265,15 @@ private:
 
         if (intent == Intent::Anchor)
         {
+            // Simple ideas need a clear rhythmic sentence, not an automatic
+            // four-hit ostinato. Keep the opening grounded but vary the pocket.
+            if (complexity < 0.34f)
+            {
+                if (roll < 54u) return Shape::Straight;
+                if (roll < 78u) return Shape::Repetitive;
+                return Shape::SilenceGap;
+            }
+
             if (roll < 44u) return Shape::Repetitive;
             return baseRhythm == 1 ? Shape::Straight : Shape::Repetitive;
         }
