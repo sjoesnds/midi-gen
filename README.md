@@ -1,10 +1,12 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The current development direction is deliberately melody-only: the generator authors a single coherent melodic line with rhythm, motif, phrasing, register, dynamics, variation and editable MIDI.
 
 **Current version: 0.100.0**
 
 ### 0.100.0 — Musical Expression Core
+- **Melody-only generation:** generated candidates contain only the melody lane (MIDI channel 3). Chords, bass, drums and arp are no longer authored into generated variations.
+- Legacy saved notes from other lanes are discarded when an older project state is restored, so removed accompaniment cannot reappear in the current creator output.
 - Tightens the existing Rhythm Grammar so low-complexity material is authored with a smaller event budget instead of being filled by ornament density.
 - Simple phrase openings can choose a grounded straight pocket, a restrained repetition, or a breathing-space shape rather than always defaulting to the same repeated rhythm.
 - Existing Melodic Prosody now makes statement/peak/release articulation more legible: downbeats speak, B-bar peaks receive a stronger accent, and phrase tails get a clearer release.
