@@ -3958,7 +3958,7 @@ int main()
 
     // ------------------------------------------------------------------ 20. 0.99.1 tonal + register hard contract
     {
-        const isInScale = [] (const Note& n, int root, int scaleIndex)
+        const auto isInScale = [] (const Note& n, int root, int scaleIndex)
         {
             static const std::array<std::array<int, 12>, 12> scales =
             {{
