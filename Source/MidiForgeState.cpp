@@ -183,6 +183,13 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
         }
     }
 
+    // 0.100: legacy saved MIDI may still contain channel-1 chord notes. The
+    // chord layer is removed from the creator output, so do not resurrect it
+    // when opening an older project.
+    savedNotes.erase (std::remove_if (savedNotes.begin(), savedNotes.end(),
+        [] (const VisibleNote& n) { return n.channel == 1; }),
+        savedNotes.end());
+
     realtimeSwing.store(swing); realtimeHumanize.store(humanize);
     realtimeHumanizeEnabled.store(humanizeEnabled); realtimeDrumMuteMask.store(drumMuteMask);
     regenerateBlocking(savedSelection);
