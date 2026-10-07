@@ -38,10 +38,11 @@ namespace
         std::printf ("[%s] %s  %s\n", ok ? "PASS" : "FAIL", name.c_str(), detail.c_str());
         if (! ok) ++failures;
     }
-    std::string fmt (const char* f, double a = 0, double b = 0, double c = 0, double d = 0)
+    template <typename... Args>
+    std::string fmt (const char* f, Args... args)
     {
         char buf[512];
-        std::snprintf (buf, sizeof buf, f, a, b, c, d);
+        std::snprintf (buf, sizeof buf, f, args...);
         return buf;
     }
 
@@ -49,9 +50,7 @@ namespace
                       double a, double b, double c, double d,
                       double e, double g, double h)
     {
-        char buf[512];
-        std::snprintf (buf, sizeof buf, f, a, b, c, d, e, g, h);
-        return buf;
+        return fmt (f, a, b, c, d, e, g, h);
     }
 
     struct Loop { std::vector<Note> notes; int bars = 1; };
@@ -3658,6 +3657,478 @@ int main()
                 complexityHits[0] > 0 && complexityHits[1] > 0 && complexityHits[2] > 0,
                 fmt ("simple %.0f medium %.0f complex %.0f",
                      (double) complexityHits[0], (double) complexityHits[1], (double) complexityHits[2]));
+    }
+
+    // ------------------------------------------------------------------ 16. creator-first constraints
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);   // G
+        p.setScale (2);  // Dorian
+        p.setBars (8);
+        p.waitForGeneration();
+
+        const int rootBefore = p.getRoot();
+        const int scaleBefore = p.getScale();
+        const int barsBefore = p.getBars();
+
+        for (int i = 0; i < 12; ++i)
+        {
+            p.magicRandomize();
+            p.waitForGeneration();
+        }
+
+        report ("creator-first: MAGIC preserves Key / Scale / Bars",
+                p.getRoot() == rootBefore
+                && p.getScale() == scaleBefore
+                && p.getBars() == barsBefore,
+                fmt ("key %d->%d scale %d->%d bars %d->%d",
+                     rootBefore, p.getRoot(), scaleBefore, p.getScale(), barsBefore, p.getBars()));
+    }
+
+    // ------------------------------------------------------------------ 15. creator-first strategy diversity
+    {
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);
+        p.setScale (2);
+        p.setBars (4);
+
+        std::array<bool, 12> seenCharacters {};
+        int distinctCharacters = 0;
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            p.setSeed (106000 + seedIndex * 101);
+            p.regenerate();
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                const int character = p.getVariationMelodyCharacter (v);
+                if (character >= 0 && character < (int) seenCharacters.size()
+                    && ! seenCharacters[(size_t) character])
+                {
+                    seenCharacters[(size_t) character] = true;
+                    ++distinctCharacters;
+                }
+            }
+        }
+
+        report ("creator-first: repeated MAGIC exploration exposes multiple musical characters",
+                distinctCharacters >= 6,
+                fmt ("%.0f distinct latent characters across 48 ideas", (double) distinctCharacters));
+    }
+
+    // ------------------------------------------------------------------ 15. 0.97 Unified Melody Decision
+    {
+        using Decision = midiforge::MelodyDecision;
+
+        std::vector<Decision::NoteView> simple;
+        simple.push_back ({ 0, 6, 60, true });
+        simple.push_back ({ 8, 5, 62, true });
+        simple.push_back ({ 12, 4, 60, true });
+        simple.push_back ({ 0 + 16, 6, 62, true });
+        simple.push_back ({ 8 + 16, 5, 60, true });
+        simple.push_back ({ 12 + 16, 4, 62, true });
+
+        std::vector<Decision::NoteView> complex;
+        for (int i = 0; i < 24; ++i)
+        {
+            const int step = i * 3;
+            const int pitchPattern[8] = { 60, 64, 67, 62, 65, 69, 63, 70 };
+            complex.push_back ({ step, 1 + (i % 3), pitchPattern[i % 8], (i % 4) == 0 });
+        }
+
+        const auto a = Decision::classify (0.20f, 0.60f, 0.12f, 123u);
+        const auto b = Decision::classify (0.90f, 0.22f, 0.30f, 987u);
+        const auto a2 = Decision::classify (0.20f, 0.60f, 0.12f, 123u);
+
+        report ("0.97 decision: classification is deterministic",
+                a == a2, "same identity and intent -> same class");
+
+        const auto simpleEval = Decision::evaluate (
+            simple, 2, Decision::Simple, 62.0f, 7);
+        const auto complexEval = Decision::evaluate (
+            complex, 5, Decision::Complex, 66.0f, 10);
+
+        report ("0.97 decision: simple material fits the simple budget",
+                simpleEval.complexityFit >= 0.46f,
+                fmt ("simple fit %.3f", (double) simpleEval.complexityFit));
+
+        report ("0.97 decision: complex material fits the complex budget",
+                complexEval.complexityFit >= 0.42f,
+                fmt ("complex fit %.3f", (double) complexEval.complexityFit));
+
+        report ("0.97 decision: structural scoring rewards anchored strong positions",
+                simpleEval.structuralFit >= 0.45f,
+                fmt ("structural fit %.3f", (double) simpleEval.structuralFit));
+
+        report ("0.97 decision: different complexity budgets remain meaningfully distinct",
+                std::abs ((double) simpleEval.complexityFit - (double) complexEval.complexityFit) >= 0.05,
+                fmt ("simple %.3f / complex %.3f",
+                     (double) simpleEval.complexityFit,
+                     (double) complexEval.complexityFit));
+
+        std::vector<Decision::NoteView> weakSpot =
+        {
+            { 0, 4, 60, true },
+            { 4, 1, 72, false },
+            { 8, 4, 73, false },
+            { 12, 5, 71, true }
+        };
+
+        const auto weakEval = Decision::evaluate (
+            weakSpot, 1, Decision::Medium, 66.0f, 9);
+
+        report ("0.98 decision: phrase integrity rewards a stable cadence",
+                simpleEval.cadenceFit >= 0.80f,
+                fmt ("cadence %.3f", (double) simpleEval.cadenceFit));
+
+        report ("0.98 decision: phrase integrity catches an unrecovered leap",
+                weakEval.phraseIntegrity + 0.08f < simpleEval.phraseIntegrity,
+                fmt ("good %.3f / weak %.3f",
+                     (double) simpleEval.phraseIntegrity,
+                     (double) weakEval.phraseIntegrity));
+
+        report ("0.98 decision: simple phrase remains coherent without high density",
+                simpleEval.phraseIntegrity >= 0.74f,
+                fmt ("simple phrase integrity %.3f", (double) simpleEval.phraseIntegrity));
+
+        (void) b;
+    }
+
+    // ------------------------------------------------------------------ 18. rhythm grid contract
+    {
+        bool onGrid = true;
+        bool noOneStepGaps = true;
+        int checkedMelodyNotes = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (108100 + seedIndex * 131);
+            p.regenerate();
+            p.waitForGeneration();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+
+                std::vector<int> steps;
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    ++checkedMelodyNotes;
+                    onGrid = onGrid && ((n.step & 1) == 0);
+                    steps.push_back (n.step);
+                }
+
+                std::sort (steps.begin(), steps.end());
+                for (size_t i = 1; i < steps.size(); ++i)
+                    noOneStepGaps = noOneStepGaps
+                        && (steps[i] - steps[i - 1] >= 2);
+            }
+        }
+
+        report ("0.98 rhythm: melody onsets stay on the 1/8 grid",
+                onGrid,
+                fmt ("checked %d melody notes", checkedMelodyNotes));
+
+        report ("0.98 rhythm: no accidental one-step onset gaps",
+                noOneStepGaps,
+                "all melody onset gaps >= 2 steps");
+    }
+
+    // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
+    {
+        int simpleSlots = 0;
+        int complexSlots = 0;
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (106700 + seedIndex * 97);
+            p.regenerate();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                const int cls = p.getVariationMelodyComplexityClass (v);
+                if (cls == (int) midiforge::MelodyDecision::Simple)
+                    ++simpleSlots;
+                else if (cls == (int) midiforge::MelodyDecision::Complex)
+                    ++complexSlots;
+            }
+        }
+
+        report ("0.98 creative bank keeps both simple and complex ideas reachable",
+                simpleSlots >= 3 && complexSlots >= 3,
+                fmt ("simple %d / complex %d across 48 ideas", simpleSlots, complexSlots));
+    }
+
+
+
+    // ------------------------------------------------------------------ 19. 0.99 Phrase Architecture
+    {
+        auto collectBar = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes, int bar)
+        {
+            std::vector<MidiForgeAudioProcessor::VisibleNote> out;
+            for (const auto& n : notes)
+                if (n.channel == 3 && n.step / 16 == bar)
+                    out.push_back (n);
+
+            std::stable_sort (out.begin(), out.end(),
+                [] (const auto& a, const auto& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    return a.note < b.note;
+                });
+            return out;
+        };
+
+        auto contourSimilarity = [] (const auto& a, const auto& b)
+        {
+            if (a.size() < 2 || b.size() < 2)
+                return 0.0f;
+
+            const size_t pairs = juce::jmin (a.size(), b.size());
+            int matches = 0;
+            for (size_t i = 1; i < pairs; ++i)
+            {
+                const int da = a[i].note - a[i - 1].note;
+                const int db = b[i].note - b[i - 1].note;
+                if ((da == 0 && db == 0) || (da > 0 && db > 0) || (da < 0 && db < 0))
+                    ++matches;
+            }
+            return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
+        };
+
+        int coherent = 0;
+        int measured = 0;
+        int contrast = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (2);
+            p.setBars (4);
+            p.setSeed (109100 + seedIndex * 137);
+            p.regenerate();
+            p.waitForGeneration();
+
+            const auto notes = p.getVisibleNotes();
+            const auto a = collectBar (notes, 0);
+            const auto ap = collectBar (notes, 1);
+            const auto b = collectBar (notes, 2);
+            const auto app = collectBar (notes, 3);
+
+            if (a.size() >= 2 && ! ap.empty() && ! b.empty() && ! app.empty())
+            {
+                ++measured;
+                const float apSim = contourSimilarity (a, ap);
+                const float bSim = contourSimilarity (a, b);
+                const float returnSim = contourSimilarity (a, app);
+
+                if (apSim >= 0.34f && returnSim >= 0.30f)
+                    ++coherent;
+                if (bSim + 0.10f < apSim || returnSim + 0.10f > bSim)
+                    ++contrast;
+            }
+        }
+
+        report ("0.99 phrase architecture: A -> A' -> B -> A'' remains recognizable",
+                measured > 0 && coherent >= juce::jmax (2, measured / 2),
+                fmt ("coherent %d / %d phrases", coherent, measured));
+
+        report ("0.99 phrase architecture: B provides a distinct contrast",
+                measured > 0 && contrast >= juce::jmax (2, measured / 2),
+                fmt ("contrast %d / %d phrases", contrast, measured));
+    }
+
+
+
+    // ------------------------------------------------------------------ 20. 0.99.1 tonal + register hard contract
+    {
+        const auto isInScale = [] (const Note& n, int root, int scaleIndex)
+        {
+            static const std::array<std::array<int, 12>, 12> scales =
+            {{
+                {{0,2,4,5,7,9,11, -1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,9,10,-1,-1,-1,-1,-1}},
+                {{0,1,3,5,7,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,8,11,-1,-1,-1,-1,-1}},
+                {{0,2,3,5,7,9,11,-1,-1,-1,-1,-1}},
+                {{0,2,4,7,9,-1,-1,-1,-1,-1,-1,-1}},
+                {{0,2,4,6,7,9,11,-1,-1,-1,-1,-1}},
+                {{0,2,4,5,7,9,10,-1,-1,-1,-1,-1}},
+                {{0,1,3,5,6,8,10,-1,-1,-1,-1,-1}},
+                {{0,2,4,5,7,8,11,-1,-1,-1,-1,-1}},
+                {{0,3,5,6,7,10,-1,-1,-1,-1,-1,-1}}
+            }};
+
+            if (scaleIndex < 0 || scaleIndex >= (int) scales.size())
+                return false;
+
+            const int rel = ((n.note % 12) - root + 12) % 12;
+            for (const int degree : scales[(size_t) scaleIndex])
+            {
+                if (degree < 0) break;
+                if (degree == rel) return true;
+            }
+            return false;
+        };
+
+        bool tonal = true;
+        bool registerSafe = true;
+        bool leapSafe = true;
+        int checked = 0;
+        int highest = 0;
+
+        for (int scaleIndex = 0; scaleIndex < 12; ++scaleIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (scaleIndex);
+            p.setBars (4);
+            p.setSeed (110300 + scaleIndex * 53);
+            p.regenerate();
+            p.waitForGeneration();
+
+            std::vector<int> melody;
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+                melody.clear();
+
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3) continue;
+                    ++checked;
+                    highest = std::max (highest, n.note);
+                    tonal = tonal && isInScale (n, p.getRoot(), p.getScale());
+                    registerSafe = registerSafe && n.note >= 48 && n.note <= 90;
+                    melody.push_back (n.note);
+                }
+
+                // Preserve chronological order for the melodic leap contract.
+                std::vector<std::pair<int, int>> timeline;
+                for (const auto& n : notes)
+                    if (n.channel == 3)
+                        timeline.push_back ({ n.step, n.note });
+                std::stable_sort (timeline.begin(), timeline.end(),
+                    [] (const auto& a, const auto& b)
+                    {
+                        if (a.first != b.first) return a.first < b.first;
+                        return a.second < b.second;
+                    });
+                for (size_t i = 1; i < timeline.size(); ++i)
+                    leapSafe = leapSafe && std::abs (timeline[i].second - timeline[i - 1].second) <= 12;
+            }
+        }
+
+        report ("0.99.1 tonal/register: every generated melody note stays in the selected scale",
+                tonal && checked > 0,
+                fmt ("checked %d melody notes", checked));
+
+        report ("0.99.1 tonal/register: generated melody stays inside the safe register ceiling",
+                registerSafe && checked > 0,
+                fmt ("highest generated melody pitch %d", highest));
+
+        report ("0.99.1 tonal/register: final melodic leaps stay inside the hard contract",
+                leapSafe && checked > 0,
+                "all adjacent melody pitches differ by at most 12 semitones");
+    }
+
+    // ------------------------------------------------------------------ 21. 0.100 musical expression rhythm budget
+    {
+        bool simpleBudgetSafe = true;
+        int simpleVariants = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (seedIndex % 12);
+            p.setBars (4);
+            p.setComplexity (0.10f, false);
+            p.setSeed (120100 + seedIndex * 173);
+            p.regenerate();
+            p.waitForGeneration();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                if (p.getVariationMelodyComplexityClass (v)
+                    != (int) midiforge::MelodyDecision::Simple)
+                    continue;
+
+                ++simpleVariants;
+                std::array<int, 4> counts {};
+                for (const auto& n : p.getVisibleNotes())
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    const int bar = juce::jlimit (0, 3, n.step / 16);
+                    ++counts[(size_t) bar];
+                }
+
+                for (const int count : counts)
+                    simpleBudgetSafe = simpleBudgetSafe && count <= 4;
+            }
+        }
+
+        report ("0.100 expression: simple ideas use a restrained authored rhythm budget",
+                simpleVariants >= 3 && simpleBudgetSafe,
+                fmt ("simple variations %d; maximum 4 melody attacks per bar", simpleVariants));
+    }
+
+    // ------------------------------------------------------------------ 21. 0.100 melody-only output contract
+    {
+        bool onlyMelody = true;
+        int checkedVariations = 0;
+        int nonMelodyNotes = 0;
+
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);
+        p.setScale (2);
+        p.setBars (4);
+        p.setSeed (120100);
+        p.regenerate();
+        p.waitForGeneration();
+
+        for (int v = 0; v < p.getVariationCount(); ++v)
+        {
+            p.chooseVariation (v);
+            ++checkedVariations;
+
+            for (const auto& n : p.getVisibleNotes())
+            {
+                if (n.channel != 3)
+                {
+                    onlyMelody = false;
+                    ++nonMelodyNotes;
+                }
+            }
+        }
+
+        report ("0.100 melody-only: generated variations contain melody notes only",
+                onlyMelody && checkedVariations == 8,
+                fmt ("checked %d variations, %d non-melody notes", checkedVariations, nonMelodyNotes));
     }
 
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");

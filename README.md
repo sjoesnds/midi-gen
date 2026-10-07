@@ -1,8 +1,46 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The current development direction is deliberately melody-only: the generator authors a single coherent melodic line with rhythm, motif, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.96.0**
+**Current version: 0.100.0**
+
+### 0.100.0 — Musical Expression Core
+- **Melody-only generation:** generated candidates contain only the melody lane (MIDI channel 3). Chords, bass, drums and arp are no longer authored into generated variations.
+- Legacy saved notes from other lanes are discarded when an older project state is restored, so removed accompaniment cannot reappear in the current creator output.
+- Tightens the existing Rhythm Grammar so low-complexity material is authored with a smaller event budget instead of being filled by ornament density.
+- Simple phrase openings can choose a grounded straight pocket, a restrained repetition, or a breathing-space shape rather than always defaulting to the same repeated rhythm.
+- Existing Melodic Prosody now makes statement/peak/release articulation more legible: downbeats speak, B-bar peaks receive a stronger accent, and phrase tails get a clearer release.
+- No new creator-facing controls are introduced; Key / Scale / Bars remain the creative boundary.
+### 0.99.1 — Tonal & Register Contract
+- Tightens the generated melody register ceiling to avoid accidental overly-high phrases while retaining lower and mid-register variation.
+- Keeps scale membership and maximum melodic leaps enforced by the final melody contract.
+- Adds deterministic QA coverage for final melody tonal/register safety.
+
+### 0.99.0 — Phrase Architecture
+- Adds a motif-first phrase pass after the core musical pipeline.
+- Four-bar cells are shaped as **A → A' → B → A''**: A establishes the identity, A' develops it, B creates structured contrast, and A'' returns toward the opening harmonic world.
+- Phrase architecture is applied before candidate scoring, so the eight selected ideas are scored as the material that will actually be shown.
+- Keeps the hard melody 1/8 onset grid and the creator-first **Key / Scale / Bars** boundary.
+
+### 0.98.0 — Per-Candidate Creative Discovery
+- Each MAGIC candidate now receives its own hidden Mood / Melody Type / Rhythm / Progression / register strategy while Key, Scale and Bars remain fixed creator constraints.
+- The candidate-specific strategy stays active through generation, harmonic/prosodic processing and judging instead of being restored before the downstream pipeline.
+- One MAGIC press therefore explores a genuinely broader set of musical thoughts rather than eight variants of one hidden personality.
+- The UI still exposes no Genre, Era, Mood, Melody Type, Sound Target or algorithmic strategy knobs.
+### 0.97.1 — Creator-First Controls & Open Creativity
+- The user-facing generation surface is intentionally reduced to **Key, Scale and Bars** plus workflow/edit controls.
+- Removed visible Mood, Melody Type, Sound Target, Progression, Rhythm, Octave, density, complexity, motif, variation and other strategy knobs from the creative surface.
+- MAGIC now keeps the creator-selected Key, Scale and Bars fixed while freely exploring hidden musical DNA inside those constraints.
+- Hidden strategy axes remain randomized internally so the generator can still discover distinct musical ideas without turning them into genre/style presets.
+
+### 0.97.0 — Creator-First Melody Discovery
+- Adds a single melody decision/evaluation layer above the existing Melody Intent and Judge stack.
+- Complexity is evaluated as a real budget: Simple / Medium / Complex now receive different density, repetition, rhythm and interval expectations instead of only changing note counts.
+- Strong structural positions are scored separately from weak positions, with stronger harmonic anchoring where the phrase naturally carries weight.
+- Generic bar-copy behaviour is measured and softly penalized for medium/complex material while simple hooks retain room for intentional repetition.
+- **Creator-first output:** the eight final slots now remain eight independently discovered candidates from the search bank. The generator no longer takes those ideas and automatically fans them back out through a second eight-mode transformation pass.
+- Locked layers still behave as before; generation-time foundation/repair and the full judge stack remain upstream. No second stylistic rewrite is applied after candidate selection.
+- Headless QA covers deterministic classification, complexity-budget separation and structural scoring.
 
 ### 0.96.0 — Architecture Cleanup & Reliability
 - Extracted MIDI-file construction/export and drag-temp creation into `MidiForgeMidiIO.cpp`.

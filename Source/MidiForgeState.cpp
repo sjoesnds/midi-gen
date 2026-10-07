@@ -111,6 +111,8 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     readFloatClamped(motifStrength,0.0f,1.0f); readFloatClamped(variationAmount,0.0f,1.0f);
     readFloatClamped(fillAmount,0.0f,1.0f); readFloatClamped(energy,0.0f,1.0f);
     readBoolSafe(chordsEnabled); readBoolSafe(bassEnabled); readBoolSafe(melodyEnabled); readBoolSafe(arpEnabled); readBoolSafe(hookMode);
+    // 0.100 melody-first direction: preserve the state-byte layout, but never restore the removed chord layer.
+    chordsEnabled = false;
     readIntClamped(savedSelection,0,7);
 
     if (i.getNumBytesRemaining() >= 4) readIntClamped(mood,0,8);
@@ -180,6 +182,12 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
             }
         }
     }
+
+    // 0.100: generated output is melody-only. Do not resurrect legacy
+    // chords, bass, drums or arp when opening an older project.
+    savedNotes.erase (std::remove_if (savedNotes.begin(), savedNotes.end(),
+        [] (const VisibleNote& n) { return n.channel != 3; }),
+        savedNotes.end());
 
     realtimeSwing.store(swing); realtimeHumanize.store(humanize);
     realtimeHumanizeEnabled.store(humanizeEnabled); realtimeDrumMuteMask.store(drumMuteMask);

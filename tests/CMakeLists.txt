@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForgeQA VERSION 0.96.0)
+project(MidiForgeQA VERSION 0.100.0)
 
 # Headless quality checks for the generator (no GUI, no plugin format needed).
 # Build:  cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release && cmake --build build-qa && ./build-qa/MidiForgeQA_artefacts/Release/MidiForgeQA
@@ -25,6 +25,8 @@ target_sources(MidiForgeQA PRIVATE
     ../Source/MelodicProsody.cpp
     ../Source/CreativeRange.cpp
     ../Source/MelodyIntent.cpp
+    ../Source/MelodyDecision.cpp
+    ../Source/MelodyDecision.h
     ../Source/MotifSemantics.cpp
     ../Source/LoopClosure.cpp
 )

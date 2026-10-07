@@ -5,6 +5,7 @@
 #include "ComposerGrammar.h"
 #include "CreativeRange.h"
 #include "MelodyIntent.h"
+#include "MelodyDecision.h"
 #include "MotifSemantics.h"
 #include "LoopClosure.h"
 #include "ComposerJudge.h"
@@ -15,7 +16,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.85.6"
+#define MIDIFORGE_ENGINE_VERSION "0.100.0"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -318,6 +319,7 @@ struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
 
 void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+void applyPhraseArchitecture (Section& section, uint32_t identity) const;
 void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
@@ -400,7 +402,8 @@ float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
 int arpRate = 4;
 bool chordExtensions = true, inversions = true;
-bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
+// Chords are intentionally disabled: MIDI Forge is currently melody-first.
+bool chordsEnabled = false, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
 bool hookMode = true;
 // "SoundCloud"-лид: реже, разреженнее, меньше украшений, больше "чант"-повторов
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
