@@ -4051,6 +4051,51 @@ int main()
                 "all adjacent melody pitches differ by at most 12 semitones");
     }
 
+    // ------------------------------------------------------------------ 21. 0.100 musical expression rhythm budget
+    {
+        bool simpleBudgetSafe = true;
+        int simpleVariants = 0;
+
+        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            p.setRoot (7);
+            p.setScale (seedIndex % 12);
+            p.setBars (4);
+            p.setComplexity (0.10f, false);
+            p.setSeed (120100 + seedIndex * 173);
+            p.regenerate();
+            p.waitForGeneration();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                if (p.getVariationMelodyComplexityClass (v)
+                    != (int) midiforge::MelodyDecision::Simple)
+                    continue;
+
+                ++simpleVariants;
+                std::array<int, 4> counts {};
+                for (const auto& n : p.getVisibleNotes())
+                {
+                    if (n.channel != 3)
+                        continue;
+
+                    const int bar = juce::jlimit (0, 3, n.step / 16);
+                    ++counts[(size_t) bar];
+                }
+
+                for (const int count : counts)
+                    simpleBudgetSafe = simpleBudgetSafe && count <= 4;
+            }
+        }
+
+        report ("0.100 expression: simple ideas use a restrained authored rhythm budget",
+                simpleVariants >= 3 && simpleBudgetSafe,
+                fmt ("simple variations %d; maximum 4 melody attacks per bar", simpleVariants));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
