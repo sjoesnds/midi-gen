@@ -4468,36 +4468,18 @@ section.bars=bars;
 const float targetEnergy=energy;
 section.energy=targetEnergy;
 section.densityMultiplier=0.55f+0.65f*targetEnergy;
-for(int bar=0;bar<bars;++bar){
-int deg=prog[(size_t)((bar+sectionIndex)%prog.size())];
-const bool solo=soundProfileFor(soundTarget).soloLine;
-if(drumsEnabled)
-addDrums(section,bar,targetEnergy,r,variationSalt);
-if(chordsEnabled && !solo)
-addChords(section,bar,deg,targetEnergy,r);
-if(bassEnabled && !soundProfileFor(soundTarget).bassOff)
-addBass(section,bar,deg,targetEnergy,r);
-if(melodyEnabled)
-{
-    if(solo) add808(section,bar,targetEnergy,r,variationSalt);
-    else addMelody(section,bar,targetEnergy,r,inherited,variationSalt);
+// 0.100 Melody-Only mode: the musical canvas is deliberately one voice.
+    // Chords, bass, drums and arp are no longer authored into generated candidates.
+    // Keeping the old generator functions intact preserves project compatibility,
+    // but they are no longer part of the generation path.
+    for (int bar = 0; bar < bars; ++bar)
+    {
+        if (melodyEnabled)
+            addMelody (section, bar, targetEnergy, r, inherited, variationSalt);
+    }
 
-    // Phrase development is handled once after the complete four-bar cell
-    // exists. The legacy per-bar rewriter used to overwrite too much of the
-    // melodic language produced by addMelody().
-}
-if(arpEnabled && !solo)
-addArp(section,bar,deg,targetEnergy,r);
-}
-
-// 0.64: develop each complete four-bar phrase after all layers are known.
-for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
-{
-    applyMotifDevelopment (section, phraseStart, variationSalt);
-    applyMotifSemantics (section, phraseStart, variationSalt);
-}
-
-    applyLoopClosure (section, hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
+    applyLoopClosure (section, hash32 (
+        generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
 }
 
 void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
