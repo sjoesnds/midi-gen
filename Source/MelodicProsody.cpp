@@ -58,9 +58,11 @@ MelodicProsody::Context MelodicProsody::classify (
     if (finalOfPhrase && phraseRole != ComposerGrammar::Peak)
     {
         c.role = Release;
+        // Release is a destination: keep it audible while giving it the longest
+        // natural sustain in the phrase. Do not turn it into a soft dead note.
         c.scaleMotion = 1;
-        c.velocityBias = -0.03f;
-        c.sustainBias = 0.16f;
+        c.velocityBias = -0.012f;
+        c.sustainBias = 0.22f;
         return c;
     }
 
@@ -76,8 +78,10 @@ MelodicProsody::Context MelodicProsody::classify (
     {
         c.role = Peak;
         c.scaleMotion = 1;
-        c.velocityBias = 0.075f;
-        c.sustainBias = -0.045f;
+        // A peak should read as a compositional event, not merely the highest
+        // MIDI pitch. Give it a stronger articulation without adding humanize.
+        c.velocityBias = 0.105f;
+        c.sustainBias = 0.015f;
         return c;
     }
 
@@ -88,8 +92,23 @@ MelodicProsody::Context MelodicProsody::classify (
     {
         c.role = (localStep == 0 || localStep == 8) ? Anchor : Accent;
         c.scaleMotion = 0;
-        c.velocityBias = c.role == Anchor ? 0.045f : 0.03f;
-        c.sustainBias = c.role == Anchor ? 0.05f : 0.0f;
+        // Downbeat = statement, mid-bar anchor = support. The small difference
+        // creates phrase hierarchy while preserving the existing melodic pitches.
+        if (c.role == Anchor && localStep == 0)
+        {
+            c.velocityBias = 0.065f;
+            c.sustainBias = 0.08f;
+        }
+        else if (c.role == Anchor)
+        {
+            c.velocityBias = 0.045f;
+            c.sustainBias = 0.04f;
+        }
+        else
+        {
+            c.velocityBias = 0.028f;
+            c.sustainBias = 0.0f;
+        }
         return c;
     }
 
@@ -101,7 +120,9 @@ MelodicProsody::Context MelodicProsody::classify (
     {
         c.role = Pickup;
         c.scaleMotion = 0;
-        c.velocityBias = -0.045f;
+        // Pickup is deliberately lighter/shorter so the next anchor owns the
+        // phrase landing.
+        c.velocityBias = -0.055f;
         c.sustainBias = -0.05f;
         return c;
     }

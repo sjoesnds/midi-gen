@@ -128,8 +128,67 @@ void RhythmGrammar::apply (std::vector<Note>& melody,
                 if ((localStep % 4) == 0) note.velocity = std::min (118, note.velocity + 2);
                 else if ((localStep & 1) != 0) note.velocity = std::max (42, note.velocity - 1);
             }
+
+            // 0.100 Musical Expression: complexity is expressed in the rhythm
+            // itself. Simple material gets a small, intentional event budget;
+            // medium material has room to develop; complex material keeps the
+            // wider vocabulary. Preserve the entrance/exit and strongest beats.
+            const int expressionCap =
+                complexity < 0.34f ? (intent == Intent::Contrast ? 3 : 4)
+                                   : complexity < 0.55f ? 6 : 8;
+
+            if ((int) remap.size() > expressionCap)
+            {
+                std::vector<size_t> keep;
+                keep.reserve ((size_t) expressionCap);
+
+                auto keepIndex = [&] (size_t index)
+                {
+                    if (std::find (keep.begin(), keep.end(), index) == keep.end())
+                        keep.push_back (index);
+                };
+
+                keepIndex (remap.front().first);
+                keepIndex (remap.back().first);
+
+                if (expressionCap > 2)
+                {
+                    std::vector<size_t> ranked;
+                    ranked.reserve (remap.size() - 2);
+                    for (size_t n = 1; n + 1 < remap.size(); ++n)
+                        ranked.push_back (remap[n].first);
+
+                    std::stable_sort (ranked.begin(), ranked.end(),
+                        [&] (size_t a, size_t b)
+                        {
+                            const auto& na = melody[a];
+                            const auto& nb = melody[b];
+                            const int sa = (na.step % 16 == 0 || na.step % 16 == 8) ? 40 : 0;
+                            const int sb = (nb.step % 16 == 0 || nb.step % 16 == 8) ? 40 : 0;
+                            const int pa = sa + na.velocity + std::min (na.length, 8) * 3;
+                            const int pb = sb + nb.velocity + std::min (nb.length, 8) * 3;
+                            if (pa != pb) return pa > pb;
+                            return na.step < nb.step;
+                        });
+
+                    for (const auto index : ranked)
+                    {
+                        if ((int) keep.size() >= expressionCap)
+                            break;
+                        keepIndex (index);
+                    }
+                }
+
+                for (const auto& item : remap)
+                    if (std::find (keep.begin(), keep.end(), item.first) == keep.end())
+                        melody[item.first].length = 0;
+            }
         }
     }
+
+    melody.erase (std::remove_if (melody.begin(), melody.end(),
+        [] (const Note& n) { return n.length <= 0; }),
+        melody.end());
 
     std::stable_sort (melody.begin(), melody.end(),
         [] (const Note& a, const Note& b)
