@@ -4096,6 +4096,41 @@ int main()
                 fmt ("simple variations %d; maximum 4 melody attacks per bar", simpleVariants));
     }
 
+    // ------------------------------------------------------------------ 21. 0.100 melody-only output contract
+    {
+        bool onlyMelody = true;
+        int checkedVariations = 0;
+        int nonMelodyNotes = 0;
+
+        MidiForgeAudioProcessor p;
+        p.setFeedbackLogFile (juce::File());
+        p.setRoot (7);
+        p.setScale (2);
+        p.setBars (4);
+        p.setSeed (120100);
+        p.regenerate();
+        p.waitForGeneration();
+
+        for (int v = 0; v < p.getVariationCount(); ++v)
+        {
+            p.chooseVariation (v);
+            ++checkedVariations;
+
+            for (const auto& n : p.getVisibleNotes())
+            {
+                if (n.channel != 3)
+                {
+                    onlyMelody = false;
+                    ++nonMelodyNotes;
+                }
+            }
+        }
+
+        report ("0.100 melody-only: generated variations contain melody notes only",
+                onlyMelody && checkedVariations == 8,
+                fmt ("checked %d variations, %d non-melody notes", checkedVariations, nonMelodyNotes));
+    }
+
     std::printf ("\n%s (%d failed check%s)\n", failures == 0 ? "ALL QUALITY CHECKS PASSED" : "QUALITY CHECKS FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
