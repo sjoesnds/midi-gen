@@ -1,0 +1,75 @@
+From a3f6ce895707fa0b5dd84ae08c0352fa3166315b Mon Sep 17 00:00:00 2001
+From: midi-forge-assistant <noreply@example.com>
+Date: Thu, 8 Oct 2026 18:13:58 +0000
+Subject: [PATCH] Disable implicit taste signal from drag/export; only explicit
+ LIKE/DISLIKE trains Taste ML
+
+---
+ Source/PluginProcessor.cpp |  2 +-
+ Source/PluginProcessor.h   |  2 ++
+ tests/qa_main.cpp          | 19 +++----------------
+ 3 files changed, 6 insertions(+), 17 deletions(-)
+
+diff --git a/Source/PluginProcessor.cpp b/Source/PluginProcessor.cpp
+index 7b3876e..266a2d7 100644
+--- a/Source/PluginProcessor.cpp
++++ b/Source/PluginProcessor.cpp
+@@ -2354,7 +2354,7 @@ void MidiForgeAudioProcessor::trainTaste(int vi, float likeTarget, float weight)
+ 
+ bool MidiForgeAudioProcessor::noteKeptVariation()
+ {
+-    if (! tasteEnabled) return false;
++    if (! kImplicitTasteEnabled || ! tasteEnabled) return false;
+     int vi = 0;
+     {
+         const juce::ScopedLock sl (variationsLock);
+diff --git a/Source/PluginProcessor.h b/Source/PluginProcessor.h
+index 4b3b0b3..4d2cceb 100644
+--- a/Source/PluginProcessor.h
++++ b/Source/PluginProcessor.h
+@@ -194,6 +194,8 @@ void resetTaste();
+ void trainTaste (int varIndex, float likeTarget, float weight);
+ // Implicit taste signal: dragging / exporting a loop to the DAW is a weak positive sample (weight 0.5). Counted once per
+ // loop, only if the loop was not rated explicitly, and only while Taste learning is on. Returns true if a sample was added.
++// Off by design: drag/export is not a LIKE signal; only explicit LIKE/DISLIKE trains Taste ML.
++    static constexpr bool kImplicitTasteEnabled = false;
+ bool noteKeptVariation();
+ // --- MIDI export: рендерит текущий выбранный вариант в стандартный .mid файл ---
+ // channelFilter: 0 = все партии, 1..4 = только Chords/Bass/Melody/Arp
+diff --git a/tests/qa_main.cpp b/tests/qa_main.cpp
+index 1747fb4..9d77df0 100644
+--- a/tests/qa_main.cpp
++++ b/tests/qa_main.cpp
+@@ -1747,26 +1747,13 @@ int main()
+         }
+     }
+ 
+-    // ------------------------------------------------------------------ 12. implicit taste signal (drag / export)
++    // ------------------------------------------------------------------ 12. implicit taste signal disabled (drag / export)
+     {
+         MidiForgeAudioProcessor a; a.setFeedbackLogFile (juce::File());
+         a.resetTaste();
+         const float c0 = a.getTasteSamples();
+-        const bool first = a.noteKeptVariation();
+-        const float c1 = a.getTasteSamples();
+-        report ("kept loop: the first drag / export adds a taste sample", first && std::abs ((c1 - c0) - 0.5f) < 0.01f, fmt ("taste samples %.2f -> %.2f (weight 0.5)", (double) c0, (double) c1));
+-        report ("kept loop: the same loop is counted only once", ! a.noteKeptVariation() && a.getTasteSamples() == c1, "second call ignored");
+-        a.chooseVariation (3);
+-        report ("kept loop: another variation counts separately", a.noteKeptVariation(), "slot 4");
+-        a.chooseVariation (4);
+-        a.likeVariation (4);
+-        report ("kept loop: an explicitly rated loop is not counted again", ! a.noteKeptVariation(), "liked slot skipped");
+-        a.regenerate();
+-        a.chooseVariation (0);
+-        report ("kept loop: a fresh bank is counted again", a.noteKeptVariation(), "new generation");
+-        a.setTasteEnabled (false);
+-        a.chooseVariation (1);
+-        report ("kept loop: nothing is learned while Taste is off", ! a.noteKeptVariation(), "taste disabled");
++        const bool added = a.noteKeptVariation();
++        report ("kept loop: drag / export does not train Taste ML", ! added && a.getTasteSamples() == c0, fmt ("taste samples %.2f -> %.2f", (double) c0, (double) a.getTasteSamples()));
+     }
+ 
+     // ------------------------------------------------------------------ 13. SIMILAR / more like this (0.80)
+-- 
+2.43.0
+
