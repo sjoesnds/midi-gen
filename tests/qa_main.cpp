@@ -172,8 +172,13 @@ namespace
         }
     }
 
-    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0; bool ok = false;
-                      std::map<std::string, std::set<int>> drumTracks; };   // track name -> pitches used on channel 10
+    struct MidiInfo
+    {
+        int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0;
+        std::array<int, 17> noteOnsByChannel {};
+        bool ok = false, hasTempoMeta = false, hasTimeSignatureMeta = false;
+        std::map<std::string, std::set<int>> drumTracks;
+    };   // track name -> pitches used on channel 10
     MidiInfo readMidi (const juce::File& f)
     {
         MidiInfo info;
@@ -193,9 +198,17 @@ namespace
             for (int i = 0; i < seq.getNumEvents(); ++i)
             {
                 auto* ev = seq.getEventPointer (i);
+                if (ev->message.isTempoMetaEvent()) info.hasTempoMeta = true;
+                if (ev->message.isTimeSignatureMetaEvent()) info.hasTimeSignatureMeta = true;
                 if (ev->message.isController() && ev->message.getControllerNumber() == 1) ++info.cc1;
-                if (ev->message.isNoteOn() && ev->message.getChannel() == 10) { ++info.drumNotesCh10; info.drumTracks[trackName].insert (ev->message.getNoteNumber()); }
-                if (ev->message.isNoteOn() && ev->message.getChannel() == 5) ++info.notesCh5;
+                if (ev->message.isNoteOn())
+                {
+                    const int channel = ev->message.getChannel();
+                    if (channel >= 1 && channel <= 16)
+                        ++info.noteOnsByChannel[(size_t) channel];
+                    if (channel == 10) { ++info.drumNotesCh10; info.drumTracks[trackName].insert (ev->message.getNoteNumber()); }
+                    if (channel == 5) ++info.notesCh5;
+                }
                 if (ev->message.isNoteOn() && ev->message.getChannel() == 3 && ev->noteOffObject != nullptr)
                     mel.push_back ({ ev->message.getTimeStamp(), ev->noteOffObject->message.getTimeStamp() });
             }
@@ -3297,6 +3310,7 @@ int main()
         // Export must produce an actual non-empty MIDI file every time.
         int exportFailures = 0;
         int parsedFailures = 0;
+        int missingTempoMetadata = 0;
         for (int i = 0; i < 32; ++i)
         {
             p.setSeed (97100 + i * 17);
@@ -3311,6 +3325,8 @@ int main()
                 const auto parsed = readMidi (file);
                 if (! parsed.ok)
                     ++parsedFailures;
+                if (! parsed.hasTempoMeta || ! parsed.hasTimeSignatureMeta)
+                    ++missingTempoMetadata;
             }
             file.deleteFile();
         }
@@ -3321,31 +3337,89 @@ int main()
         report ("workflow safety: exported MIDI files parse correctly",
                 parsedFailures == 0,
                 fmt ("%.0f parse failures", (double) parsedFailures));
+        report ("workflow safety: exported MIDI has tempo and 4/4 metadata",
+                missingTempoMetadata == 0,
+                fmt ("%.0f missing tempo/time-signature maps", (double) missingTempoMetadata));
 
         int dragFailures = 0;
+        int silentLayerDragFiles = 0;
+        int wrongChannelDragFiles = 0;
+        int missingDragTempoMetadata = 0;
         {
             const auto all = p.writeTemporaryMidiFile();
             if (all == juce::File{} || ! all.existsAsFile() || all.getSize() <= 0)
                 ++dragFailures;
             all.deleteFile();
 
+            const auto allInfo = readMidi (all);
+            if (allInfo.ok && (! allInfo.hasTempoMeta || ! allInfo.hasTimeSignatureMeta))
+                ++missingDragTempoMetadata;
+
+            const auto selectedNotes = p.getVisibleNotes();
             for (int channel = 1; channel <= 5; ++channel)
             {
+                const bool expectedNotes = std::any_of (selectedNotes.begin(), selectedNotes.end(),
+                    [channel] (const Note& n) { return n.channel == channel; });
                 const auto part = p.writeTemporaryMidiFileForChannel (channel);
-                if (part == juce::File{} || ! part.existsAsFile() || part.getSize() <= 0)
+                if (! expectedNotes)
+                {
+                    if (part != juce::File{} && part.existsAsFile() && part.getSize() > 0)
+                    {
+                        ++silentLayerDragFiles;
+                        const auto info = readMidi (part);
+                        const int midiChannel = channel == 5 ? 10 : channel;
+                        if (info.noteOnsByChannel[(size_t) midiChannel] == 0)
+                            ++wrongChannelDragFiles;
+                    }
+                }
+                else if (part == juce::File{} || ! part.existsAsFile() || part.getSize() <= 0)
                     ++dragFailures;
+                else
+                {
+                    const auto info = readMidi (part);
+                    const int midiChannel = channel == 5 ? 10 : channel;
+                    if (! info.ok || info.noteOnsByChannel[(size_t) midiChannel] == 0)
+                        ++wrongChannelDragFiles;
+                    for (int c = 1; c <= 16; ++c)
+                        if (c != midiChannel && info.noteOnsByChannel[(size_t) c] > 0)
+                            ++wrongChannelDragFiles;
+                    if (info.ok && (! info.hasTempoMeta || ! info.hasTimeSignatureMeta))
+                        ++missingDragTempoMetadata;
+                }
                 part.deleteFile();
             }
 
+            const bool hasDrums = std::any_of (selectedNotes.begin(), selectedNotes.end(),
+                [] (const Note& n) { return n.channel == 5; });
             const auto drums = p.writeTemporaryMidiFileForDrumRow (-1);
-            if (drums == juce::File{} || ! drums.existsAsFile() || drums.getSize() <= 0)
-                ++dragFailures;
+            if (hasDrums)
+            {
+                if (drums == juce::File{} || ! drums.existsAsFile() || drums.getSize() <= 0)
+                    ++dragFailures;
+                else
+                {
+                    const auto info = readMidi (drums);
+                    if (info.ok && (! info.hasTempoMeta || ! info.hasTimeSignatureMeta))
+                        ++missingDragTempoMetadata;
+                }
+            }
+            else if (drums != juce::File{} && drums.existsAsFile() && drums.getSize() > 0)
+                ++silentLayerDragFiles;
             drums.deleteFile();
         }
 
         report ("workflow safety: FL drag/export temp files are real MIDI files",
                 dragFailures == 0,
                 fmt ("%.0f temporary-file failures", (double) dragFailures));
+        report ("workflow safety: part drag contains only the requested notes",
+                wrongChannelDragFiles == 0,
+                fmt ("%.0f wrong-channel / silent-part files", (double) wrongChannelDragFiles));
+        report ("workflow safety: absent layers do not create fake drag files",
+                silentLayerDragFiles == 0,
+                fmt ("%.0f empty-layer drag files", (double) silentLayerDragFiles));
+        report ("workflow safety: every drag file keeps tempo and 4/4",
+                missingDragTempoMetadata == 0,
+                fmt ("%.0f missing tempo/time-signature maps", (double) missingDragTempoMetadata));
 
         juce::AudioBuffer<float> previewBuffer (2, 512);
         juce::MidiBuffer previewMidi;
