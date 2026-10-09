@@ -146,7 +146,7 @@ setSize(1120, 850);
 setResizable(true, true);
 setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.100.0", juce::dontSendNotification);
+versionLabel.setText("v0.100.1", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -172,7 +172,7 @@ for (auto* s : { &chordDensity, &bassDensity, &melodyDensity, &arpDensity, &swin
                  &melodyLength, &pauseChance, &leapChance, &ghostChance })
     styleSlider (*s);
 
-for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &revertBtn, &quantizeButton,
+for (auto* b : { &generate, &newSeed, &applyVariation, &exportMidi, &revertBtn, &advancedButton, &quantizeButton,
                  &resetViewButton, &phraseButton, &barButton, &transposeDownButton,
                  &transposeUpButton, &snapScaleButton, &humanizeSelectionButton,
                  &duplicateButton, &reverseButton, &doubleTimeButton, &halfTimeButton,
@@ -317,6 +317,10 @@ bars.addItemList({"1","2","4","8","16"},1);
 const int bid=p.getBars()==1?1:p.getBars()==2?2:p.getBars()==4?3:p.getBars()==8?4:5;
 bars.setSelectedId(bid);
 bars.onChange=[this]{const int a[5]={1,2,4,8,16};processor.setBars(a[bars.getSelectedId()-1]);}; addAndMakeVisible(bars);
+advancedButton.setButtonText ("ADVANCED");
+advancedButton.setTooltip ("Show progression, rhythm, sound, harmony and per-part generation controls.");
+advancedButton.onClick = [this] { setAdvancedControlsVisible (! advancedControlsVisible); };
+addAndMakeVisible (advancedButton);
 for(int i=2;i<=6;++i)octave.addItem(juce::String(i),i-1);
 octave.setSelectedId(p.getOctave()-1); octave.onChange=[this]{processor.setOctave(octave.getSelectedId()+1);}; addAndMakeVisible(octave);
 for(int i:{1,2,4,8})arpRate.addItem(juce::String(i)+"x",i);
@@ -509,43 +513,34 @@ refreshTaste();
 
 // Creator-first UI: generation strategy controls stay internal. The visible surface
 // exposes only key/scale/length plus workflow, editing and explicit performance tools.
-auto hideCreatorControl = [] (juce::Component& c) { c.setVisible (false); };
-
-hideCreatorControl (progression);
-hideCreatorControl (rhythm);
-hideCreatorControl (mode);
-hideCreatorControl (octave);
-hideCreatorControl (arpRate);
-hideCreatorControl (moodBox);
-hideCreatorControl (melodyTypeBox);
-hideCreatorControl (soundBox);
-hideCreatorControl (articBox);
-hideCreatorControl (chordBox);
-hideCreatorControl (newSeed);
-hideCreatorControl (extensions);
-hideCreatorControl (inversions);
-hideCreatorControl (hookModeButton);
-hideCreatorControl (soundCloudButton);
-hideCreatorControl (chordDensity);
-hideCreatorControl (bassDensity);
-hideCreatorControl (melodyDensity);
-hideCreatorControl (arpDensity);
-hideCreatorControl (motifStrength);
-hideCreatorControl (variationAmount);
-hideCreatorControl (fillAmount);
-hideCreatorControl (energy);
-hideCreatorControl (melodyLength);
-hideCreatorControl (pauseChance);
-hideCreatorControl (leapChance);
-hideCreatorControl (ghostChance);
-hideCreatorControl (complexity);
-hideCreatorControl (tasteToggleBtn);
-hideCreatorControl (resetTasteBtn);
+// Keep the rarely used legacy section-mode control hidden; real musical controls
+// are available through the ADVANCED drawer instead of being silently removed.
+mode.setVisible (false);
+setAdvancedControlsVisible (false);
 
 addChildComponent (busyOverlay);
 lastGenerationDone = processor.getGenerationDoneCounter();
 startTimerHz (10);
 }
+void MidiForgeAudioProcessorEditor::setAdvancedControlsVisible (bool visible)
+{
+    advancedControlsVisible = visible;
+    for (auto* c : { &progression, &rhythm, &octave, &arpRate, &moodBox,
+                     &melodyTypeBox, &soundBox, &articBox, &chordBox })
+        c->setVisible (visible);
+    for (auto* slider : { &chordDensity, &bassDensity, &melodyDensity, &arpDensity,
+                          &complexity, &motifStrength, &variationAmount, &fillAmount,
+                          &energy, &melodyLength, &pauseChance, &leapChance, &ghostChance })
+        slider->setVisible (visible);
+
+    advancedButton.setButtonText (visible ? "HIDE ADVANCED" : "ADVANCED");
+    const int targetHeight = visible ? 1060 : 850;
+    if (getHeight() != targetHeight)
+        setSize (getWidth(), targetHeight);
+    resized();
+    repaint();
+}
+
 void MidiForgeAudioProcessorEditor::scheduleRegeneration (bool preserveSelection)
 {
     regenerationPending = true;
@@ -586,16 +581,42 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont (juce::FontOptions (9.0f));
     g.drawText ("MIDI", margin + 28, 20, 36, 12, juce::Justification::left, false);
 
-    drawCard (g, { margin, 76, innerW, 76 }, "01  CREATIVE SPACE", juce::Colour (kAccent).withAlpha (0.40f));
-    drawCard (g, { margin, 160, innerW, 64 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
-    drawCard (g, { margin, 232, innerW, 54 }, "03  PARTS", juce::Colour (kAccent2).withAlpha (0.35f));
-    drawCard (g, { margin, 294, innerW, 282 }, "04  PIANO ROLL / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
-    drawCard (g, { margin, 584, innerW, 116 }, "05  PERFORMANCE", juce::Colour (kAccent).withAlpha (0.26f));
-    drawCard (g, { margin, 712, innerW, 120 }, "06  KEEP / EXPORT", juce::Colour (kSuccess).withAlpha (0.24f));
+    const int layoutShift = advancedControlsVisible ? 208 : 0;
+    drawCard (g, { margin, 76, innerW, advancedControlsVisible ? 284 : 76 }, "01  CREATIVE SPACE", juce::Colour (kAccent).withAlpha (0.40f));
+    drawCard (g, { margin, 160 + layoutShift, innerW, 64 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
+    drawCard (g, { margin, 232 + layoutShift, innerW, 54 }, "03  PARTS", juce::Colour (kAccent2).withAlpha (0.35f));
+    drawCard (g, { margin, 294 + layoutShift, innerW, 282 }, "04  PIANO ROLL / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
+    drawCard (g, { margin, 584 + layoutShift, innerW, 116 }, "05  PERFORMANCE", juce::Colour (kAccent).withAlpha (0.26f));
+    drawCard (g, { margin, 712 + layoutShift, innerW, 120 }, "06  KEEP / EXPORT", juce::Colour (kSuccess).withAlpha (0.24f));
 
     drawFieldLabel (g, root, "Key");
     drawFieldLabel (g, scale, "Scale");
     drawFieldLabel (g, bars, "Bars");
+    if (advancedControlsVisible)
+    {
+        drawFieldLabel (g, progression, "Progression");
+        drawFieldLabel (g, rhythm, "Rhythm");
+        drawFieldLabel (g, moodBox, "Mood");
+        drawFieldLabel (g, melodyTypeBox, "Melody type");
+        drawFieldLabel (g, soundBox, "Sound target");
+        drawFieldLabel (g, articBox, "Articulation");
+        drawFieldLabel (g, chordBox, "Chord style");
+        drawFieldLabel (g, octave, "Octave");
+        drawFieldLabel (g, arpRate, "Arp rate");
+        drawSliderLabel (g, chordDensity, "Chord density");
+        drawSliderLabel (g, bassDensity, "Bass density");
+        drawSliderLabel (g, melodyDensity, "Melody density");
+        drawSliderLabel (g, arpDensity, "Arp density");
+        drawSliderLabel (g, complexity, "Complexity");
+        drawSliderLabel (g, motifStrength, "Motif strength");
+        drawSliderLabel (g, variationAmount, "Variation amount");
+        drawSliderLabel (g, fillAmount, "Phrase fill");
+        drawSliderLabel (g, energy, "Energy");
+        drawSliderLabel (g, melodyLength, "Note length");
+        drawSliderLabel (g, pauseChance, "Pause chance");
+        drawSliderLabel (g, leapChance, "Leap chance");
+        drawSliderLabel (g, ghostChance, "Ghost notes");
+    }
     drawSliderLabel (g, swing, "Swing");
     drawSliderLabel (g, humanize, "Humanize");
 }
@@ -616,20 +637,61 @@ void MidiForgeAudioProcessorEditor::resized()
 
     // Only a few explicit constraints remain visible. Everything else is
     // generated from the internal creative DNA when MAGIC is pressed.
+    const int layoutShift = advancedControlsVisible ? 208 : 0;
     root.setBounds (margin + 12, 108, 92, 26);
     scale.setBounds (margin + 114, 108, 150, 26);
     bars.setBounds (margin + 274, 108, 62, 26);
+    advancedButton.setBounds (margin + 350, 108, 94, 26);
+    hookModeButton.setBounds (margin + 454, 108, 76, 26);
+    soundCloudButton.setBounds (margin + 538, 108, 110, 26);
 
-    variationBox.setBounds (margin + 12, 178, 78, 28);
-    variationInfoLabel.setBounds (margin + 98, 178, 125, 28);
-    generate.setBounds (margin + 232, 171, 132, 40);
-    applyVariation.setBounds (margin + 474, 178, 88, 28);
-    similarButton.setBounds (margin + 570, 178, 88, 28);
-    exportMidi.setBounds (margin + 666, 178, 110, 28);
-    dragHandle.setBounds (margin + 786, 171, 148, 40);
+    if (advancedControlsVisible)
+    {
+        progression.setBounds (margin + 12, 149, 132, 24);
+        rhythm.setBounds (margin + 152, 149, 118, 24);
+        moodBox.setBounds (margin + 278, 149, 138, 24);
+        melodyTypeBox.setBounds (margin + 424, 149, 152, 24);
+        soundBox.setBounds (margin + 584, 149, 188, 24);
+
+        articBox.setBounds (margin + 12, 184, 155, 24);
+        chordBox.setBounds (margin + 175, 184, 148, 24);
+        octave.setBounds (margin + 331, 184, 92, 24);
+        arpRate.setBounds (margin + 431, 184, 92, 24);
+
+        const int advancedX = margin + 12;
+        const int advancedGap = 10;
+        const int advancedWidth = (innerW - 24 - 4 * advancedGap) / 5;
+        auto placeAdvancedSlider = [&] (juce::Slider& slider, int column, int row)
+        {
+            slider.setBounds (advancedX + column * (advancedWidth + advancedGap),
+                              220 + row * 38, advancedWidth, 24);
+        };
+        placeAdvancedSlider (chordDensity, 0, 0);
+        placeAdvancedSlider (bassDensity, 1, 0);
+        placeAdvancedSlider (melodyDensity, 2, 0);
+        placeAdvancedSlider (arpDensity, 3, 0);
+        placeAdvancedSlider (complexity, 4, 0);
+        placeAdvancedSlider (motifStrength, 0, 1);
+        placeAdvancedSlider (variationAmount, 1, 1);
+        placeAdvancedSlider (fillAmount, 2, 1);
+        placeAdvancedSlider (energy, 3, 1);
+        placeAdvancedSlider (melodyLength, 4, 1);
+        placeAdvancedSlider (pauseChance, 0, 2);
+        placeAdvancedSlider (leapChance, 1, 2);
+        placeAdvancedSlider (ghostChance, 2, 2);
+    }
+
+    variationBox.setBounds (margin + 12, 178 + layoutShift, 78, 28);
+    variationInfoLabel.setBounds (margin + 98, 178 + layoutShift, 125, 28);
+    generate.setBounds (margin + 232, 171 + layoutShift, 132, 40);
+    newSeed.setBounds (margin + 374, 178 + layoutShift, 92, 28);
+    applyVariation.setBounds (margin + 474, 178 + layoutShift, 88, 28);
+    similarButton.setBounds (margin + 570, 178 + layoutShift, 88, 28);
+    exportMidi.setBounds (margin + 666, 178 + layoutShift, 110, 28);
+    dragHandle.setBounds (margin + 786, 171 + layoutShift, 148, 40);
 
     int x = margin + 12;
-    const int y = 250;
+    const int y = 250 + layoutShift;
     auto put = [&] (juce::Component& c, int w)
     {
         c.setBounds (x, y, w, 24);
@@ -644,42 +706,42 @@ void MidiForgeAudioProcessorEditor::resized()
     put (extensions, 72);
     put (inversions, 58);
     put (autoNextBtn, 88);
-    drumViewBtn.setBounds (W - margin - 92, 250, 80, 24);
+    drumViewBtn.setBounds (W - margin - 92, 250 + layoutShift, 80, 24);
 
-    pianoGridBox.setBounds (margin + 12, 306, 58, 24);
-    quantizeButton.setBounds (margin + 76, 306, 72, 24);
-    resetViewButton.setBounds (margin + 156, 306, 76, 24);
-    phraseButton.setBounds (margin + 240, 306, 66, 24);
-    barButton.setBounds (margin + 314, 306, 48, 24);
-    transposeDownButton.setBounds (margin + 370, 306, 48, 24);
-    transposeUpButton.setBounds (margin + 426, 306, 48, 24);
-    snapScaleButton.setBounds (margin + 482, 306, 62, 24);
-    humanizeSelectionButton.setBounds (margin + 552, 306, 82, 24);
-    selectionLabel.setBounds (margin + 642, 306, 120, 24);
+    pianoGridBox.setBounds (margin + 12, 306 + layoutShift, 58, 24);
+    quantizeButton.setBounds (margin + 76, 306 + layoutShift, 72, 24);
+    resetViewButton.setBounds (margin + 156, 306 + layoutShift, 76, 24);
+    phraseButton.setBounds (margin + 240, 306 + layoutShift, 66, 24);
+    barButton.setBounds (margin + 314, 306 + layoutShift, 48, 24);
+    transposeDownButton.setBounds (margin + 370, 306 + layoutShift, 48, 24);
+    transposeUpButton.setBounds (margin + 426, 306 + layoutShift, 48, 24);
+    snapScaleButton.setBounds (margin + 482, 306 + layoutShift, 62, 24);
+    humanizeSelectionButton.setBounds (margin + 552, 306 + layoutShift, 82, 24);
+    selectionLabel.setBounds (margin + 642, 306 + layoutShift, 120, 24);
 
-    duplicateButton.setBounds (margin + 12, 332, 52, 22);
-    reverseButton.setBounds (margin + 70, 332, 52, 22);
-    doubleTimeButton.setBounds (margin + 128, 332, 46, 22);
-    halfTimeButton.setBounds (margin + 180, 332, 52, 22);
-    rotateButton.setBounds (margin + 238, 332, 52, 22);
-    normalizeVelocityButton.setBounds (margin + 296, 332, 76, 22);
-    frameSelectionButton.setBounds (margin + 378, 332, 66, 22);
-    revertBtn.setBounds (margin + 454, 332, 66, 22);
-    historyLabel.setBounds (margin + 526, 331, 116, 23);
-    undoBtn.setBounds (margin + 650, 332, 58, 22);
-    redoBtn.setBounds (margin + 718, 332, 58, 22);
-    clearBtn.setBounds (margin + 784, 332, 58, 22);
+    duplicateButton.setBounds (margin + 12, 332 + layoutShift, 52, 22);
+    reverseButton.setBounds (margin + 70, 332 + layoutShift, 52, 22);
+    doubleTimeButton.setBounds (margin + 128, 332 + layoutShift, 46, 22);
+    halfTimeButton.setBounds (margin + 180, 332 + layoutShift, 52, 22);
+    rotateButton.setBounds (margin + 238, 332 + layoutShift, 52, 22);
+    normalizeVelocityButton.setBounds (margin + 296, 332 + layoutShift, 76, 22);
+    frameSelectionButton.setBounds (margin + 378, 332 + layoutShift, 66, 22);
+    revertBtn.setBounds (margin + 454, 332 + layoutShift, 66, 22);
+    historyLabel.setBounds (margin + 526, 331 + layoutShift, 116, 23);
+    undoBtn.setBounds (margin + 650, 332 + layoutShift, 58, 22);
+    redoBtn.setBounds (margin + 718, 332 + layoutShift, 58, 22);
+    clearBtn.setBounds (margin + 784, 332 + layoutShift, 58, 22);
 
-    pianoRoll.setBounds (margin + 12, 362, innerW - 24, 198);
-    drumGrid.setBounds (margin + 12, 362, innerW - 24, 198);
+    pianoRoll.setBounds (margin + 12, 362 + layoutShift, innerW - 24, 198);
+    drumGrid.setBounds (margin + 12, 362 + layoutShift, innerW - 24, 198);
 
     // Performance controls are deliberately tiny and optional. Generation is
     // not exposed here; humanization remains an explicit post-generation action.
-    swing.setBounds (margin + 12, 604, 300, 20);
-    humanize.setBounds (margin + 326, 604, 300, 20);
-    humanizeModeButton.setBounds (margin + 640, 600, 250, 28);
+    swing.setBounds (margin + 12, 604 + layoutShift, 300, 20);
+    humanize.setBounds (margin + 326, 604 + layoutShift, 300, 20);
+    humanizeModeButton.setBounds (margin + 640, 600 + layoutShift, 250, 28);
 
-    const int footerY = 656;
+    const int footerY = 656 + layoutShift;
     likeBtn.setBounds (margin + 12, footerY, 64, 28);
     dislikeBtn.setBounds (margin + 82, footerY, 78, 28);
     lockChordsBtn.setBounds (margin + 172, footerY, 86, 28);
@@ -691,7 +753,7 @@ void MidiForgeAudioProcessorEditor::resized()
     tasteToggleBtn.setBounds (margin + 702, footerY, 90, 28);
     resetTasteBtn.setBounds (margin + 800, footerY, 92, 28);
 
-    const int dragFooterY = 704;
+    const int dragFooterY = 704 + layoutShift;
     dragChords.setBounds (margin + 12,  dragFooterY, 84, 24);
     dragBass.setBounds   (margin + 104, dragFooterY, 84, 24);
     dragMelody.setBounds (margin + 196, dragFooterY, 84, 24);
