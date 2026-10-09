@@ -4,18 +4,39 @@
 #include <algorithm>
 #include <cmath>
 
-juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForDrumRow(int row) const
+juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForDrumRow (int row) const
 {
-    auto file=juce::File::getSpecialLocation(juce::File::tempDirectory)
-        .getChildFile("MidiForge_"+juce::String(row<0 ? "Drums" : drumRowName(row))+"_"
-                      +juce::String(juce::Random::getSystemRandom().nextInt())+".mid");
-    auto midiFile=buildMidiFile(5,row);
-    if(auto stream=file.createOutputStream())
+    if (row < -1 || row >= kDrumRows)
+        return {};
+
+    const auto midiFile = buildMidiFile (5, row);
+    // Track 0 is the tempo/conductor track. Do not offer a drag file for an
+    // instrument which has no hits in the selected variation.
+    if (midiFile.getNumTracks() <= 1)
+        return {};
+
+    const auto rowName = row < 0 ? juce::String ("Drums") : juce::String (drumRowName (row));
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getNonexistentChildFile ("MidiForge_" + rowName + "_"
+                                  + juce::String (juce::Random::getSystemRandom().nextInt()),
+                                  ".mid", false);
+
+    bool written = false;
     {
-        if (midiFile.writeTo(*stream) && file.existsAsFile() && file.getSize() > 0)
-            return file;
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return {};
+        written = midiFile.writeTo (*stream);
+        stream->flush();
     }
-    return {};
+
+    if (! written || ! file.existsAsFile() || file.getSize() <= 0)
+    {
+        file.deleteFile();
+        return {};
+    }
+    logFeedback (-1, "drag_drums");
+    return file;
 }
 
 std::vector<MidiForgeAudioProcessor::ArtInfo> MidiForgeAudioProcessor::articulationFor (const std::vector<NoteEvent>& notes) const
@@ -79,6 +100,19 @@ Section pattern;
         return midiFile;
     pattern = variations[(size_t) juce::jlimit (0, (int) variations.size() - 1, selectedVariation)];
 }
+
+// One canonical tempo/time-signature track is included in every export path,
+// including the temporary MIDI files used for drag-and-drop into the DAW.
+const int totalSteps = juce::jmax (16, pattern.bars * 16);
+const double endTick = (double) totalSteps * ticksPerStep;
+juce::MidiMessageSequence conductor;
+const int microsecondsPerQuarterNote = juce::roundToInt (
+    60000000.0 / juce::jmax (20.0, currentBpm.load()));
+conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
+conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
+conductor.addEvent (juce::MidiMessage::endOfTrack(), endTick + ticksPerQuarter);
+midiFile.addTrack (conductor);
+
 static const char* trackNames[6] = { "", "Chords", "Bass", "Melody", "Arp", "Drums" };
 const auto art = articulationFor (pattern.notes);
 for (int channel = 1; channel <= 5; ++channel)
@@ -106,16 +140,23 @@ if (channel == 5)
             dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
             dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
         }
-        if (any) { dtrack.updateMatchedPairs(); midiFile.addTrack (dtrack); }
+        if (any)
+        {
+            dtrack.addEvent (juce::MidiMessage::endOfTrack(), endTick + ticksPerQuarter);
+            dtrack.updateMatchedPairs();
+            midiFile.addTrack (dtrack);
+        }
     }
     continue;
 }
 juce::MidiMessageSequence track;
 track.addEvent (juce::MidiMessage::textMetaEvent (3, trackNames[channel]), 0.0);
+bool any = false;
 for (size_t ni = 0; ni < pattern.notes.size(); ++ni)
 {
 const auto& n = pattern.notes[ni];
 if (n.channel != channel) continue;
+any = true;
 const double onTick  = n.step * (double) ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
 double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
 addArticulation (track, art[ni], midiCh, onTick, offTick, (double) ticksPerStep);
@@ -124,54 +165,122 @@ auto off = juce::MidiMessage::noteOff (midiCh, n.note);
 track.addEvent (on, onTick);
 track.addEvent (off, offTick);
 }
-track.updateMatchedPairs();
-midiFile.addTrack (track);
+if (any)
+{
+    track.addEvent (juce::MidiMessage::endOfTrack(), endTick + ticksPerQuarter);
+    track.updateMatchedPairs();
+    midiFile.addTrack (track);
+}
 }
 return midiFile;
 }
 
 bool MidiForgeAudioProcessor::exportMidiFileTo (const juce::File& file) const
 {
-    auto midiFile = buildMidiFile (0);
+    const auto midiFile = buildMidiFile (0);
     file.deleteFile();
-    if (auto stream = file.createOutputStream())
+
+    bool written = false;
     {
-        const bool written = midiFile.writeTo (*stream);
-        return written && file.existsAsFile() && file.getSize() > 0;
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return false;
+        written = midiFile.writeTo (*stream);
+        stream->flush();
     }
-    return false;
+
+    if (! written || ! file.existsAsFile() || file.getSize() <= 0)
+    {
+        file.deleteFile();
+        return false;
+    }
+    return true;
 }
 
 bool MidiForgeAudioProcessor::exportMidiFileToChannel (const juce::File& file, int channel) const
 {
-    auto midiFile = buildMidiFile (channel);
+    if (channel < 1 || channel > 5)
+        return false;
+
+    const auto midiFile = buildMidiFile (channel);
+    // Track zero is metadata only; a single-part export with no notes must not
+    // masquerade as a successful drag payload.
+    if (midiFile.getNumTracks() <= 1)
+        return false;
+
     file.deleteFile();
-    if (auto stream = file.createOutputStream())
+    bool written = false;
     {
-        const bool written = midiFile.writeTo (*stream);
-        return written && file.existsAsFile() && file.getSize() > 0;
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return false;
+        written = midiFile.writeTo (*stream);
+        stream->flush();
     }
-    return false;
+
+    if (! written || ! file.existsAsFile() || file.getSize() <= 0)
+    {
+        file.deleteFile();
+        return false;
+    }
+    return true;
 }
 
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFile() const
 {
-    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
-    if (! exportMidiFileTo (file) || ! file.existsAsFile() || file.getSize() <= 0)
+    const auto midiFile = buildMidiFile (0);
+    if (midiFile.getNumTracks() <= 1)
         return {};
+
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getNonexistentChildFile ("MidiForge_" + juce::String (juce::Random::getSystemRandom().nextInt()),
+                                  ".mid", false);
+    bool written = false;
+    {
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return {};
+        written = midiFile.writeTo (*stream);
+        stream->flush();
+    }
+
+    if (! written || ! file.existsAsFile() || file.getSize() <= 0)
+    {
+        file.deleteFile();
+        return {};
+    }
     logFeedback (-1, "drag_all");
     return file;
 }
 
 juce::File MidiForgeAudioProcessor::writeTemporaryMidiFileForChannel (int channel) const
 {
-    static const char* names[6] = { "All", "Chords", "Bass", "Melody", "Arp", "Drums" };
-    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("MidiForge_" + juce::String (names[juce::jlimit (0, 5, channel)])
-                       + "_" + juce::String (juce::Random::getSystemRandom().nextInt()) + ".mid");
-    if (! exportMidiFileToChannel (file, channel) || ! file.existsAsFile() || file.getSize() <= 0)
+    if (channel < 1 || channel > 5)
         return {};
+
+    static const char* names[6] = { "All", "Chords", "Bass", "Melody", "Arp", "Drums" };
+    const auto midiFile = buildMidiFile (channel);
+    if (midiFile.getNumTracks() <= 1)
+        return {};
+
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getNonexistentChildFile ("MidiForge_" + juce::String (names[channel])
+                                  + "_" + juce::String (juce::Random::getSystemRandom().nextInt()),
+                                  ".mid", false);
+    bool written = false;
+    {
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return {};
+        written = midiFile.writeTo (*stream);
+        stream->flush();
+    }
+
+    if (! written || ! file.existsAsFile() || file.getSize() <= 0)
+    {
+        file.deleteFile();
+        return {};
+    }
     logFeedback (-1, "drag_part");
     return file;
 }
