@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.100.1**
+**Current version: 0.101.0**
+
+### 0.101.0 — MIDI Workflow Reliability
+- Unifies dialog export and drag-and-drop behind one MIDI renderer so both paths preserve the same tempo, 4/4 time signature, note tracks and articulation.
+- Adds a conductor track with the current host BPM and 4/4 signature to every exported and temporary drag MIDI file.
+- Avoids generating empty instrument tracks and refuses to create a part-drag file when the selected variation has no notes for that part.
+- Validates drum-row and part-channel requests, writes temporary MIDI files using unique paths, flushes output before checking file size, and deletes partial files after write failures.
+- Adds headless checks for tempo/time-signature metadata, per-part MIDI channel isolation, and the absence of fake drag files for empty layers.
+- A successful CI build still does not replace FL Studio validation of OLE Drag-and-Drop and long-session behavior.
 
 ### 0.100.1 — Feature Restoration & Advanced Controls
 - Adds an **ADVANCED / HIDE ADVANCED** drawer so progression, rhythm, mood, melody type, sound target, articulation, chord style, octave, arp rate and per-part musical controls remain user-accessible without crowding the compact default screen.
