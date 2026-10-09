@@ -3892,53 +3892,126 @@ int main()
         (void) b;
     }
 
-    // ------------------------------------------------------------------ 18. rhythm grid contract
+    // ------------------------------------------------------------------ 18. strict rhythm-grid contract
     {
-        bool onGrid = true;
-        bool noOneStepGaps = true;
+        bool chordsOnQuarterGrid = true;
+        bool bassOnEighthGrid = true;
+        bool melodyOnEighthGrid = true;
+        bool arpOnSelectedRateGrid = true;
+        bool drumsOnMusicalGrid = true;
+        bool allOnsetsStayInsideLoop = true;
+        bool noOneStepMelodyGaps = true;
+        std::array<int, 6> channelNotes {};
         int checkedMelodyNotes = 0;
 
-        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        // Test several arp rates because each rate owns a different subdivision.
+        for (int rate : { 1, 2, 4, 8 })
         {
             MidiForgeAudioProcessor p;
             p.setFeedbackLogFile (juce::File());
             p.setRoot (7);
             p.setScale (2);
             p.setBars (4);
-            p.setSeed (108100 + seedIndex * 131);
+            p.setChordsEnabled (true);
+            p.setBassEnabled (true);
+            p.setMelodyEnabled (true);
+            p.setArpEnabled (true);
+            p.setArpDensity (1.0f, false);
+            p.setArpRate (rate);
+            p.setDrumMuteMask (0);
+            p.setDrumsEnabled (true);
+            p.setSwing (0.0f);
+            p.setHumanizeEnabled (false);
+            p.setSeed (108100 + rate * 131);
             p.regenerate();
             p.waitForGeneration();
 
+            const int arpGrid = juce::jmax (1, 8 / juce::jmax (1, rate));
             for (int v = 0; v < p.getVariationCount(); ++v)
             {
                 p.chooseVariation (v);
                 const auto notes = p.getVisibleNotes();
+                std::vector<int> melodySteps;
 
-                std::vector<int> steps;
                 for (const auto& n : notes)
                 {
-                    if (n.channel != 3)
+                    if (n.channel < 1 || n.channel > 5)
                         continue;
 
-                    ++checkedMelodyNotes;
-                    onGrid = onGrid && ((n.step & 1) == 0);
-                    steps.push_back (n.step);
+                    ++channelNotes[(size_t) n.channel];
+                    const int loopLength = p.getVisibleBars() * 16;
+                    allOnsetsStayInsideLoop = allOnsetsStayInsideLoop
+                        && n.step >= 0 && n.step < loopLength;
+
+                    switch (n.channel)
+                    {
+                        case 1:
+                            chordsOnQuarterGrid = chordsOnQuarterGrid && (n.step % 4 == 0);
+                            break;
+                        case 2:
+                            bassOnEighthGrid = bassOnEighthGrid && ((n.step & 1) == 0);
+                            break;
+                        case 3:
+                            ++checkedMelodyNotes;
+                            melodyOnEighthGrid = melodyOnEighthGrid && ((n.step & 1) == 0);
+                            melodySteps.push_back (n.step);
+                            break;
+                        case 4:
+                            arpOnSelectedRateGrid = arpOnSelectedRateGrid && (n.step % arpGrid == 0);
+                            break;
+                        case 5:
+                        {
+                            // Kicks/claps and the main snare pocket stay on eighths;
+                            // intentional ghost notes, fills and hats can use sixteenths.
+                            const int local = n.step % 16;
+                            if (n.note == 36 || n.note == 39)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            else if (n.note == 38 && local < 11)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            else if (n.note == 49)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && (local % 4 == 0);
+                            else if ((n.note == 45 || n.note == 47 || n.note == 50) && local < 12)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            break;
+                        }
+                    }
                 }
 
-                std::sort (steps.begin(), steps.end());
-                for (size_t i = 1; i < steps.size(); ++i)
-                    noOneStepGaps = noOneStepGaps
-                        && (steps[i] - steps[i - 1] >= 2);
+                std::sort (melodySteps.begin(), melodySteps.end());
+                for (size_t i = 1; i < melodySteps.size(); ++i)
+                    noOneStepMelodyGaps = noOneStepMelodyGaps
+                        && (melodySteps[i] - melodySteps[i - 1] >= 2);
             }
         }
 
-        report ("0.98 rhythm: melody onsets stay on the 1/8 grid",
-                onGrid,
+        report ("0.102 rhythm: melody onsets stay on the 1/8 grid",
+                melodyOnEighthGrid && checkedMelodyNotes > 0,
                 fmt ("checked %d melody notes", checkedMelodyNotes));
-
-        report ("0.98 rhythm: no accidental one-step onset gaps",
-                noOneStepGaps,
-                "all melody onset gaps >= 2 steps");
+        report ("0.102 rhythm: chord voices land on beats",
+                chordsOnQuarterGrid && channelNotes[1] > 0,
+                fmt ("checked %d chord notes", channelNotes[1]));
+        report ("0.102 rhythm: bass onsets stay on the 1/8 grid",
+                bassOnEighthGrid && channelNotes[2] > 0,
+                fmt ("checked %d bass notes", channelNotes[2]));
+        report ("0.102 rhythm: arpeggio follows its selected rate",
+                arpOnSelectedRateGrid && channelNotes[4] > 0,
+                fmt ("checked %d arp notes across rates 1/2/4/8", channelNotes[4]));
+        report ("0.102 rhythm: drum anchors use deliberate subdivisions",
+                drumsOnMusicalGrid && channelNotes[5] > 0,
+                fmt ("checked %d drum notes, including sixteenth-note fills", channelNotes[5]));
+        report ("0.102 rhythm: all layer onsets stay inside the loop",
+                allOnsetsStayInsideLoop,
+                "no generated onset before step 0 or beyond the loop end");
+        report ("0.102 rhythm: no accidental one-step melody gaps",
+                noOneStepMelodyGaps,
+                "all melody onset gaps >= 2 sixteenth steps");
+        report ("0.102 rhythm: complete arrangement survives quantization",
+                channelNotes[1] > 0 && channelNotes[2] > 0 && channelNotes[3] > 0
+                    && channelNotes[4] > 0 && channelNotes[5] > 0,
+                fmt ("chords %.0f, bass %.0f, melody %.0f, arp %.0f, drums %.0f",
+                     (double) channelNotes[1], (double) channelNotes[2],
+                     (double) channelNotes[3], (double) channelNotes[4],
+                     (double) channelNotes[5]));
     }
 
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank

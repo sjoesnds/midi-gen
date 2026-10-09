@@ -321,6 +321,64 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
     cleanMelodyLine (v);
 }
 
+// 0.102.0: apply a deliberate rhythmic lattice to every generated layer.
+// Steps are sixteenths inside each bar. Melody/bass use eighths, chords land
+// on beats, and arpeggios follow the chosen rate. Drum anchors are tightened
+// while hi-hats, ghost snares and fills retain intentional sixteenth-note detail.
+// Swing and Humanize are applied later as performance choices, not baked into
+// the authored note positions.
+template <typename T>
+static void snapSectionOnsetsToMusicalGrid (std::vector<T>& v, int bars, int arpRate)
+{
+    const int maxStep = juce::jmax (0, bars * 16 - 1);
+
+    for (auto& note : v)
+    {
+        if (note.channel == 3)
+            continue; // The dedicated melody pass also removes same-step collisions.
+
+        const int original = juce::jlimit (0, maxStep, note.step);
+        const int barStart = (original / 16) * 16;
+        const int localStep = original - barStart;
+        int grid = 1;
+
+        switch (note.channel)
+        {
+            case 1: // Chord tones stay together on a beat.
+                grid = 4;
+                break;
+            case 2: // Bass notes use an eighth-note lattice.
+                grid = 2;
+                break;
+            case 4: // Match addArp()'s rate-to-step conversion.
+                grid = juce::jmax (1, 8 / juce::jmax (1, arpRate));
+                break;
+            case 5: // Keep the drum arrangement on named, intentional positions.
+                if (note.note == 36 || note.note == 39) // Kick and clap
+                    grid = 2;
+                else if (note.note == 38) // Main snare on eighths; ghost/roll hits stay 16ths.
+                    grid = (localStep >= 11 ? 1 : 2);
+                else if (note.note == 49) // Crash
+                    grid = 4;
+                else if (note.note == 45 || note.note == 47 || note.note == 50) // Toms
+                    grid = (localStep >= 12 ? 1 : 2);
+                else
+                    grid = 1; // Hats and shaker may intentionally use sixteenths.
+                break;
+            default:
+                continue;
+        }
+
+        // Quantize within the current bar rather than accidentally carrying a
+        // late hit into the next bar. Each bar contains an exact multiple of
+        // every supported grid size (1, 2, 4 or 8 sixteenth steps).
+        const int snappedLocal = ((localStep + grid / 2) / grid) * grid;
+        note.step = barStart + juce::jmin (16 - grid, snappedLocal);
+    }
+
+    snapMelodyOnsetsToGrid (v, bars);
+}
+
 static int foldIntoLane (int note, int lo, int hi)
 {
     if (hi - lo < 11) return juce::jlimit (lo, hi, note);
@@ -9460,7 +9518,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         repairLocalMelodyQuality (flat, identity);
         applyPhraseArchitecture (flat, identity);
         enforceFinalMelodyContract (flat, identity);
-        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
+        snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
@@ -10681,7 +10739,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                    });
 
         // Grid is a hard timing invariant, including after layer locks.
-        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
+        snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         result.push_back (std::move (flat));
     }
 
@@ -10691,7 +10749,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         juce::Random fallback((juce::int64)generationSeed);
         SongData song;
         buildBaseSong(song,fallback,0);
-        if(!song.sections.empty()) result.push_back(song.sections.front());
+        if (! song.sections.empty())
+        {
+            snapSectionOnsetsToMusicalGrid (song.sections.front().notes, song.sections.front().bars, arpRate);
+            result.push_back (song.sections.front());
+        }
     }
 
     {

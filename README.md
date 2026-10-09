@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.101.0**
+**Current version: 0.102.0**
+
+### 0.102.0 — Strict Musical Grid
+- Adds one final timing contract across the restored chord, bass, melody, arpeggio and drum layers before variations are accepted.
+- Keeps melody and bass on an eighth-note lattice, chord attacks on quarter-note beats, and arpeggio attacks aligned to the selected rate.
+- Tightens kick/clap and main backbeat positions while preserving intentionally authored hat patterns, ghost snares and 16th-note fills.
+- Applies the same grid contract to the generation fallback path, not just normally accepted variations.
+- Keeps Swing and optional Humanize separate from generated note positions, so timing feel remains a deliberate performance control.
+- Expands headless checks across arp rates 1/2/4/8, every layer, melody spacing, drum anchors and loop boundaries.
 
 ### 0.101.0 — MIDI Workflow Reliability
 - Unifies dialog export and drag-and-drop behind one MIDI renderer so both paths preserve the same tempo, 4/4 time signature, note tracks and articulation.
