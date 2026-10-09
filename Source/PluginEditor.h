@@ -20,6 +20,7 @@ private:
 void timerCallback() override;
 void refreshTaste();
 void scheduleRegeneration (bool preserveSelection);
+void setAdvancedControlsVisible (bool visible);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 // 0.78: MAGIC runs on a worker thread; this overlay blocks input while it works (the generator reads the live controls).
@@ -61,6 +62,8 @@ bool preserveSelectionOnRegenerate = false;
 // Queue one MAGIC request while the background generator is busy.
 // The processor already coalesces normal regeneration requests; this flag keeps MAGIC clicks from being lost.
 bool magicPending = false;
+// Extra musical controls are available on demand without cluttering the compact layout.
+bool advancedControlsVisible = false;
  juce::ComboBox root, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
@@ -68,6 +71,7 @@ bool magicPending = false;
  juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton,humanizeModeButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
  juce::TextButton generate,newSeed,applyVariation,exportMidi,revertBtn;
+juce::TextButton advancedButton { "ADVANCED" };
  juce::ComboBox pianoGridBox;
  juce::TextButton quantizeButton{"QUANTIZE"}, resetViewButton{"RESET VIEW"};
  juce::TextButton phraseButton{"PHRASE"}, barButton{"BAR"}, transposeDownButton{"-12"}, transposeUpButton{"+12"},
