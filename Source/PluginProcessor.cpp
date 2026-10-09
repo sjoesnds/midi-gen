@@ -1748,6 +1748,38 @@ void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint
         return pcs;
     };
 
+    auto chordRootPitchClassForBar = [&] (int bar)
+    {
+        const auto pcs = chordPitchClassesForBar (bar);
+        int bestRootPc = pitchClass (degreeToPitch (prog[(size_t) (bar % (int) prog.size())], 2));
+        int bestScore = -1;
+
+        // Infer the root from the chord tones that were actually generated.
+        // MAGIC can use a candidate-local progression and then restore the UI
+        // controls before this final pass, so the current dropdown is not always
+        // the progression that authored this specific chord.
+        for (int degree = 0; degree < (int) scaleNotes.size(); ++degree)
+        {
+            const int candidateRoot = pitchClass (degreeToPitch (degree, 2));
+            if (! pcs[(size_t) candidateRoot])
+                continue;
+
+            int score = 1;
+            if (pcs[(size_t) pitchClass (degreeToPitch (degree + 2, 2))])
+                score += 2;
+            if (pcs[(size_t) pitchClass (degreeToPitch (degree + 4, 2))])
+                score += 2;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestRootPc = candidateRoot;
+            }
+        }
+
+        return bestRootPc;
+    };
+
     const int barsN = juce::jmax (1, section.bars);
 
     // Bass: keep beat-one anchors on the progression root; other notes should
@@ -1760,8 +1792,7 @@ void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint
 
         const int bar = juce::jlimit (0, barsN - 1, note.step / 16);
         const int local = note.step % 16;
-        const int degree = prog[(size_t) (bar % (int) prog.size())];
-        const int rootPcForBar = pitchClass (degreeToPitch (degree, 2));
+        const int rootPcForBar = chordRootPitchClassForBar (bar);
         const auto currentChord = chordPitchClassesForBar (bar);
         const int pitchPc = pitchClass (note.note);
 
