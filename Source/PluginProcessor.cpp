@@ -11399,77 +11399,17 @@ for (auto& p : pendingEvents)
 pendingEvents.push_back ({ onGlobal,  midiCh, e.note, velocity, true  });
 pendingEvents.push_back ({ offGlobal, midiCh, e.note, 0,        false });
 }
-bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
+bool MidiForgeAudioProcessor::exportMidi (const juce::File& targetFile) const
 {
-const juce::ScopedLock sl(variationsLock);
-if (variations.empty())
-return false;
-const auto& song = variations[(size_t)juce::jlimit(0, (int)variations.size() - 1, selectedVariation)];
-constexpr int ppq = 960;
-constexpr int ticksPerStep = ppq / 4;
-juce::MidiFile file;
-file.setTicksPerQuarterNote(ppq);
-juce::MidiMessageSequence conductor;
-const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm.load()));
-conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
-conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
-const int totalSteps = juce::jmax(1, song.bars * 16);
-const double endTick = (double) totalSteps * ticksPerStep;
-const auto songArt = articulationFor (song.notes);
-conductor.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
-file.addTrack(conductor);
-for (int channel = 1; channel <= 5; ++channel)
-{
-const int midiCh = (channel == 5) ? 10 : channel;
-if (channel == 5 && std::none_of (song.notes.begin(), song.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
-if (channel == 5)
-{
-    for (int row = 0; row < kDrumRows; ++row)
-    {
-        if ((drumMuteMask & (1 << row)) != 0) continue;
-        juce::MidiMessageSequence dtrack;
-        dtrack.addEvent (juce::MidiMessage::textMetaEvent (3, drumRowName (row)), 0.0);
-        bool any = false;
-        for (const auto& n : song.notes)
-        {
-            if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
-            any = true;
-            const double onTick = (double) n.step * ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
-            const double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
-            const int pitch = drumOutPitch (row, n.note);
-            dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
-            dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
-        }
-        if (any) { dtrack.updateMatchedPairs(); dtrack.addEvent (juce::MidiMessage::endOfTrack(), endTick + ppq); file.addTrack (dtrack); }
-    }
-    continue;
+    // Keep the dialog-based export and drag-and-drop on the exact same MIDI
+    // renderer so tempo, time signature, tracks, and articulation cannot drift.
+    const auto output = targetFile.withFileExtension (".mid");
+    const bool exported = exportMidiFileTo (output);
+    if (exported)
+        logFeedback (-1, "export");
+    return exported;
 }
-juce::MidiMessageSequence track;
-for (size_t ei = 0; ei < song.notes.size(); ++ei)
-{
-const auto& e = song.notes[ei];
-if (e.channel != channel)
-continue;
-const double onTick = (double) e.step * ticksPerStep + swingTicks (e.step, (double) ticksPerStep);
-double offTick = swungEndTick (e.step, juce::jmax (1, e.length), (double) ticksPerStep);
-addArticulation (track, songArt[ei], midiCh, onTick, offTick, (double) ticksPerStep);
-const int velocity = juce::jlimit(1, 127, e.velocity);
-track.addEvent(juce::MidiMessage::noteOn(midiCh, e.note, (juce::uint8) velocity), onTick);
-track.addEvent(juce::MidiMessage::noteOff(midiCh, e.note), offTick);
-}
-track.updateMatchedPairs();
-track.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
-file.addTrack(track);
-}
-juce::File output = targetFile.withFileExtension(".mid");
-output.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
-auto stream = output.createOutputStream();
-if (stream == nullptr)
-return false;
-const bool exported = file.writeTo (*stream, 1);
-if (exported) logFeedback (-1, "export");
-return exported;
-}
+
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
     audio.clear();
