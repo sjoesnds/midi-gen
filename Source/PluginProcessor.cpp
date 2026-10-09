@@ -1755,7 +1755,7 @@ void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint
     // next chord, which preserves a useful forward pull into the loop.
     for (auto& note : section.notes)
     {
-        if (note.channel != 2)
+        if (note.channel != 2 || lockBassLayer)
             continue;
 
         const int bar = juce::jlimit (0, barsN - 1, note.step / 16);
@@ -1825,7 +1825,7 @@ void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint
     // Melody: after phrase shaping and the final register/scale contract, repair
     // only strong-beat notes that still clash with the chord. The correction is
     // capped at three semitones and preserves the register and adjacent leap limit.
-    if (! melodyEnabled || soundProfileFor (soundTarget).soloLine)
+    if (! melodyEnabled || lockMelodyLayer || soundProfileFor (soundTarget).soloLine)
         return;
 
     std::vector<size_t> melody;
