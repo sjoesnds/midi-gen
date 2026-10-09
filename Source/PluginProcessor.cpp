@@ -10926,7 +10926,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         // Grid is a hard timing invariant, including after layer locks.
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
-        applyArrangementFoundation (flat, identity);
+        applyArrangementFoundation (flat, generationSeed);
         result.push_back (std::move (flat));
     }
 
