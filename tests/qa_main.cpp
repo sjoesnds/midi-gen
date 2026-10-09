@@ -2015,6 +2015,15 @@ int main()
     {
         MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
         a.setDrumMuteMask (0x0A); a.setDrumPitchMode (1);
+        // Feature-restoration regression: layer switches, locks and expressive controls
+        // must survive a save/load instead of silently reverting to factory defaults.
+        a.setChordsEnabled (false); a.setBassEnabled (false);
+        a.setMelodyEnabled (true); a.setArpEnabled (true);
+        a.setLeadStyleSoundCloud (true);
+        a.setLockChords (true); a.setLockBass (true); a.setLockMelody (true); a.setLockArp (true);
+        a.setChordDensity (0.41f, false); a.setBassDensity (0.47f, false);
+        a.setMelodyDensity (0.72f, false); a.setArpDensity (0.33f, false);
+        a.setSwing (0.12f); a.setHumanize (0.23f); a.setHumanizeEnabled (true);
         juce::MemoryBlock mb; a.getStateInformation (mb);
 
         bool versionedHeader = false;
@@ -2031,6 +2040,20 @@ int main()
         report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
                && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
+        const bool restoredLayerState =
+            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled() && b.isArpEnabled()
+            && b.getLeadStyleSoundCloud()
+            && b.getLockChords() && b.getLockBass() && b.getLockMelody() && b.getLockArp()
+            && std::abs (b.getChordDensity() - 0.41f) < 0.001f
+            && std::abs (b.getBassDensity() - 0.47f) < 0.001f
+            && std::abs (b.getMelodyDensity() - 0.72f) < 0.001f
+            && std::abs (b.getArpDensity() - 0.33f) < 0.001f
+            && std::abs (b.getSwing() - 0.12f) < 0.001f
+            && std::abs (b.getHumanize() - 0.23f) < 0.001f
+            && b.isHumanizeEnabled();
+        report ("restored layer controls survive state round-trip", restoredLayerState,
+                restoredLayerState ? "all layer flags, locks, density and performance values preserved"
+                                   : "one or more restored feature settings changed after load");
 
         // Strip the V2 envelope to construct a real legacy positional state.
         juce::MemoryBlock legacy;
