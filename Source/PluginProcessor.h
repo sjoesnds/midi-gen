@@ -16,7 +16,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.100.0"
+#define MIDIFORGE_ENGINE_VERSION "0.100.1"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
