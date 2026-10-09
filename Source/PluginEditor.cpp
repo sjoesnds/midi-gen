@@ -156,7 +156,7 @@ tempoLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(tempoLabel);
 // Старый конструктор Font: жив и на JUCE 7, и на JUCE 8 (в 8 — deprecated, но компилируется).
 title.setFont (juce::Font (30.0f, juce::Font::bold));
-sectionLabel.setText("GENERATIVE MELODY STUDIO  /  FAST IDEA -> EDIT -> DRAG",juce::dontSendNotification);
+sectionLabel.setText("GENERATIVE MIDI STUDIO  /  FAST IDEA -> EDIT -> DRAG",juce::dontSendNotification);
 sectionLabel.setFont (juce::FontOptions (11.0f));
 sectionLabel.setColour (juce::Label::textColourId, juce::Colour (kMuted));
 addAndMakeVisible(title);
@@ -192,7 +192,7 @@ generate.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kAccent).b
 generate.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
 generate.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 generate.setButtonText ("MAGIC");
-generate.setTooltip ("Randomize the musical DNA and generate a fresh set of melodies.");
+generate.setTooltip ("Explore new musical DNA and generate a fresh set of coordinated loop variations.");
 newSeed.setTooltip ("Keep the current musical direction but reroll the seed.");
 applyVariation.setTooltip ("Commit the selected variation as the active loop.");
 similarButton.setTooltip ("Generate close relatives of the selected loop.");
@@ -511,8 +511,8 @@ addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
 
-// Creator-first UI: generation strategy controls stay internal. The visible surface
-// exposes only key/scale/length plus workflow, editing and explicit performance tools.
+// Compact creator-first UI: key, scale and length stay immediately visible, while
+// the ADVANCED drawer exposes the restored musical controls on demand.
 // Keep the rarely used legacy section-mode control hidden; real musical controls
 // are available through the ADVANCED drawer instead of being silently removed.
 mode.setVisible (false);
