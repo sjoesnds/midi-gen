@@ -4014,6 +4014,105 @@ int main()
                      (double) channelNotes[5]));
     }
 
+    // ------------------------------------------------------------------ 18b. final arrangement foundation
+    {
+        int strongMelodyAnchors = 0;
+        int strongMelodyChordTones = 0;
+        int bassNotes = 0;
+        int bassHarmonicNotes = 0;
+        int bassDownbeatAnchors = 0;
+        int bassDownbeatsPresent = 0;
+
+        auto pc = [] (int n) { return (n % 12 + 12) % 12; };
+        for (int seedIndex = 0; seedIndex < 8; ++seedIndex)
+        {
+            MidiForgeAudioProcessor foundation;
+            foundation.setFeedbackLogFile (juce::File());
+            foundation.setRoot (7);
+            foundation.setScale (2);
+            foundation.setBars (4);
+            foundation.setSoundTarget (0);
+            foundation.setChordsEnabled (true);
+            foundation.setBassEnabled (true);
+            foundation.setMelodyEnabled (true);
+            foundation.setArpEnabled (false);
+            foundation.setDrumsEnabled (false);
+            foundation.setSeed (103100 + seedIndex * 197);
+            foundation.regenerate();
+            foundation.waitForGeneration();
+
+            for (int variation = 0; variation < foundation.getVariationCount(); ++variation)
+            {
+                foundation.chooseVariation (variation);
+                const auto notes = foundation.getVisibleNotes();
+                const int barCount = foundation.getVisibleBars();
+                std::vector<std::array<bool, 12>> chordPcs ((size_t) juce::jmax (1, barCount));
+                for (auto& pcs : chordPcs)
+                    pcs.fill (false);
+
+                for (const auto& n : notes)
+                    if (n.channel == 1 && n.step >= 0 && n.step / 16 < barCount)
+                        chordPcs[(size_t) (n.step / 16)][(size_t) pc (n.note)] = true;
+
+                for (const auto& n : notes)
+                {
+                    if (n.step < 0 || barCount <= 0 || n.step / 16 >= barCount)
+                        continue;
+                    const int bar = n.step / 16;
+                    const int local = n.step % 16;
+                    const int pitchPc = pc (n.note);
+
+                    if (n.channel == 3 && (local % 4) == 0)
+                    {
+                        ++strongMelodyAnchors;
+                        if (chordPcs[(size_t) bar][(size_t) pitchPc])
+                            ++strongMelodyChordTones;
+                    }
+
+                    if (n.channel == 2)
+                    {
+                        ++bassNotes;
+                        bool fits = chordPcs[(size_t) bar][(size_t) pitchPc];
+                        if (! fits && local >= 12)
+                        {
+                            const int nextBar = (bar + 1) % barCount;
+                            fits = chordPcs[(size_t) nextBar][(size_t) pitchPc];
+                        }
+                        if (fits)
+                            ++bassHarmonicNotes;
+
+                        if (local == 0)
+                        {
+                            ++bassDownbeatsPresent;
+                            if (chordPcs[(size_t) bar][(size_t) pitchPc])
+                                ++bassDownbeatAnchors;
+                        }
+                    }
+                }
+            }
+        }
+
+        const double strongAnchorRate = strongMelodyAnchors > 0
+            ? (double) strongMelodyChordTones / (double) strongMelodyAnchors : 0.0;
+        const double bassFitRate = bassNotes > 0
+            ? (double) bassHarmonicNotes / (double) bassNotes : 0.0;
+        const double bassDownbeatRate = bassDownbeatsPresent > 0
+            ? (double) bassDownbeatAnchors / (double) bassDownbeatsPresent : 0.0;
+
+        report ("0.103 foundation: strong melody positions support the active chord",
+                strongMelodyAnchors >= 200 && strongAnchorRate >= 0.56,
+                fmt ("%.0f / %.0f chord tones, rate %.3f",
+                     (double) strongMelodyChordTones, (double) strongMelodyAnchors, strongAnchorRate));
+        report ("0.103 foundation: bass notes fit current or anticipated harmony",
+                bassNotes >= 300 && bassFitRate >= 0.94,
+                fmt ("%.0f / %.0f compatible bass notes, rate %.3f",
+                     (double) bassHarmonicNotes, (double) bassNotes, bassFitRate));
+        report ("0.103 foundation: bass downbeats retain a chord-tone anchor",
+                bassDownbeatsPresent >= 100 && bassDownbeatRate >= 0.99,
+                fmt ("%.0f / %.0f downbeats fit the chord",
+                     (double) bassDownbeatAnchors, (double) bassDownbeatsPresent, bassDownbeatRate));
+    }
+
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
     {
         int simpleSlots = 0;

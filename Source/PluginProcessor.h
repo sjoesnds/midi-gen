@@ -16,7 +16,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.102.0"
+#define MIDIFORGE_ENGINE_VERSION "0.103.0"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -346,6 +346,7 @@ struct ComposerJudgeInputs
 float composerJudgeScore (const Section& section, uint32_t identity,
                           const ComposerJudgeInputs& inputs) const;
 void enforceFinalMelodyContract (Section& section, uint32_t identity) const;
+void applyArrangementFoundation (Section& section, uint32_t identity) const;
 void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int channel,
                       double onTick, double& offTick, double ticksPerStep) const;
 // variations/selectedVariation читаются в audio-потоке (processBlock) и пишутся
