@@ -1,8 +1,15 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The current creator workflow focuses on one editable melody line: MAGIC explores musical ideas inside the chosen Key, Scale and Bars, then returns loops with clear rhythm, motif, phrasing, register and variation.
 
-**Current version: 0.105.0**
+**Current version: 0.105.1**
+
+### 0.105.1 — Melody Grid & Creator Focus
+- Keeps the creator-facing composition boundary to **Key / Scale / Bars**; the ADVANCED drawer, HOOK mode and the legacy SOUNDCLOUD mode are removed from the visible workflow.
+- Enforces the melody's eighth-note onset grid after both generation and MUTATE / EVOLVE; when a crowded bar has no open grid position, excess attacks are dropped instead of being pushed into the next bar.
+- MAGIC no longer randomly enables the retired SoundCloud-specific melody behavior, which belongs to the separate Shakalizer project.
+- Adds melody-only QA across every scale and all eight MAGIC slots for lane isolation, in-loop note bounds, scale membership, safe register, leap size, unique attacks and the strict rhythmic grid.
+- Legacy project-state bytes are still read in their original order, then obsolete layer/lock flags and the retired SoundCloud mode are normalized off.
 
 ### 0.105.0 — Melody-Only Core
 - Makes new generation produce a single editable melody lane; MAGIC keeps chord, bass, arpeggio and drum output disabled.
@@ -424,7 +431,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - The candidate Judge now scores backing/lead interplay: meaningful shared accents, use of open space and register separation all influence MAGIC selection.
 - The feature remains loop-centric and deterministic; it does not add song/arrangement generation.
 
-## What it does
+## Historical feature inventory (older versions; the current creator workflow is melody-only)
 
 ### Composition
 - Root note, scale and progression control
