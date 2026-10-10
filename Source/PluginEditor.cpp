@@ -606,8 +606,8 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
 
     const int layoutShift = advancedControlsVisible ? 166 : 0;
     drawCard (g, { margin, 76, innerW, advancedControlsVisible ? 284 : 76 }, "01  CREATIVE SPACE", juce::Colour (kAccent).withAlpha (0.40f));
-    drawCard (g, { margin, 160 + layoutShift, innerW, 120 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
-    drawCard (g, { margin, 264 + layoutShift, innerW, 292 }, "03  MELODY / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
+    drawCard (g, { margin, 160 + layoutShift, innerW, 110 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
+    drawCard (g, { margin, 270 + layoutShift, innerW, 286 }, "03  MELODY / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
     drawCard (g, { margin, 558 + layoutShift, innerW, 142 }, "04  PERFORMANCE / KEEP", juce::Colour (kSuccess).withAlpha (0.24f));
 
     drawFieldLabel (g, root, "Key");
@@ -698,7 +698,7 @@ void MidiForgeAudioProcessorEditor::resized()
     exportMidi.setBounds (margin + 666, 178 + layoutShift, 110, 28);
     dragHandle.setBounds (margin + 786, 171 + layoutShift, 148, 40);
 
-    autoNextBtn.setBounds (margin + 12, 250 + layoutShift, 88, 24);
+    autoNextBtn.setBounds (margin + 12, 242 + layoutShift, 88, 24);
 
     pianoGridBox.setBounds (margin + 12, 270 + layoutShift, 58, 24);
     quantizeButton.setBounds (margin + 76, 270 + layoutShift, 72, 24);
