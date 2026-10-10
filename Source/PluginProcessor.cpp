@@ -11462,20 +11462,10 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
             if (notes[i].channel == 5)
                 drumIdx.push_back (i);
 
-        if (mode == 1 && !drumIdx.empty())
-        {
-            const int delta = (base & 1u) ? 2 : -2;
-            const int selectedRow = (int) ((base >> 6) % (uint32_t) kDrumRows);
-            for (size_t k : drumIdx)
-            {
-                if (drumRowForNote (notes[k].note) != selectedRow) continue;
-                const int cell = notes[k].step / phraseSteps;
-                const int local = notes[k].step % phraseSteps;
-                if (cell == (int) ((base >> 12) % (uint32_t) juce::jmax (1, (totalSteps + phraseSteps - 1) / phraseSteps)))
-                    notes[k].step = juce::jlimit (0, totalSteps - 1, cell * phraseSteps + local + delta);
-            }
-        }
-
+        // Drum timing and kit pitches are the reference groove for the loop.
+        // MUTATE/EVOLVE can change accent velocity, but they must not silently
+        // rewrite the kick/snare/hat pattern while the creator is editing the
+        // melodic and harmonic layers.
         for (size_t k : drumIdx)
         {
             const uint32_t h = hash32 (base ^ (uint32_t) notes[k].step * 13u ^ (uint32_t) k);

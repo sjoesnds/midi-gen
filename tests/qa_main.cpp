@@ -1898,12 +1898,27 @@ int main()
                     if (onKick) ++locked;
                 }
         report ("808 locks to the kick when drums are on", hits808 > 0 && locked == hits808, fmt ("%.0f of %.0f hits on a kick", locked, hits808));
-        // MUTATE / EVOLVE must not move the drum hits
+        // MUTATE / EVOLVE preserve the drum pattern while changing another
+        // unlocked part; a no-op mutation must not accidentally pass this test.
         p.setSoundTarget (0); p.magicRandomize();
         auto drumSteps = [&] { std::multiset<std::pair<int,int>> v; for (auto& n : p.getVisibleNotes()) if (n.channel == 5) v.insert ({ n.step, n.note }); return v; };
+        auto nonDrumState = [&]
+        {
+            std::multiset<std::array<int, 5>> v;
+            for (const auto& n : p.getVisibleNotes())
+                if (n.channel != 5)
+                    v.insert ({ n.step, n.note, n.length, n.velocity, n.channel });
+            return v;
+        };
         const auto before = drumSteps();
+        const auto nonDrumBefore = nonDrumState();
         p.mutateSelected (0.9f); p.evolveSelected();
+        const auto nonDrumAfter = nonDrumState();
         report ("MUTATE / EVOLVE keep the drum groove", drumSteps() == before && ! before.empty(), fmt ("%.0f drum hits", (double) before.size()));
+        report ("MUTATE / EVOLVE changes an unlocked musical part",
+                nonDrumAfter != nonDrumBefore,
+                fmt ("%.0f non-drum notes before, %.0f after",
+                     (double) nonDrumBefore.size(), (double) nonDrumAfter.size()));
         p.setDrumsEnabled (false); p.setSoundTarget (0);
     }
 
