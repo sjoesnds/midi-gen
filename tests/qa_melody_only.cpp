@@ -195,11 +195,11 @@ namespace
 int main()
 {
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("midiforge_0_105_1_release_qa");
+        .getChildFile ("midiforge_0_106_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
 
-    bool allMelodyOnly = true;
+    bool allSupportedLayers = true;
     bool allInLoop = true;
     bool allOnGrid = true;
     bool allNoCollisions = true;
@@ -209,9 +209,12 @@ int main()
     bool allLeapsSafe = true;
     bool allConstraintsPreserved = true;
     bool allPerformancePreserved = true;
-    bool allRetiredModesOff = true;
+    bool allLayerTogglesStayOn = true;
     int checkedSlots = 0;
     int checkedNotes = 0;
+    int checkedMelodyNotes = 0;
+    int checkedChordNotes = 0;
+    int checkedBassNotes = 0;
     int severeLeapReversals = 0;
     int diverseBanks = 0;
 
@@ -228,6 +231,9 @@ int main()
         p.setSwing (0.12f);
         p.setHumanize (0.23f);
         p.setHumanizeEnabled (true);
+        // Keep the restored layers on while stress-testing every scale and MAGIC slot.
+        p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, true);
+        p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::BassEnabled, true);
 
         p.magicRandomize();
         p.waitForGeneration();
@@ -238,10 +244,10 @@ int main()
             && std::abs (p.getSwing() - 0.12f) < 0.001f
             && std::abs (p.getHumanize() - 0.23f) < 0.001f
             && p.isHumanizeEnabled();
-        allRetiredModesOff = allRetiredModesOff
-            && ! p.getLeadStyleSoundCloud()
-            && ! p.isChordsEnabled() && ! p.isBassEnabled()
-            && p.isMelodyEnabled() && ! p.isArpEnabled() && ! p.isDrumsEnabled();
+        allLayerTogglesStayOn = allLayerTogglesStayOn
+            && p.isChordsEnabled() && p.isBassEnabled()
+            && p.isMelodyEnabled() && ! p.isArpEnabled() && ! p.isDrumsEnabled()
+            && ! p.getLeadStyleSoundCloud();
 
         std::set<std::string> bankFingerprints;
         const int slots = p.getVariationCount();
@@ -252,8 +258,12 @@ int main()
             const auto c = inspectMelody (notes, p.getVisibleBars(), root, scale);
             ++checkedSlots;
             checkedNotes += c.noteCount;
+            checkedMelodyNotes += c.melodyNotes;
+            checkedChordNotes += c.chordNotes;
+            checkedBassNotes += c.bassNotes;
             severeLeapReversals += c.severeLeapReversals;
-            allMelodyOnly = allMelodyOnly && c.populated && c.onlyMelody;
+            allSupportedLayers = allSupportedLayers && c.populated && c.supportedLayers
+                && c.chordNotes > 0 && c.bassNotes > 0;
             allInLoop = allInLoop && c.inLoop;
             allOnGrid = allOnGrid && c.onGrid;
             allNoCollisions = allNoCollisions && c.noCollisions;
@@ -267,9 +277,12 @@ int main()
             ++diverseBanks;
     }
 
-    check ("MAGIC produces one populated melody lane",
-          allMelodyOnly && checkedSlots == 96,
-          juce::String (checkedSlots) + " variation slots checked");
+    check ("MAGIC produces melody, chords and bass",
+          allSupportedLayers && checkedSlots == 96,
+          juce::String (checkedSlots) + " variations; "
+              + juce::String (checkedMelodyNotes) + " melody, "
+              + juce::String (checkedChordNotes) + " chord and "
+              + juce::String (checkedBassNotes) + " bass notes");
     check ("MAGIC preserves creator Key / Scale / Bars",
           allConstraintsPreserved, "all 12 scales with four-bar loops");
     check ("Generated melody follows the eighth-note grid",
@@ -277,23 +290,72 @@ int main()
           "no off-grid, duplicate or one-sixteenth-spaced attacks");
     check ("Notes and note tails stay inside the loop",
           allInLoop, "valid step, length, note and velocity bounds");
-    check ("Generated melody remains in key",
+    check ("All generated layers remain in key",
           allTonal && checkedNotes > 0, juce::String (checkedNotes) + " notes checked");
-    check ("Generated melody stays inside the grounded register",
-          allRegisterSafe && checkedNotes > 0, "MIDI pitches 48–90");
-    check ("Generated melody avoids unsafe pitch leaps",
-          allLeapsSafe && checkedNotes > 0, "adjacent pitches differ by at most 12 semitones");
+    check ("Melody stays inside the grounded register",
+          allRegisterSafe && checkedMelodyNotes > 0, "MIDI pitches 48–90");
+    check ("Melody avoids unsafe pitch leaps",
+          allLeapsSafe && checkedMelodyNotes > 0, "adjacent pitches differ by at most 12 semitones");
     check ("MAGIC limits abrupt large-leap reversals",
           severeLeapReversals <= 14,
           juce::String (severeLeapReversals)
               + " opposing leap pairs across 96 generated variations");
     check ("MAGIC preserves explicit performance settings",
           allPerformancePreserved, "Swing and Humanize remain user-controlled");
-    check ("Retired accompaniment and SoundCloud modes stay disabled",
-          allRetiredModesOff, "MIDI Forge produces melody only");
+    check ("MAGIC respects locked CHORDS / BASS switches",
+          allLayerTogglesStayOn, "both switches stay on through all 12 MAGIC runs");
     check ("MAGIC variation bank retains meaningful diversity",
           diverseBanks >= 10,
           juce::String (diverseBanks) + " of 12 banks have at least six distinct ideas");
+
+    // Every exposed randomizable value must survive MAGIC when its individual lock is on.
+    MidiForgeAudioProcessor locked;
+    locked.setFeedbackLogFile (juce::File());
+    locked.setMagicParameterLockMask ((1u << MidiForgeAudioProcessor::kMagicLockCount) - 1u);
+    const int keepProgression = locked.getProgression();
+    const int keepRhythm = locked.getRhythm();
+    const int keepOctave = locked.getOctave();
+    const int keepMood = locked.getMood();
+    const int keepMelodyType = locked.getMelodyType();
+    const float keepChordDensity = locked.getChordDensity();
+    const float keepBassDensity = locked.getBassDensity();
+    const float keepMelodyDensity = locked.getMelodyDensity();
+    const float keepComplexity = locked.getComplexity();
+    const float keepMotif = locked.getMotifStrength();
+    const float keepVariation = locked.getVariationAmount();
+    const float keepFill = locked.getFillAmount();
+    const float keepEnergy = locked.getEnergy();
+    const float keepLength = locked.getMelodyLength();
+    const float keepPause = locked.getPauseChance();
+    const float keepLeap = locked.getLeapChance();
+    const float keepGhost = locked.getGhostChance();
+    const bool keepExtensions = locked.getChordExtensions();
+    const bool keepInversions = locked.getInversions();
+    const bool keepChords = locked.isChordsEnabled();
+    const bool keepBass = locked.isBassEnabled();
+    locked.magicRandomize();
+    locked.waitForGeneration();
+    const bool lockContract = locked.getProgression() == keepProgression
+        && locked.getRhythm() == keepRhythm && locked.getOctave() == keepOctave
+        && locked.getMood() == keepMood && locked.getMelodyType() == keepMelodyType
+        && std::abs (locked.getChordDensity() - keepChordDensity) < 0.0001f
+        && std::abs (locked.getBassDensity() - keepBassDensity) < 0.0001f
+        && std::abs (locked.getMelodyDensity() - keepMelodyDensity) < 0.0001f
+        && std::abs (locked.getComplexity() - keepComplexity) < 0.0001f
+        && std::abs (locked.getMotifStrength() - keepMotif) < 0.0001f
+        && std::abs (locked.getVariationAmount() - keepVariation) < 0.0001f
+        && std::abs (locked.getFillAmount() - keepFill) < 0.0001f
+        && std::abs (locked.getEnergy() - keepEnergy) < 0.0001f
+        && std::abs (locked.getMelodyLength() - keepLength) < 0.0001f
+        && std::abs (locked.getPauseChance() - keepPause) < 0.0001f
+        && std::abs (locked.getLeapChance() - keepLeap) < 0.0001f
+        && std::abs (locked.getGhostChance() - keepGhost) < 0.0001f
+        && locked.getChordExtensions() == keepExtensions
+        && locked.getInversions() == keepInversions
+        && locked.isChordsEnabled() == keepChords
+        && locked.isBassEnabled() == keepBass;
+    check ("Every parameter lock survives MAGIC", lockContract,
+           "all 21 individual lockable values remain unchanged");
 
     // Mutations must keep the same musical safety contract as newly authored MIDI.
     MidiForgeAudioProcessor transform;
@@ -302,6 +364,9 @@ int main()
     transform.setScale (2);
     transform.setBars (4);
     transform.setSeed (105901);
+    transform.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, true);
+    transform.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::BassEnabled, true);
+    transform.setMagicParameterLockMask ((1u << MidiForgeAudioProcessor::kMagicLockCount) - 1u);
     transform.magicRandomize();
     transform.waitForGeneration();
     transform.mutateSelected (0.45f);
@@ -311,50 +376,51 @@ int main()
     auto evolved = inspectMelody (transform.getVisibleNotes(), transform.getVisibleBars(),
                                   transform.getRoot(), transform.getScale());
     const bool transformsValid =
-        mutated.populated && mutated.onlyMelody && mutated.inLoop && mutated.onGrid
+        mutated.populated && mutated.supportedLayers && mutated.inLoop && mutated.onGrid
         && mutated.noCollisions && mutated.spacing && mutated.tonal
         && mutated.registerSafe && mutated.leapsSafe
-        && evolved.populated && evolved.onlyMelody && evolved.inLoop && evolved.onGrid
+        && evolved.populated && evolved.supportedLayers && evolved.inLoop && evolved.onGrid
         && evolved.noCollisions && evolved.spacing && evolved.tonal
         && evolved.registerSafe && evolved.leapsSafe;
     check ("MUTATE / EVOLVE preserve the melody contract",
           transformsValid, "lane, key, range, loop bounds and grid remain valid");
 
-    // Export and drag-temporary files must contain real, parseable, melody-only MIDI.
+    // Export and drag-temporary files must contain real MIDI with only the supported layers.
     const auto outFile = settings.getChildFile ("release_export.mid");
     int exportedNotes = 0;
     const bool exportWritten = transform.exportMidiFileTo (outFile);
-    const bool exportParsed = exportWritten && parseMelodyMidi (outFile, exportedNotes);
-    check ("MIDI export contains valid melody and tempo metadata",
+    const bool exportParsed = exportWritten && parseSupportedMidi (outFile, exportedNotes);
+    check ("MIDI export contains valid melody + chord/bass tracks and tempo metadata",
           exportParsed, juce::String (exportedNotes) + " note-ons");
 
     juce::File dragFile = transform.writeTemporaryMidiFile();
     int draggedNotes = 0;
     const bool dragOk = dragFile.existsAsFile() && dragFile.getSize() > 0
-        && parseMelodyMidi (dragFile, draggedNotes);
-    check ("FL drag payload is a real melody-only MIDI file",
+        && parseSupportedMidi (dragFile, draggedNotes);
+    check ("FL drag payload preserves melody + supported layers",
           dragOk, juce::String (draggedNotes) + " note-ons");
     if (dragFile.existsAsFile()) dragFile.deleteFile();
 
-    // Old states are parsed for compatibility, but retired layer flags must not return.
+    // State v4 must preserve the restored layers and all individual MAGIC locks.
     juce::MemoryBlock state;
     transform.getStateInformation (state);
     MidiForgeAudioProcessor restored;
     restored.setFeedbackLogFile (juce::File());
     restored.setStateInformation (state.getData(), (int) state.getSize());
     restored.waitForGeneration();
-    bool restoredOnlyMelody = ! restored.isChordsEnabled() && ! restored.isBassEnabled()
+    bool restoredLayerState = restored.isChordsEnabled() && restored.isBassEnabled()
         && restored.isMelodyEnabled() && ! restored.isArpEnabled() && ! restored.isDrumsEnabled()
-        && ! restored.getLeadStyleSoundCloud();
+        && ! restored.getLeadStyleSoundCloud()
+        && restored.getMagicParameterLockMask() == transform.getMagicParameterLockMask();
     const auto restoredNotes = restored.getVisibleNotes();
-    restoredOnlyMelody = restoredOnlyMelody && ! restoredNotes.empty()
+    restoredLayerState = restoredLayerState && ! restoredNotes.empty()
         && std::all_of (restoredNotes.begin(), restoredNotes.end(),
-            [] (const Note& n) { return n.channel == 3; });
-    check ("State round-trip keeps the melody-only contract",
-          restoredOnlyMelody, juce::String (restoredNotes.size()) + " notes restored");
+            [] (const Note& n) { return n.channel >= 1 && n.channel <= 3; });
+    check ("State round-trip keeps layers and MAGIC locks",
+          restoredLayerState, juce::String (restoredNotes.size()) + " supported notes restored");
 
     std::printf ("\n%s (%d failed check%s)\n",
-                 failures == 0 ? "ALL MELODY-ONLY RELEASE CHECKS PASSED" : "MELODY-ONLY RELEASE CHECKS FAILED",
+                 failures == 0 ? "ALL MELODY + BASS/CHORD RELEASE CHECKS PASSED" : "MELODY + BASS/CHORD RELEASE CHECKS FAILED",
                  failures, failures == 1 ? "" : "s");
     outFile.deleteFile();
     settings.getChildFile ("taste.json").deleteFile();
