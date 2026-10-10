@@ -1,23 +1,29 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The current creator workflow focuses on one editable melody line: MAGIC explores musical ideas inside the chosen Key, Scale and Bars, then returns loops with clear rhythm, motif, phrasing, register and variation.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The creator workflow combines a melody with optional chord and bass layers. MAGIC explores new ideas within Key / Scale / Bars, while individual locks keep each chosen switch or parameter fixed across generations.
 
-**Current version: 0.105.2**
+**Current version: 0.106.0**
+
+### 0.106.0 — Chords, Bass & Per-Control MAGIC Locks
+- Restores chord and bass generation as first-class output layers, enabled by default. They are exported and dragged into FL Studio with the melody.
+- Adds a lock button beside every visible parameter MAGIC can randomize: chord/bass switches, progression, rhythm, register, mood, melody type, densities, note length, pause/leap/ghost behavior, complexity, motif, variation, energy, chord extensions and inversions.
+- A locked value survives MAGIC exactly. Unlocked chord/bass switches can explore enabled/disabled states, biased toward leaving both layers on. Key / Scale / Bars remain fixed creator constraints.
+- Keeps arpeggios, drums and retired SoundCloud mode disabled in the compact creator workflow.
+- Advances project state to v4 so per-control locks survive save/load. Older 0.105.x melody-only projects that saved both accompaniment layers off are migrated with both layers restored.
+- Expands headless QA to cover mixed-layer MIDI, loop bounds, tonal/register safety, all 21 parameter locks, export/drag payloads and state round-trips.
 
 ### 0.105.2 — Melody Phrase Quality
-- Repairs a previously under-detected shape: two consecutive large intervals that immediately reverse direction.
-- Makes the local quality repair score penalize these awkward “ping-pong” contours and gives it wider scale-safe pitch alternatives to resolve them.
-- Runs the repair after phrase shaping, so it evaluates the finished melodic contour instead of a version that is about to be rewritten.
-- Adds a release regression metric for severe opposing leap pairs across the 96 generated variations in the focused melody-only suite.
+- Repairs consecutive large intervals that immediately reverse direction.
+- Penalizes these awkward “ping-pong” contours and tries wider scale-safe pitch alternatives.
+- Runs repair after phrase shaping and adds a regression metric for severe opposing leap pairs across 96 variations.
 
 ### 0.105.1 — Melody Grid & Creator Focus
 - Keeps the creator-facing composition boundary to **Key / Scale / Bars**; the ADVANCED drawer, HOOK mode and the legacy SOUNDCLOUD mode are removed from the visible workflow.
 - Enforces the melody's eighth-note onset grid after both generation and MUTATE / EVOLVE; when a crowded bar has no open grid position, excess attacks are dropped instead of being pushed into the next bar.
 - MAGIC preserves the creator's explicit Swing / Humanize performance settings instead of randomizing them as part of melody generation.
 - MAGIC no longer randomly enables the retired SoundCloud-specific melody behavior, which belongs to the separate Shakalizer project.
-- Adds a focused melody-only release suite across every scale and all eight MAGIC slots for lane isolation, in-loop note bounds, scale membership, safe register, leap size, unique attacks and the strict rhythmic grid. CI also verifies variation diversity, MUTATE / EVOLVE, Swing / Humanize isolation, MIDI export/drag payloads and state round-trip.
-- Retains the predecessor's broad all-layer suite in `tests/qa_main.cpp` for historical reference; current CI runs `tests/qa_melody_only.cpp` so intentionally removed chord/bass/drum features are not treated as release regressions.
-- Legacy project-state bytes are still read in their original order, then obsolete layer/lock flags and the retired SoundCloud mode are normalized off.
+- Added the original melody-focused release suite across every scale and all eight MAGIC slots for tonal safety, grounded register, variation diversity and the strict rhythmic grid.
+- The 0.105.x state loader normalized chord/bass flags off. Version 0.106.0 upgrades states saved by that release and restores both layers by default while retaining MIDI/project-state compatibility.
 
 ### 0.105.0 — Melody-Only Core
 - Makes new generation produce a single editable melody lane; MAGIC keeps chord, bass, arpeggio and drum output disabled.
@@ -439,7 +445,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - The candidate Judge now scores backing/lead interplay: meaningful shared accents, use of open space and register separation all influence MAGIC selection.
 - The feature remains loop-centric and deterministic; it does not add song/arrangement generation.
 
-## Historical feature inventory (older versions; the current creator workflow is melody-only)
+## Historical feature inventory (older versions; the current creator workflow supports melody, chords and bass)
 
 ### Composition
 - Root note, scale and progression control
@@ -661,7 +667,7 @@ Requirements:
 - a C++17 compiler
 - JUCE 8.0.14 is fetched automatically by CMake
 
-The project currently builds **VST3 only**.
+The project currently builds **VST3 only**. Chords and bass are supported alongside the melody; per-control MAGIC locks are part of the 0.106.0 creator workflow.
 
 Typical CMake flow:
 ```powershell
