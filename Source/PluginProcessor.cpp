@@ -10933,8 +10933,10 @@ void MidiForgeAudioProcessor::magicRandomize()
     { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
     era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
-    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
-    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
+    // Swing and Humanize are explicit performance choices. MAGIC must not
+    // randomize them; authored MIDI stays rhythmically clean unless the user
+    // deliberately applies a performance override.
+
     complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
     fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
     energy = dnaEnergy;
