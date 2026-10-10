@@ -1711,7 +1711,6 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint3
 // and leaves weak-beat color notes alone.
 void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint32_t identity) const
 {
-    juce::ignoreUnused (identity);
     if (section.notes.empty())
         return;
 
@@ -1885,6 +1884,21 @@ void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint
         const auto chordPcs = chordPitchClassesForBar (bar);
         if (chordPcs[(size_t) pitchClass (note.note)])
             continue;
+
+        // Keep a deterministic share of non-chord tones on beats 2 and 4.
+        // Their tension is intentional color, not a generator defect; beat 1/3
+        // and long phrase anchors remain subject to the full local correction.
+        const bool backbeat = (local % 8) == 4;
+        if (backbeat)
+        {
+            const uint32_t colorRoll = hash32 (
+                identity ^ 0xC01A7E5u
+                ^ (uint32_t) (bar + 1) * 0x9E3779B9u
+                ^ (uint32_t) (note.step + 1) * 0x85EBCA6Bu
+                ^ (uint32_t) (note.note + 128) * 0x27D4EB2Du);
+            if ((colorRoll % 100u) < 40u)
+                continue;
+        }
 
         const int previousPitch = i > 0 ? section.notes[melody[i - 1]].note : -1;
         const int nextPitch = i + 1 < melody.size() ? section.notes[melody[i + 1]].note : -1;
@@ -8070,6 +8084,7 @@ float MidiForgeAudioProcessor::behaviorDistance (const Candidate& a, const Candi
             std::abs (a.motif - b.motif),
             std::abs (a.leap - b.leap),
             std::abs (a.reg - b.reg),
+            std::abs (a.registerCenter - b.registerCenter),
             std::abs (a.surprise - b.surprise),
             std::abs (a.context - b.context),
             std::abs (a.loop - b.loop),
@@ -8084,8 +8099,8 @@ float MidiForgeAudioProcessor::behaviorDistance (const Candidate& a, const Candi
         // loops feel like different musical behaviors.
         const float w[] =
         {
-            0.09f, 0.06f, 0.12f, 0.08f, 0.09f, 0.06f, 0.12f,
-            0.06f, 0.08f, 0.08f, 0.06f, 0.05f, 0.13f
+            0.08f, 0.06f, 0.12f, 0.08f, 0.09f, 0.10f, 0.10f,
+            0.12f, 0.06f, 0.08f, 0.08f, 0.05f, 0.05f, 0.10f
         };
 
         float sum = 0.0f, weight = 0.0f;
@@ -10642,6 +10657,84 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // shared musical-quality judge.
         quality += 0.15f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
+        // 0.104 MAGIC Quality: grade the finished loop against its declared
+        // complexity class. This supplements MelodyDecision's intent, because
+        // later phrase/harmony passes can otherwise crowd extra notes into a
+        // Simple candidate or leave a Complex candidate too generic.
+        {
+            const int barsForBudget = juce::jmax (1, flat.bars);
+            std::vector<int> attacksPerBar ((size_t) barsForBudget, 0);
+            std::array<bool, 128> seenPitches {};
+            int melodyAttackCount = 0;
+            int distinctPitchCount = 0;
+            int maxAttacksInBar = 0;
+
+            for (const auto& note : flat.notes)
+            {
+                if (note.channel != 3)
+                    continue;
+
+                const int bar = juce::jlimit (0, barsForBudget - 1, note.step / 16);
+                ++attacksPerBar[(size_t) bar];
+                ++melodyAttackCount;
+                const int pitch = juce::jlimit (0, 127, note.note);
+                if (! seenPitches[(size_t) pitch])
+                {
+                    seenPitches[(size_t) pitch] = true;
+                    ++distinctPitchCount;
+                }
+            }
+
+            for (const int count : attacksPerBar)
+                maxAttacksInBar = juce::jmax (maxAttacksInBar, count);
+
+            const float attacksPerBarMean = (float) melodyAttackCount / (float) barsForBudget;
+            auto axisFit = [] (float actual, float target, float tolerance)
+            {
+                return 1.0f - juce::jlimit (0.0f, 1.0f,
+                    std::abs (actual - target) / juce::jmax (0.08f, tolerance));
+            };
+
+            float complexityBudgetFit = 0.5f;
+            if (flat.melodyComplexityClass == 0)
+            {
+                const float eventCapFit = maxAttacksInBar <= 4 ? 1.0f
+                    : 1.0f - juce::jlimit (0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 3.0f);
+                complexityBudgetFit =
+                      0.42f * eventCapFit
+                    + 0.22f * axisFit (attacksPerBarMean, 3.1f, 2.2f)
+                    + 0.20f * f.simplicity
+                    + 0.16f * axisFit (f.repetition, 0.58f, 0.45f);
+
+                if (maxAttacksInBar > 4)
+                    quality -= 0.22f * juce::jlimit (
+                        0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 2.0f);
+            }
+            else if (flat.melodyComplexityClass == 2)
+            {
+                complexityBudgetFit =
+                      0.24f * axisFit (attacksPerBarMean, 5.1f, 2.8f)
+                    + 0.20f * axisFit ((float) distinctPitchCount, 7.0f, 4.0f)
+                    + 0.20f * axisFit (f.variety, 0.64f, 0.36f)
+                    + 0.16f * axisFit (f.leap, 0.48f, 0.42f)
+                    + 0.12f * axisFit (f.surprise, 0.44f, 0.44f)
+                    + 0.08f * axisFit (f.simplicity, 0.36f, 0.46f);
+            }
+            else
+            {
+                // Medium should have room to breathe and should not be selected
+                // merely because it scores between the two other classes.
+                complexityBudgetFit =
+                      0.28f * axisFit (attacksPerBarMean, 4.2f, 2.5f)
+                    + 0.22f * axisFit (f.simplicity, 0.56f, 0.38f)
+                    + 0.20f * axisFit (f.variety, 0.53f, 0.38f)
+                    + 0.16f * axisFit (f.leap, 0.36f, 0.40f)
+                    + 0.14f * axisFit (f.surprise, 0.30f, 0.42f);
+            }
+
+            quality += 0.22f * juce::jlimit (0.0f, 1.0f, complexityBudgetFit);
+        }
+
         {
             const IdeaFingerprint idea = makeIdeaFingerprint (flat);
             // 0.85.6 Character Fit Judge: a character is only useful when the
@@ -10700,7 +10793,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
                                   grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
-                                  characterFit, idea});
+                                  characterFit, idea, f.registerCenter});
 
             // Restore the pre-candidate state after the complete generation/judge
             // pipeline has finished. Each candidate therefore carries its own
@@ -10807,14 +10900,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         if (cls == 0)
         {
-            if (count == 0) return 0.085f;
-            if (count == 1) return 0.045f;
-            if (count >= 3) return -0.022f;
+            if (count == 0) return 0.100f;
+            if (count == 1) return 0.055f;
+            if (count >= 3) return -0.035f;
+        }
+        else if (cls == 2)
+        {
+            if (count == 0) return 0.075f;
+            if (count >= 3) return -0.030f;
         }
         else
         {
-            if (count == 0) return 0.028f;
-            if (count >= 4) return -0.012f;
+            if (count == 0) return 0.045f;
+            if (count >= 4) return -0.020f;
         }
 
         return 0.0f;
@@ -10849,10 +10947,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
             const float characterBonus = characterCollision > 0.5f ? -0.085f : 0.028f;
 
             const float score = candidates[i].quality
-                              - 0.62f * maxSim
-                              + 0.13f * diversity
-                              + 0.11f * ideaNovelty
-                              - 0.035f * familyCollision
+                              - 0.58f * maxSim
+                              + 0.17f * diversity
+                              + 0.14f * ideaNovelty
+                              - 0.045f * familyCollision
                               + characterBonus
                               + complexityCoverageBonus (candidates[i]);
             if (score > bestScore)
@@ -10888,11 +10986,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
                 const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
                 const float score = candidates[i].quality
-                                  - 0.76f * maxSim
+                                  - 0.70f * maxSim
                                   - gatePenalty
-                                  + 0.08f * diversity
-                                  + 0.075f * ideaNovelty
-                                  - 0.025f * familyCollision
+                                  + 0.10f * diversity
+                                  + 0.10f * ideaNovelty
+                                  - 0.030f * familyCollision
                                   + characterBonus
                                   + complexityCoverageBonus (candidates[i]);
                 if (score > relaxedBest)
@@ -10957,7 +11055,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         // Grid is a hard timing invariant, including after layer locks.
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
-        applyArrangementFoundation (flat, generationSeed);
+        applyArrangementFoundation (flat, candidate.identity);
         result.push_back (std::move (flat));
     }
 
