@@ -5326,6 +5326,14 @@ float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, 
         if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0 && ((d0 > 0) != (d1 > 0)))
             q -= 0.12f; // tiny up/down rocking is a common artificial pattern
 
+        // Two large intervals that immediately reverse direction create an
+        // awkward "ping-pong" contour. Treat this as a local defect even when
+        // neither individual leap exceeds the hard safety limit.
+        const bool largeLeapReversal = ad0 >= 7 && ad1 >= 7
+            && ((d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0));
+        if (largeLeapReversal)
+            q -= 0.24f;
+
         windowQuality.push_back (juce::jlimit (0.0f, 1.0f, q));
     }
 
@@ -5420,6 +5428,8 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
 
         float score = 0.0f;
         const bool recovered = (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0);
+        if (ad0 >= 7 && ad1 >= 7 && recovered)
+            score += 1.10f;
         if (ad0 >= 8 && (! recovered || ad1 > 5))
             score += 1.0f;
         if (ad0 >= 10)
@@ -5507,7 +5517,9 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
     if (targets.size() > 2)
         targets.resize (2);
 
-    const int offsets[] = { -5, -3, -2, -1, 1, 2, 3, 5 };
+    // Include wider scale-safe alternatives: a ±5-only search could never
+    // repair a pair of opposing 7–9 semitone intervals in the middle note.
+    const int offsets[] = { -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7 };
 
     for (const int i : targets)
     {
@@ -9519,9 +9531,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         traceMelodyStage (4, flat);
 
         applyMelodyFoundation (flat, identity);
-        repairLocalMelodyQuality (flat, identity);
         applyPhraseArchitecture (flat, identity);
         enforceFinalMelodyContract (flat, identity);
+        // Phrase shaping can introduce new adjacent leap reversals. Repair the
+        // final composed line, rather than an intermediate version that is
+        // about to be rewritten by the phrase architecture.
+        repairLocalMelodyQuality (flat, identity);
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
