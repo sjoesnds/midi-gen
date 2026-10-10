@@ -1,8 +1,8 @@
 name: Quality checks
 
-# Runs the current melody-only product headless. The predecessor's all-layer QA is kept in
-# tests/qa_main.cpp as historical coverage; release gates here match the supported workflow:
-# Key / Scale / Bars, strict rhythm grid, musical safety, MIDI export and state round-trip.
+# Runs the supported melody + chord + bass workflow headless. The broad legacy suite in
+# tests/qa_main.cpp remains historical coverage; release gates match the creator workflow:
+# Key / Scale / Bars, per-control MAGIC locks, strict rhythm, musical safety, MIDI export and state round-trip.
 on:
   push:
   pull_request:
