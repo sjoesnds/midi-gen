@@ -5570,6 +5570,72 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
         section.notes[idx].note = bestPitch;
     }
 
+    // The score-based repair above is intentionally conservative (only its
+    // two worst targets are changed). Finish with a deterministic local pass
+    // over every remaining large leap reversal, including spots outside those
+    // two targets. Move only the middle pitch; timing and phrase identity stay
+    // intact, and both adjacent intervals remain inside the leap contract.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        bool changed = false;
+        for (int i = 1; i + 2 < (int) melody.size(); ++i)
+        {
+            auto& leftNote = section.notes[melody[(size_t) i - 1]];
+            auto& middleNote = section.notes[melody[(size_t) i]];
+            auto& rightNote = section.notes[melody[(size_t) i + 1]];
+
+            const int leftDelta = middleNote.note - leftNote.note;
+            const int rightDelta = rightNote.note - middleNote.note;
+            const bool reverses = (leftDelta > 0 && rightDelta < 0)
+                               || (leftDelta < 0 && rightDelta > 0);
+            if (! reverses || std::abs (leftDelta) < 7 || std::abs (rightDelta) < 7)
+                continue;
+
+            const int lo = juce::jmax (laneLo,
+                juce::jmax (leftNote.note - maxLeap, rightNote.note - maxLeap));
+            const int hi = juce::jmin (laneHi,
+                juce::jmin (leftNote.note + maxLeap, rightNote.note + maxLeap));
+            if (lo > hi)
+                continue;
+
+            const int outerLow = juce::jmin (leftNote.note, rightNote.note);
+            const int outerHigh = juce::jmax (leftNote.note, rightNote.note);
+            const int midpoint = (leftNote.note + rightNote.note) / 2;
+            int bestPitch = middleNote.note;
+            int bestCost = std::numeric_limits<int>::max();
+
+            for (int pitch = lo; pitch <= hi; ++pitch)
+            {
+                if (! inScale (pitch))
+                    continue;
+
+                const int leftJump = std::abs (pitch - leftNote.note);
+                const int rightJump = std::abs (rightNote.note - pitch);
+                int cost = 100 * juce::jmax (leftJump, rightJump)
+                         + 5 * (leftJump + rightJump)
+                         + std::abs (pitch - midpoint);
+                if (pitch == leftNote.note || pitch == rightNote.note)
+                    cost += 500; // Avoid turning a leap defect into a repeated-note triplet.
+                if (pitch < outerLow || pitch > outerHigh)
+                    cost += 30;
+
+                if (cost < bestCost)
+                {
+                    bestCost = cost;
+                    bestPitch = pitch;
+                }
+            }
+
+            if (bestPitch != middleNote.note)
+            {
+                middleNote.note = bestPitch;
+                changed = true;
+            }
+        }
+        if (! changed)
+            break;
+    }
+
     cleanMelodyLine (section.notes);
 }
 
