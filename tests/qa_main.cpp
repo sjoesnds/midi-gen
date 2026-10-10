@@ -4113,6 +4113,7 @@ int main()
         bool uniqueOnsets = true;
         bool creatorConstraintsPreserved = true;
         bool soundCloudRetired = true;
+        bool performanceSettingsPreserved = true;
         int checkedNotes = 0;
         int checkedLoops = 0;
 
@@ -4126,9 +4127,16 @@ int main()
             p.setBars (4);
             p.setSeed (105100 + scaleIndex * 97);
             p.waitForGeneration();
+            p.setSwing (0.12f);
+            p.setHumanize (0.23f);
+            p.setHumanizeEnabled (true);
             p.magicRandomize();
             p.waitForGeneration();
 
+            performanceSettingsPreserved = performanceSettingsPreserved
+                && std::abs (p.getSwing() - 0.12f) < 0.001f
+                && std::abs (p.getHumanize() - 0.23f) < 0.001f
+                && p.isHumanizeEnabled();
             creatorConstraintsPreserved = creatorConstraintsPreserved
                 && p.getRoot() == root && p.getScale() == scaleIndex && p.getVisibleBars() == 4;
             soundCloudRetired = soundCloudRetired && ! p.getLeadStyleSoundCloud();
@@ -4200,6 +4208,8 @@ int main()
                 creatorConstraintsPreserved, "all 12 scales and all eight variations");
         report ("0.105.1 creative focus: retired SoundCloud mode stays disabled",
                 soundCloudRetired, "SoundCloud-specific generation belongs to Shakalizer");
+        report ("0.105.1 performance: MAGIC preserves explicit Swing / Humanize settings",
+                performanceSettingsPreserved, "generation does not randomize performance controls");
 
         MidiForgeAudioProcessor transformed;
         transformed.setFeedbackLogFile (juce::File());
