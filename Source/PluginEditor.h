@@ -505,7 +505,8 @@ juce::TextButton advancedButton { "ADVANCED" };
      {
          if (key.getKeyCode() >= '1' && key.getKeyCode() <= '4')
          {
-             selectedChannel = key.getKeyCode() - '0';
+             // Legacy channel shortcuts now select the only editable lane.
+             selectedChannel = 3;
              repaint();
              return true;
          }
