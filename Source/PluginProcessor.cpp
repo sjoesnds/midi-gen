@@ -503,10 +503,14 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
 
-    // MIDI Forge's current lead workflow must stay grounded; wider register
-    // exploration is deliberate, but no standard melodic output may rise
-    // above MIDI pitch 90. Keep the lower bound valid if a profile starts high.
+    // MIDI Forge's current lead workflow must stay grounded. The creator
+    // can still explore different hidden octave placements, but the final
+    // standard melodic lane stays between MIDI 48 and 90 in every case.
+    // The lower edge matters too: octave 3 used to let later safety passes
+    // inherit pitches below 48 even though the release contract says 48–90.
     hi = juce::jmin (90, hi);
+    lo = juce::jmax (48, lo);
+    hi = juce::jmax (lo + 1, hi);
     lo = juce::jmin (lo, hi - 1);
     // 0.87 Style / Safety split: this contract is a hard validity ceiling,
     // not a melodic-style rule. Keep it aligned with the sound profile so the
