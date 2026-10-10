@@ -2065,30 +2065,28 @@ int main()
                 versionedHeader ? "magic + version 3" : "missing/invalid header");
 
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
-        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
+        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && ! b.isDrumsEnabled()
                && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
         const bool restoredLayerState =
-            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled() && b.isArpEnabled()
+            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled()
+            && ! b.isArpEnabled() && ! b.isDrumsEnabled()
             && b.getLeadStyleSoundCloud()
-            && b.getLockChords() && b.getLockBass() && b.getLockMelody() && b.getLockArp()
-            && std::abs (b.getChordDensity() - 0.41f) < 0.001f
-            && std::abs (b.getBassDensity() - 0.47f) < 0.001f
+            && ! b.getLockChords() && ! b.getLockBass() && ! b.getLockMelody() && ! b.getLockArp()
             && std::abs (b.getMelodyDensity() - 0.72f) < 0.001f
-            && std::abs (b.getArpDensity() - 0.33f) < 0.001f
             && std::abs (b.getSwing() - 0.12f) < 0.001f
             && std::abs (b.getHumanize() - 0.23f) < 0.001f
             && b.isHumanizeEnabled();
-        report ("restored layer controls survive state round-trip", restoredLayerState,
-                restoredLayerState ? "all layer flags, locks, density and performance values preserved"
-                                   : "one or more restored feature settings changed after load");
+        report ("legacy project state normalizes to melody-only", restoredLayerState,
+                restoredLayerState ? "obsolete layers/locks disabled; melody and performance values preserved"
+                                   : "legacy state restored an obsolete layer or lost a supported value");
 
         // Strip the V2 envelope to construct a real legacy positional state.
         juce::MemoryBlock legacy;
         legacy.append (static_cast<const char*> (mb.getData()) + 8, mb.getSize() - 8);
 
         MidiForgeAudioProcessor c1; c1.setStateInformation (legacy.getData(), (int) legacy.getSize() - 8);
-        report ("0.44 project (no drum mute / pitch fields) loads", c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "defaults applied");
+        report ("0.44 project (no drum mute / pitch fields) loads", ! c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "legacy fields parsed; layers remain disabled");
         MidiForgeAudioProcessor c0; c0.setStateInformation (legacy.getData(), (int) legacy.getSize() - 16);
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
         MidiForgeAudioProcessor c; c.setStateInformation (legacy.getData(), (int) legacy.getSize() - 24);
@@ -4074,103 +4072,36 @@ int main()
                      (double) channelNotes[5]));
     }
 
-    // ------------------------------------------------------------------ 18b. final arrangement foundation
+    // 0.105.0 removes the arrangement-level chord/bass correction contract:
+    // melody candidates are now judged and exported as independent single-line ideas.
+
     {
-        int strongMelodyAnchors = 0;
-        int strongMelodyChordTones = 0;
-        int bassNotes = 0;
-        int bassHarmonicNotes = 0;
-        int bassDownbeatAnchors = 0;
-        int bassDownbeatsPresent = 0;
+        MidiForgeAudioProcessor melodyOnly;
+        melodyOnly.setFeedbackLogFile (juce::File());
+        melodyOnly.setRoot (7);
+        melodyOnly.setScale (2);
+        melodyOnly.setBars (4);
+        melodyOnly.setSeed (105010);
+        melodyOnly.regenerate();
+        melodyOnly.waitForGeneration();
 
-        auto pc = [] (int n) { return (n % 12 + 12) % 12; };
-        for (int seedIndex = 0; seedIndex < 8; ++seedIndex)
-        {
-            MidiForgeAudioProcessor foundation;
-            foundation.setFeedbackLogFile (juce::File());
-            foundation.setRoot (7);
-            foundation.setScale (2);
-            foundation.setBars (4);
-            foundation.setSoundTarget (0);
-            foundation.setChordsEnabled (true);
-            foundation.setBassEnabled (true);
-            foundation.setMelodyEnabled (true);
-            foundation.setArpEnabled (false);
-            foundation.setDrumsEnabled (false);
-            foundation.setSeed (103100 + seedIndex * 197);
-            foundation.regenerate();
-            foundation.waitForGeneration();
-
-            for (int variation = 0; variation < foundation.getVariationCount(); ++variation)
+        const auto notes = melodyOnly.getVisibleNotes();
+        const bool hasMelody = std::any_of (notes.begin(), notes.end(),
+            [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
+        const bool onlyMelody = ! notes.empty() && hasMelody
+            && std::all_of (notes.begin(), notes.end(),
+                [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
+        const bool inLoop = std::all_of (notes.begin(), notes.end(),
+            [] (const MidiForgeAudioProcessor::VisibleNote& n)
             {
-                foundation.chooseVariation (variation);
-                const auto notes = foundation.getVisibleNotes();
-                const int barCount = foundation.getVisibleBars();
-                std::vector<std::array<bool, 12>> chordPcs ((size_t) juce::jmax (1, barCount));
-                for (auto& pcs : chordPcs)
-                    pcs.fill (false);
+                return n.step >= 0 && n.step < 64 && n.length >= 1 && n.length <= 16
+                    && n.note >= 0 && n.note <= 127;
+            });
 
-                for (const auto& n : notes)
-                    if (n.channel == 1 && n.step >= 0 && n.step / 16 < barCount)
-                        chordPcs[(size_t) (n.step / 16)][(size_t) pc (n.note)] = true;
-
-                for (const auto& n : notes)
-                {
-                    if (n.step < 0 || barCount <= 0 || n.step / 16 >= barCount)
-                        continue;
-                    const int bar = n.step / 16;
-                    const int local = n.step % 16;
-                    const int pitchPc = pc (n.note);
-
-                    if (n.channel == 3 && (local % 4) == 0)
-                    {
-                        ++strongMelodyAnchors;
-                        if (chordPcs[(size_t) bar][(size_t) pitchPc])
-                            ++strongMelodyChordTones;
-                    }
-
-                    if (n.channel == 2)
-                    {
-                        ++bassNotes;
-                        bool fits = chordPcs[(size_t) bar][(size_t) pitchPc];
-                        if (! fits && local >= 12)
-                        {
-                            const int nextBar = (bar + 1) % barCount;
-                            fits = chordPcs[(size_t) nextBar][(size_t) pitchPc];
-                        }
-                        if (fits)
-                            ++bassHarmonicNotes;
-
-                        if (local == 0)
-                        {
-                            ++bassDownbeatsPresent;
-                            if (chordPcs[(size_t) bar][(size_t) pitchPc])
-                                ++bassDownbeatAnchors;
-                        }
-                    }
-                }
-            }
-        }
-
-        const double strongAnchorRate = strongMelodyAnchors > 0
-            ? (double) strongMelodyChordTones / (double) strongMelodyAnchors : 0.0;
-        const double bassFitRate = bassNotes > 0
-            ? (double) bassHarmonicNotes / (double) bassNotes : 0.0;
-        const double bassDownbeatRate = bassDownbeatsPresent > 0
-            ? (double) bassDownbeatAnchors / (double) bassDownbeatsPresent : 0.0;
-
-        report ("0.103 foundation: strong melody positions support the active chord",
-                strongMelodyAnchors >= 200 && strongAnchorRate >= 0.56,
-                fmt ("%.0f / %.0f chord tones, rate %.3f",
-                     (double) strongMelodyChordTones, (double) strongMelodyAnchors, strongAnchorRate));
-        report ("0.103 foundation: bass notes fit current or anticipated harmony",
-                bassNotes >= 300 && bassFitRate >= 0.94,
-                fmt ("%.0f / %.0f compatible bass notes, rate %.3f",
-                     (double) bassHarmonicNotes, (double) bassNotes, bassFitRate));
-        report ("0.103 foundation: bass downbeats retain a chord-tone anchor",
-                bassDownbeatsPresent >= 100 && bassDownbeatRate >= 0.99,
-                fmt ("%.0f / %.0f downbeats fit the chord",
-                     (double) bassDownbeatAnchors, (double) bassDownbeatsPresent, bassDownbeatRate));
+        report ("0.105 melody-only: generation emits a single melodic lane",
+                onlyMelody, fmt ("%d visible notes", (int) notes.size()));
+        report ("0.105 melody-only: output notes remain valid inside the loop",
+                inLoop, fmt ("%d checked notes", (int) notes.size()));
     }
 
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
