@@ -29,6 +29,14 @@ enum Rhythm { Straight, Syncopated, Broken, Euclidean };
 enum SectionMode { Loop, SongMode, SongExtended };
 enum Mood { NeutralMood, DarkMood, MelancholicMood, EuphoricMood, AggressiveMood, DreamyMood, NostalgicMood, MysteriousMood, EnergeticMood };
 enum MelodyType { HookMelody, VocalLikeMelody, RiffMelody, OstinatoMelody, ArpMelody, CounterMelody, SparseLeadMelody, PhraseMelody };
+enum class MagicLock : int
+{
+    Progression, Rhythm, Octave, Mood, MelodyType,
+    ChordDensity, BassDensity, MelodyDensity, Complexity, MotifStrength,
+    VariationAmount, FillAmount, Energy, MelodyLength, PauseChance, LeapChance, GhostChance,
+    ChordExtensions, Inversions, ChordsEnabled, BassEnabled, Count
+};
+static constexpr int kMagicLockCount = (int) MagicLock::Count;
 MidiForgeAudioProcessor();
 ~MidiForgeAudioProcessor() override;
 void prepareToPlay(double, int) override;
@@ -106,6 +114,22 @@ void setMotifStrength(float, bool regenerateNow = true); void setVariationAmount
 void setFillAmount(float, bool regenerateNow = true); void setEnergy(float, bool regenerateNow = true);
 void setChordsEnabled(bool); void setBassEnabled(bool);
 void setMelodyEnabled(bool); void setArpEnabled(bool); void setHookMode(bool);
+// Individual MAGIC locks. A locked control keeps its exact value when MAGIC is pressed.
+void setMagicParameterLocked (MagicLock parameter, bool locked)
+{
+    const auto bit = (uint32_t) (1u << (int) parameter);
+    magicParameterLockMask = locked ? (magicParameterLockMask | bit)
+                                    : (magicParameterLockMask & ~bit);
+}
+bool isMagicParameterLocked (MagicLock parameter) const
+{
+    return (magicParameterLockMask & (uint32_t) (1u << (int) parameter)) != 0;
+}
+uint32_t getMagicParameterLockMask() const { return magicParameterLockMask; }
+void setMagicParameterLockMask (uint32_t mask)
+{
+    magicParameterLockMask = mask & ((1u << kMagicLockCount) - 1u);
+}
 void setLeadStyleSoundCloud(bool v) { leadStyleSoundCloud = v; }
 // --- Smart Lock: заморозка отдельной партии при регенерации ---
 void setLockChords(bool v) { lockChordsLayer = v; }
@@ -403,7 +427,8 @@ float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
 int arpRate = 4;
 bool chordExtensions = true, inversions = true;
-bool chordsEnabled = false, bassEnabled = false, melodyEnabled = true, arpEnabled = false;
+bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
+uint32_t magicParameterLockMask = 0;
 bool hookMode = true;
 // "SoundCloud"-лид: реже, разреженнее, меньше украшений, больше "чант"-повторов
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
