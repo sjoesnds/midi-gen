@@ -10983,10 +10983,15 @@ void MidiForgeAudioProcessor::magicRandomize()
     if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
     if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
     hookMode = dnaMotif > .46f;
-    chordsEnabled = true;
-    bassEnabled = r.nextFloat() > .06f;
+    // Retired accompaniment layers stay disabled in the melody-only creator.
+    // Keep their legacy implementation callable by compatibility QA, but MAGIC
+    // no longer randomizes or re-enables chord, bass, arp or drum output.
+    chordsEnabled = false;
+    bassEnabled = false;
     melodyEnabled = true;
-    arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
+    arpEnabled = false;
+    drumsEnabled = false;
+    lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
     if (!lockMelodyLayer)
     {
         // SoundCloud is intentionally a minority MAGIC language:
