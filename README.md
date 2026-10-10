@@ -2,7 +2,12 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The creator workflow combines a melody with optional chord and bass layers. MAGIC explores new ideas within Key / Scale / Bars, while individual locks keep each chosen switch or parameter fixed across generations.
 
-**Current version: 0.106.0**
+**Current version: 0.106.1**
+
+### 0.106.1 — Lock & Legacy-State Regression Coverage
+- Extends release QA to prove that individually locked CHORDS and BASS switches remain OFF through repeated MAGIC presses, not only that locked ON states survive.
+- Adds a legacy v3 state fixture matching 0.105.x projects: the previously edited melody must be retained while chord and bass lanes are restored.
+- Keeps the 0.106.0 behavior unchanged; this patch strengthens the release gate before merge.
 
 ### 0.106.0 — Chords, Bass & Per-Control MAGIC Locks
 - Restores chord and bass generation as first-class output layers, enabled by default. They are exported and dragged into FL Studio with the melody.
