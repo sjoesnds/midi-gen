@@ -11071,7 +11071,8 @@ void MidiForgeAudioProcessor::magicRandomize()
         if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
         if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
     }
-    hookMode = dnaMotif > .46f;
+    // The legacy HOOK toggle is no longer exposed in the creator UI, so MAGIC
+    // does not silently change its saved value behind the user's back.
 
     // Chords and bass are first-class output layers again. Unlocked layer
     // switches are biased ON so MAGIC explores the arrangement without
