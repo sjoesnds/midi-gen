@@ -172,8 +172,13 @@ namespace
         }
     }
 
-    struct MidiInfo { int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0; bool ok = false;
-                      std::map<std::string, std::set<int>> drumTracks; };   // track name -> pitches used on channel 10
+    struct MidiInfo
+    {
+        int cc1 = 0, overlappingMelody = 0, melodyNotes = 0, drumNotesCh10 = 0, notesCh5 = 0;
+        std::array<int, 17> noteOnsByChannel {};
+        bool ok = false, hasTempoMeta = false, hasTimeSignatureMeta = false;
+        std::map<std::string, std::set<int>> drumTracks;
+    };   // track name -> pitches used on channel 10
     MidiInfo readMidi (const juce::File& f)
     {
         MidiInfo info;
@@ -193,9 +198,17 @@ namespace
             for (int i = 0; i < seq.getNumEvents(); ++i)
             {
                 auto* ev = seq.getEventPointer (i);
+                if (ev->message.isTempoMetaEvent()) info.hasTempoMeta = true;
+                if (ev->message.isTimeSignatureMetaEvent()) info.hasTimeSignatureMeta = true;
                 if (ev->message.isController() && ev->message.getControllerNumber() == 1) ++info.cc1;
-                if (ev->message.isNoteOn() && ev->message.getChannel() == 10) { ++info.drumNotesCh10; info.drumTracks[trackName].insert (ev->message.getNoteNumber()); }
-                if (ev->message.isNoteOn() && ev->message.getChannel() == 5) ++info.notesCh5;
+                if (ev->message.isNoteOn())
+                {
+                    const int channel = ev->message.getChannel();
+                    if (channel >= 1 && channel <= 16)
+                        ++info.noteOnsByChannel[(size_t) channel];
+                    if (channel == 10) { ++info.drumNotesCh10; info.drumTracks[trackName].insert (ev->message.getNoteNumber()); }
+                    if (channel == 5) ++info.notesCh5;
+                }
                 if (ev->message.isNoteOn() && ev->message.getChannel() == 3 && ev->noteOffObject != nullptr)
                     mel.push_back ({ ev->message.getTimeStamp(), ev->noteOffObject->message.getTimeStamp() });
             }
@@ -294,12 +307,29 @@ int main()
     }
 
 
-    // ------------------------------------------------------------------ MAGIC Scale Coverage
+    // ------------------------------------------------------------------ MAGIC preserves creator-selected constraints
     {
-        std::set<int> seenScales;
-        constexpr int scaleCount = 12;
+        bool preserved = true;
+        for (int pass = 0; pass < 180; ++pass)
+        {
+            const int root = (pass * 7 + 3) % 12;
+            const int scale = pass % 12;
+            const int bars = (pass % 3 == 0) ? 2 : (pass % 3 == 1) ? 4 : 8;
+            p.setRoot (root);
+            p.setScale (scale);
+            p.setBars (bars);
+            p.magicRandomize();
+            p.waitForGeneration();
+            preserved = preserved && p.getRoot() == root
+                && p.getScale() == scale && p.getVisibleBars() == bars;
+        }
 
-        // MAGIC should be able to reach every declared scale, not only the
+        report ("MAGIC preserves Key / Scale / Bars",
+                preserved, "180 deterministic creator-constraint checks");
+    }
+
+
+    // MAGIC should be able to reach every declared scale, not only the
         // original first seven choices.
         for (int pass = 0; pass < 180; ++pass)
         {
@@ -1885,12 +1915,27 @@ int main()
                     if (onKick) ++locked;
                 }
         report ("808 locks to the kick when drums are on", hits808 > 0 && locked == hits808, fmt ("%.0f of %.0f hits on a kick", locked, hits808));
-        // MUTATE / EVOLVE must not move the drum hits
+        // MUTATE / EVOLVE preserve the drum pattern while changing another
+        // unlocked part; a no-op mutation must not accidentally pass this test.
         p.setSoundTarget (0); p.magicRandomize();
         auto drumSteps = [&] { std::multiset<std::pair<int,int>> v; for (auto& n : p.getVisibleNotes()) if (n.channel == 5) v.insert ({ n.step, n.note }); return v; };
+        auto nonDrumState = [&]
+        {
+            std::multiset<std::array<int, 5>> v;
+            for (const auto& n : p.getVisibleNotes())
+                if (n.channel != 5)
+                    v.insert ({ n.step, n.note, n.length, n.velocity, n.channel });
+            return v;
+        };
         const auto before = drumSteps();
+        const auto nonDrumBefore = nonDrumState();
         p.mutateSelected (0.9f); p.evolveSelected();
+        const auto nonDrumAfter = nonDrumState();
         report ("MUTATE / EVOLVE keep the drum groove", drumSteps() == before && ! before.empty(), fmt ("%.0f drum hits", (double) before.size()));
+        report ("MUTATE / EVOLVE changes an unlocked musical part",
+                nonDrumAfter != nonDrumBefore,
+                fmt ("%.0f non-drum notes before, %.0f after",
+                     (double) nonDrumBefore.size(), (double) nonDrumAfter.size()));
         p.setDrumsEnabled (false); p.setSoundTarget (0);
     }
 
@@ -2015,6 +2060,15 @@ int main()
     {
         MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
         a.setDrumMuteMask (0x0A); a.setDrumPitchMode (1);
+        // Legacy fields remain readable, but deprecated layers and SoundCloud behavior
+        // must normalize off when an old project is loaded into the melody-only product.
+        a.setChordsEnabled (false); a.setBassEnabled (false);
+        a.setMelodyEnabled (true); a.setArpEnabled (true);
+        a.setLeadStyleSoundCloud (true);
+        a.setLockChords (true); a.setLockBass (true); a.setLockMelody (true); a.setLockArp (true);
+        a.setChordDensity (0.41f, false); a.setBassDensity (0.47f, false);
+        a.setMelodyDensity (0.72f, false); a.setArpDensity (0.33f, false);
+        a.setSwing (0.12f); a.setHumanize (0.23f); a.setHumanizeEnabled (true);
         juce::MemoryBlock mb; a.getStateInformation (mb);
 
         bool versionedHeader = false;
@@ -2028,16 +2082,28 @@ int main()
                 versionedHeader ? "magic + version 3" : "missing/invalid header");
 
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
-        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
+        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && ! b.isDrumsEnabled()
                && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
+        const bool restoredLayerState =
+            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled()
+            && ! b.isArpEnabled() && ! b.isDrumsEnabled()
+            && ! b.getLeadStyleSoundCloud()
+            && ! b.getLockChords() && ! b.getLockBass() && ! b.getLockMelody() && ! b.getLockArp()
+            && std::abs (b.getMelodyDensity() - 0.72f) < 0.001f
+            && std::abs (b.getSwing() - 0.12f) < 0.001f
+            && std::abs (b.getHumanize() - 0.23f) < 0.001f
+            && b.isHumanizeEnabled();
+        report ("legacy project state normalizes to melody-only", restoredLayerState,
+                restoredLayerState ? "obsolete layers/locks disabled; melody and performance values preserved"
+                                   : "legacy state restored an obsolete layer or lost a supported value");
 
         // Strip the V2 envelope to construct a real legacy positional state.
         juce::MemoryBlock legacy;
         legacy.append (static_cast<const char*> (mb.getData()) + 8, mb.getSize() - 8);
 
         MidiForgeAudioProcessor c1; c1.setStateInformation (legacy.getData(), (int) legacy.getSize() - 8);
-        report ("0.44 project (no drum mute / pitch fields) loads", c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "defaults applied");
+        report ("0.44 project (no drum mute / pitch fields) loads", ! c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "legacy fields parsed; layers remain disabled");
         MidiForgeAudioProcessor c0; c0.setStateInformation (legacy.getData(), (int) legacy.getSize() - 16);
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
         MidiForgeAudioProcessor c; c.setStateInformation (legacy.getData(), (int) legacy.getSize() - 24);
@@ -2343,6 +2409,48 @@ int main()
         }
         report ("SIMILAR: every relative differs from the source", identical == 0, fmt ("%.0f identical", (double) identical));
         report ("SIMILAR: relatives keep the loop's size and drum pattern", tooFew == 0 && tooFar == 0, fmt ("%.0f thin, %.0f drum drift", (double) tooFew, (double) tooFar));
+
+        // Relative order is intentional: slot 2 should be closest to the source,
+        // and slot 8 should be the boldest surviving mutation. Include note length
+        // in structural distance so articulation-only variants aren't called clones.
+        auto structuralKeys = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            std::vector<std::uint32_t> keys;
+            keys.reserve (notes.size());
+            for (const auto& n : notes)
+                keys.push_back (((std::uint32_t) n.step << 18)
+                    | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                    | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                    | (std::uint32_t) (n.channel & 0x0F));
+            std::sort (keys.begin(), keys.end());
+            return keys;
+        };
+        const auto sourceKeys = structuralKeys (ref);
+        auto structuralDistance = [&] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            const auto keys = structuralKeys (notes);
+            std::vector<std::uint32_t> common;
+            std::set_intersection (sourceKeys.begin(), sourceKeys.end(),
+                                   keys.begin(), keys.end(), std::back_inserter (common));
+            const float denom = (float) std::max<size_t> (1, std::max (sourceKeys.size(), keys.size()));
+            return 1.0f - (float) common.size() / denom;
+        };
+        bool distanceOrder = true;
+        float previousDistance = -1.0f;
+        float lastDistance = 0.0f;
+        for (int k = 1; k < 8; ++k)
+        {
+            a.chooseVariation (k);
+            const float distance = structuralDistance (a.getVisibleNotes());
+            if (previousDistance >= 0.0f && distance + 0.001f < previousDistance)
+                distanceOrder = false;
+            previousDistance = distance;
+            lastDistance = distance;
+        }
+        report ("SIMILAR: relatives are ordered from close to bold",
+                distanceOrder && lastDistance >= previousDistance,
+                fmt ("last relative structural distance %.3f", (double) lastDistance));
+
         // the seven relatives must not be clones of each other or of the source (compared note by note)
         {
             float worst = 1.0f;
@@ -2357,7 +2465,10 @@ int main()
                 {
                     b.chooseVariation (k);
                     std::vector<std::uint32_t> kk;
-                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 16) | ((std::uint32_t) n.note << 8) | (std::uint32_t) n.channel);
+                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 18)
+                        | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                        | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                        | (std::uint32_t) (n.channel & 0x0F));
                     std::sort (kk.begin(), kk.end());
                     keys.push_back (std::move (kk));
                 }
@@ -3274,6 +3385,7 @@ int main()
         // Export must produce an actual non-empty MIDI file every time.
         int exportFailures = 0;
         int parsedFailures = 0;
+        int missingTempoMetadata = 0;
         for (int i = 0; i < 32; ++i)
         {
             p.setSeed (97100 + i * 17);
@@ -3288,6 +3400,8 @@ int main()
                 const auto parsed = readMidi (file);
                 if (! parsed.ok)
                     ++parsedFailures;
+                if (! parsed.hasTempoMeta || ! parsed.hasTimeSignatureMeta)
+                    ++missingTempoMetadata;
             }
             file.deleteFile();
         }
@@ -3298,31 +3412,89 @@ int main()
         report ("workflow safety: exported MIDI files parse correctly",
                 parsedFailures == 0,
                 fmt ("%.0f parse failures", (double) parsedFailures));
+        report ("workflow safety: exported MIDI has tempo and 4/4 metadata",
+                missingTempoMetadata == 0,
+                fmt ("%.0f missing tempo/time-signature maps", (double) missingTempoMetadata));
 
         int dragFailures = 0;
+        int silentLayerDragFiles = 0;
+        int wrongChannelDragFiles = 0;
+        int missingDragTempoMetadata = 0;
         {
             const auto all = p.writeTemporaryMidiFile();
             if (all == juce::File{} || ! all.existsAsFile() || all.getSize() <= 0)
                 ++dragFailures;
             all.deleteFile();
 
+            const auto allInfo = readMidi (all);
+            if (allInfo.ok && (! allInfo.hasTempoMeta || ! allInfo.hasTimeSignatureMeta))
+                ++missingDragTempoMetadata;
+
+            const auto selectedNotes = p.getVisibleNotes();
             for (int channel = 1; channel <= 5; ++channel)
             {
+                const bool expectedNotes = std::any_of (selectedNotes.begin(), selectedNotes.end(),
+                    [channel] (const Note& n) { return n.channel == channel; });
                 const auto part = p.writeTemporaryMidiFileForChannel (channel);
-                if (part == juce::File{} || ! part.existsAsFile() || part.getSize() <= 0)
+                if (! expectedNotes)
+                {
+                    if (part != juce::File{} && part.existsAsFile() && part.getSize() > 0)
+                    {
+                        ++silentLayerDragFiles;
+                        const auto info = readMidi (part);
+                        const int midiChannel = channel == 5 ? 10 : channel;
+                        if (info.noteOnsByChannel[(size_t) midiChannel] == 0)
+                            ++wrongChannelDragFiles;
+                    }
+                }
+                else if (part == juce::File{} || ! part.existsAsFile() || part.getSize() <= 0)
                     ++dragFailures;
+                else
+                {
+                    const auto info = readMidi (part);
+                    const int midiChannel = channel == 5 ? 10 : channel;
+                    if (! info.ok || info.noteOnsByChannel[(size_t) midiChannel] == 0)
+                        ++wrongChannelDragFiles;
+                    for (int c = 1; c <= 16; ++c)
+                        if (c != midiChannel && info.noteOnsByChannel[(size_t) c] > 0)
+                            ++wrongChannelDragFiles;
+                    if (info.ok && (! info.hasTempoMeta || ! info.hasTimeSignatureMeta))
+                        ++missingDragTempoMetadata;
+                }
                 part.deleteFile();
             }
 
+            const bool hasDrums = std::any_of (selectedNotes.begin(), selectedNotes.end(),
+                [] (const Note& n) { return n.channel == 5; });
             const auto drums = p.writeTemporaryMidiFileForDrumRow (-1);
-            if (drums == juce::File{} || ! drums.existsAsFile() || drums.getSize() <= 0)
-                ++dragFailures;
+            if (hasDrums)
+            {
+                if (drums == juce::File{} || ! drums.existsAsFile() || drums.getSize() <= 0)
+                    ++dragFailures;
+                else
+                {
+                    const auto info = readMidi (drums);
+                    if (info.ok && (! info.hasTempoMeta || ! info.hasTimeSignatureMeta))
+                        ++missingDragTempoMetadata;
+                }
+            }
+            else if (drums != juce::File{} && drums.existsAsFile() && drums.getSize() > 0)
+                ++silentLayerDragFiles;
             drums.deleteFile();
         }
 
         report ("workflow safety: FL drag/export temp files are real MIDI files",
                 dragFailures == 0,
                 fmt ("%.0f temporary-file failures", (double) dragFailures));
+        report ("workflow safety: part drag contains only the requested notes",
+                wrongChannelDragFiles == 0,
+                fmt ("%.0f wrong-channel / silent-part files", (double) wrongChannelDragFiles));
+        report ("workflow safety: absent layers do not create fake drag files",
+                silentLayerDragFiles == 0,
+                fmt ("%.0f empty-layer drag files", (double) silentLayerDragFiles));
+        report ("workflow safety: every drag file keeps tempo and 4/4",
+                missingDragTempoMetadata == 0,
+                fmt ("%.0f missing tempo/time-signature maps", (double) missingDragTempoMetadata));
 
         juce::AudioBuffer<float> previewBuffer (2, 512);
         juce::MidiBuffer previewMidi;
@@ -3795,53 +3967,295 @@ int main()
         (void) b;
     }
 
-    // ------------------------------------------------------------------ 18. rhythm grid contract
+    // ------------------------------------------------------------------ 18. strict rhythm-grid contract
     {
-        bool onGrid = true;
-        bool noOneStepGaps = true;
+        bool chordsOnQuarterGrid = true;
+        bool bassOnEighthGrid = true;
+        bool melodyOnEighthGrid = true;
+        bool arpOnSelectedRateGrid = true;
+        bool drumsOnMusicalGrid = true;
+        bool allOnsetsStayInsideLoop = true;
+        bool noOneStepMelodyGaps = true;
+        std::array<int, 6> channelNotes {};
         int checkedMelodyNotes = 0;
 
-        for (int seedIndex = 0; seedIndex < 6; ++seedIndex)
+        // Test several arp rates because each rate owns a different subdivision.
+        for (int rate : { 1, 2, 4, 8 })
         {
             MidiForgeAudioProcessor p;
             p.setFeedbackLogFile (juce::File());
             p.setRoot (7);
             p.setScale (2);
             p.setBars (4);
-            p.setSeed (108100 + seedIndex * 131);
+            p.setChordsEnabled (true);
+            p.setBassEnabled (true);
+            p.setMelodyEnabled (true);
+            p.setArpEnabled (true);
+            p.setArpDensity (1.0f, false);
+            p.setArpRate (rate);
+            p.setDrumMuteMask (0);
+            p.setDrumsEnabled (true);
+            p.setSwing (0.0f);
+            p.setHumanizeEnabled (false);
+            p.setSeed (108100 + rate * 131);
             p.regenerate();
             p.waitForGeneration();
+
+            const int arpGrid = juce::jmax (1, 8 / juce::jmax (1, rate));
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+                std::vector<int> melodySteps;
+
+                for (const auto& n : notes)
+                {
+                    if (n.channel < 1 || n.channel > 5)
+                        continue;
+
+                    ++channelNotes[(size_t) n.channel];
+                    const int loopLength = p.getVisibleBars() * 16;
+                    allOnsetsStayInsideLoop = allOnsetsStayInsideLoop
+                        && n.step >= 0 && n.step < loopLength;
+
+                    switch (n.channel)
+                    {
+                        case 1:
+                            chordsOnQuarterGrid = chordsOnQuarterGrid && (n.step % 4 == 0);
+                            break;
+                        case 2:
+                            bassOnEighthGrid = bassOnEighthGrid && ((n.step & 1) == 0);
+                            break;
+                        case 3:
+                            ++checkedMelodyNotes;
+                            melodyOnEighthGrid = melodyOnEighthGrid && ((n.step & 1) == 0);
+                            melodySteps.push_back (n.step);
+                            break;
+                        case 4:
+                            arpOnSelectedRateGrid = arpOnSelectedRateGrid && (n.step % arpGrid == 0);
+                            break;
+                        case 5:
+                        {
+                            // Kicks/claps and the main snare pocket stay on eighths;
+                            // intentional ghost notes, fills and hats can use sixteenths.
+                            const int local = n.step % 16;
+                            if (n.note == 36 || n.note == 39)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            else if (n.note == 38 && local < 11)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            else if (n.note == 49)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && (local % 4 == 0);
+                            else if ((n.note == 45 || n.note == 47 || n.note == 50) && local < 12)
+                                drumsOnMusicalGrid = drumsOnMusicalGrid && ((local & 1) == 0);
+                            break;
+                        }
+                    }
+                }
+
+                std::sort (melodySteps.begin(), melodySteps.end());
+                for (size_t i = 1; i < melodySteps.size(); ++i)
+                    noOneStepMelodyGaps = noOneStepMelodyGaps
+                        && (melodySteps[i] - melodySteps[i - 1] >= 2);
+            }
+        }
+
+        report ("0.102 rhythm: melody onsets stay on the 1/8 grid",
+                melodyOnEighthGrid && checkedMelodyNotes > 0,
+                fmt ("checked %d melody notes", checkedMelodyNotes));
+        report ("0.102 rhythm: chord voices land on beats",
+                chordsOnQuarterGrid && channelNotes[1] > 0,
+                fmt ("checked %d chord notes", channelNotes[1]));
+        report ("0.102 rhythm: bass onsets stay on the 1/8 grid",
+                bassOnEighthGrid && channelNotes[2] > 0,
+                fmt ("checked %d bass notes", channelNotes[2]));
+        report ("0.102 rhythm: arpeggio follows its selected rate",
+                arpOnSelectedRateGrid && channelNotes[4] > 0,
+                fmt ("checked %d arp notes across rates 1/2/4/8", channelNotes[4]));
+        report ("0.102 rhythm: drum anchors use deliberate subdivisions",
+                drumsOnMusicalGrid && channelNotes[5] > 0,
+                fmt ("checked %d drum notes, including sixteenth-note fills", channelNotes[5]));
+        report ("0.102 rhythm: all layer onsets stay inside the loop",
+                allOnsetsStayInsideLoop,
+                "no generated onset before step 0 or beyond the loop end");
+        report ("0.102 rhythm: no accidental one-step melody gaps",
+                noOneStepMelodyGaps,
+                "all melody onset gaps >= 2 sixteenth steps");
+        report ("0.102 rhythm: complete arrangement survives quantization",
+                channelNotes[1] > 0 && channelNotes[2] > 0 && channelNotes[3] > 0
+                    && channelNotes[4] > 0 && channelNotes[5] > 0,
+                fmt ("chords %.0f, bass %.0f, melody %.0f, arp %.0f, drums %.0f",
+                     (double) channelNotes[1], (double) channelNotes[2],
+                     (double) channelNotes[3], (double) channelNotes[4],
+                     (double) channelNotes[5]));
+    }
+
+    // ------------------------------------------------------------------ 16. 0.105.1 melody-only, tonal, register and strict-grid contract
+    {
+        static const std::array<std::array<int, 12>, 12> scales =
+        {{
+            {{0,2,4,5,7,9,11, -1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,9,10,-1,-1,-1,-1,-1}},
+            {{0,1,3,5,7,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,8,11,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,9,11,-1,-1,-1,-1,-1}},
+            {{0,2,4,7,9,-1,-1,-1,-1,-1,-1,-1}},
+            {{0,2,4,6,7,9,11,-1,-1,-1,-1,-1}},
+            {{0,2,4,5,7,9,10,-1,-1,-1,-1,-1}},
+            {{0,1,3,5,6,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,4,5,7,8,11,-1,-1,-1,-1,-1}},
+            {{0,3,5,6,7,10,-1,-1,-1,-1,-1,-1}}
+        }};
+        const auto isInScale = [&] (const Note& n, int root, int scaleIndex)
+        {
+            if (scaleIndex < 0 || scaleIndex >= (int) scales.size())
+                return false;
+            const int rel = ((n.note % 12) - root + 12) % 12;
+            for (const int degree : scales[(size_t) scaleIndex])
+            {
+                if (degree < 0) break;
+                if (degree == rel) return true;
+            }
+            return false;
+        };
+
+        bool onlyMelody = true;
+        bool populated = true;
+        bool inLoop = true;
+        bool onEighthGrid = true;
+        bool tonal = true;
+        bool registerSafe = true;
+        bool leapsSafe = true;
+        bool spacingSafe = true;
+        bool uniqueOnsets = true;
+        bool creatorConstraintsPreserved = true;
+        bool soundCloudRetired = true;
+        bool performanceSettingsPreserved = true;
+        int checkedNotes = 0;
+        int checkedLoops = 0;
+
+        for (int scaleIndex = 0; scaleIndex < 12; ++scaleIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            const int root = (scaleIndex * 5 + 7) % 12;
+            p.setRoot (root);
+            p.setScale (scaleIndex);
+            p.setBars (4);
+            p.setSeed (105100 + scaleIndex * 97);
+            p.waitForGeneration();
+            p.setSwing (0.12f);
+            p.setHumanize (0.23f);
+            p.setHumanizeEnabled (true);
+            p.magicRandomize();
+            p.waitForGeneration();
+
+            performanceSettingsPreserved = performanceSettingsPreserved
+                && std::abs (p.getSwing() - 0.12f) < 0.001f
+                && std::abs (p.getHumanize() - 0.23f) < 0.001f
+                && p.isHumanizeEnabled();
+            creatorConstraintsPreserved = creatorConstraintsPreserved
+                && p.getRoot() == root && p.getScale() == scaleIndex && p.getVisibleBars() == 4;
+            soundCloudRetired = soundCloudRetired && ! p.getLeadStyleSoundCloud();
 
             for (int v = 0; v < p.getVariationCount(); ++v)
             {
                 p.chooseVariation (v);
                 const auto notes = p.getVisibleNotes();
+                ++checkedLoops;
+                populated = populated && ! notes.empty();
+                onlyMelody = onlyMelody && ! notes.empty()
+                    && std::all_of (notes.begin(), notes.end(),
+                        [] (const Note& n) { return n.channel == 3; });
 
-                std::vector<int> steps;
+                const int loopSteps = p.getVisibleBars() * 16;
+                inLoop = inLoop && std::all_of (notes.begin(), notes.end(),
+                    [loopSteps] (const Note& n)
+                    {
+                        return n.step >= 0 && n.step < loopSteps
+                            && n.length >= 1 && n.length <= 16
+                            && n.step + n.length <= loopSteps
+                            && n.note >= 0 && n.note <= 127;
+                    });
+
+                std::vector<std::pair<int, int>> timeline;
+                std::set<int> onsetSteps;
                 for (const auto& n : notes)
                 {
-                    if (n.channel != 3)
-                        continue;
-
-                    ++checkedMelodyNotes;
-                    onGrid = onGrid && ((n.step & 1) == 0);
-                    steps.push_back (n.step);
+                    if (n.channel != 3) continue;
+                    ++checkedNotes;
+                    onEighthGrid = onEighthGrid && ((n.step & 1) == 0);
+                    tonal = tonal && isInScale (n, p.getRoot(), p.getScale());
+                    registerSafe = registerSafe && n.note >= 48 && n.note <= 90;
+                    uniqueOnsets = uniqueOnsets && onsetSteps.insert (n.step).second;
+                    timeline.push_back ({ n.step, n.note });
                 }
-
-                std::sort (steps.begin(), steps.end());
-                for (size_t i = 1; i < steps.size(); ++i)
-                    noOneStepGaps = noOneStepGaps
-                        && (steps[i] - steps[i - 1] >= 2);
+                std::stable_sort (timeline.begin(), timeline.end(),
+                    [] (const auto& a, const auto& b)
+                    {
+                        if (a.first != b.first) return a.first < b.first;
+                        return a.second < b.second;
+                    });
+                for (size_t i = 1; i < timeline.size(); ++i)
+                {
+                    spacingSafe = spacingSafe && timeline[i].first - timeline[i - 1].first >= 2;
+                    leapsSafe = leapsSafe && std::abs (timeline[i].second - timeline[i - 1].second) <= 12;
+                }
             }
         }
 
-        report ("0.98 rhythm: melody onsets stay on the 1/8 grid",
-                onGrid,
-                fmt ("checked %d melody notes", checkedMelodyNotes));
+        report ("0.105.1 melody-only: all MAGIC variations contain only one melodic lane",
+                onlyMelody && checkedLoops >= 96,
+                fmt ("%d populated variation slots checked", checkedLoops));
+        report ("0.105.1 rhythm: melody onsets stay on the strict 1/8 grid",
+                onEighthGrid && checkedNotes > 0,
+                fmt ("%d melody attacks checked", checkedNotes));
+        report ("0.105.1 rhythm: no same-step collisions or one-step gaps",
+                uniqueOnsets && spacingSafe,
+                "attacks are unique, at least two sixteenth-steps apart, and note tails stay in-loop");
+        report ("0.105.1 melody-only: every note stays inside loop and MIDI bounds",
+                inLoop && populated,
+                fmt ("%d populated loops checked", checkedLoops));
+        report ("0.105.1 tonal: every melody note stays in the selected scale",
+                tonal && checkedNotes > 0, fmt ("%d melody notes checked", checkedNotes));
+        report ("0.105.1 register: generated melody stays inside the safe register",
+                registerSafe && checkedNotes > 0, "pitch range 48-90");
+        report ("0.105.1 phrase: adjacent melody notes avoid unsafe leaps",
+                leapsSafe && checkedNotes > 0, "all chronological pitch gaps <= 12 semitones");
+        report ("0.105.1 creator-first: MAGIC preserves Key / Scale / Bars",
+                creatorConstraintsPreserved, "all 12 scales and all eight variations");
+        report ("0.105.1 creative focus: retired SoundCloud mode stays disabled",
+                soundCloudRetired, "SoundCloud-specific generation belongs to Shakalizer");
+        report ("0.105.1 performance: MAGIC preserves explicit Swing / Humanize settings",
+                performanceSettingsPreserved, "generation does not randomize performance controls");
 
-        report ("0.98 rhythm: no accidental one-step onset gaps",
-                noOneStepGaps,
-                "all melody onset gaps >= 2 steps");
+        MidiForgeAudioProcessor transformed;
+        transformed.setFeedbackLogFile (juce::File());
+        transformed.setRoot (7);
+        transformed.setScale (2);
+        transformed.setBars (4);
+        transformed.setSeed (105901);
+        transformed.waitForGeneration();
+        transformed.magicRandomize();
+        transformed.waitForGeneration();
+
+        const auto transformedMelodyOnGrid = [] (const std::vector<Note>& notes, int bars)
+        {
+            if (notes.empty()) return false;
+            for (const auto& n : notes)
+                if (n.channel != 3 || n.step < 0 || n.step >= bars * 16 || (n.step & 1) != 0)
+                    return false;
+            return true;
+        };
+        bool transformedGrid = true;
+        transformed.mutateSelected (0.45f);
+        transformedGrid = transformedGrid
+            && transformedMelodyOnGrid (transformed.getVisibleNotes(), transformed.getVisibleBars());
+        transformed.evolveSelected();
+        transformedGrid = transformedGrid
+            && transformedMelodyOnGrid (transformed.getVisibleNotes(), transformed.getVisibleBars());
+        report ("0.105.1 rhythm: MUTATE / EVOLVE preserve the melody grid",
+                transformedGrid, "transformed notes remain on eighths and inside the loop");
     }
 
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank

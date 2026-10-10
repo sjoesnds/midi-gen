@@ -287,11 +287,13 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
         const int original = juce::jlimit (0, maxStep, v[index].step);
         const int barStart = (original / 16) * 16;
         const int localStep = original - barStart;
+        const int barEnd = juce::jmin (barStart + 14, maxStep - (maxStep & 1));
         int target = barStart + juce::jmin (14, ((localStep + 1) / 2) * 2);
-        target = juce::jmin (target, maxStep - (maxStep & 1));
 
+        // Never spill a crowded bar into the next one. If every eighth-note
+        // slot in this source bar is occupied, discard the excess attack.
         const int minimum = previous + 2;
-        if (minimum > maxStep)
+        if (minimum > barEnd)
         {
             drop[index] = true;
             continue;
@@ -301,13 +303,15 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
         if (target & 1)
             ++target;
 
-        if (target > maxStep)
+        if (target > barEnd)
         {
             drop[index] = true;
             continue;
         }
 
         v[index].step = target;
+        const int availableLength = juce::jmax (1, maxStep - target + 1);
+        v[index].length = juce::jlimit (1, availableLength, v[index].length);
         previous = target;
     }
 
@@ -319,6 +323,70 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
 
     v.swap (out);
     cleanMelodyLine (v);
+}
+
+// 0.102.0: apply a deliberate rhythmic lattice to every generated layer.
+// Steps are sixteenths inside each bar. Melody/bass use eighths, chords land
+// on beats, and arpeggios follow the chosen rate. Drum anchors are tightened
+// while hi-hats, ghost snares and fills retain intentional sixteenth-note detail.
+// Swing and Humanize are applied later as performance choices, not baked into
+// the authored note positions.
+template <typename T>
+static void snapSectionOnsetsToMusicalGrid (std::vector<T>& v, int bars, int arpRate)
+{
+    const int maxStep = juce::jmax (0, bars * 16 - 1);
+
+    for (auto& note : v)
+    {
+        if (note.channel == 3)
+            continue; // The dedicated melody pass also removes same-step collisions.
+
+        const int original = juce::jlimit (0, maxStep, note.step);
+        const int barStart = (original / 16) * 16;
+        const int localStep = original - barStart;
+        int grid = 1;
+
+        switch (note.channel)
+        {
+            case 1: // Chord tones stay together on a beat.
+                grid = 4;
+                break;
+            case 2: // Bass notes use an eighth-note lattice.
+                grid = 2;
+                break;
+            case 4: // Match addArp()'s rate-to-step conversion.
+                grid = juce::jmax (1, 8 / juce::jmax (1, arpRate));
+                break;
+            case 5: // Keep the drum arrangement on named, intentional positions.
+                if (note.note == 36 || note.note == 39) // Kick and clap
+                    grid = 2;
+                else if (note.note == 38) // Main snare on eighths; ghost/roll hits stay 16ths.
+                    grid = (localStep >= 11 ? 1 : 2);
+                else if (note.note == 49) // Crash
+                    grid = 4;
+                else if (note.note == 45 || note.note == 47 || note.note == 50) // Toms
+                    grid = (localStep >= 12 ? 1 : 2);
+                else
+                    grid = 1; // Hats and shaker may intentionally use sixteenths.
+                break;
+            default:
+                continue;
+        }
+
+        // Quantize within the current bar rather than accidentally carrying a
+        // late hit into the next bar. Each bar contains an exact multiple of
+        // every supported grid size (1, 2, 4 or 8 sixteenth steps).
+        const int snappedLocal = ((localStep + grid / 2) / grid) * grid;
+        note.step = barStart + juce::jmin (16 - grid, snappedLocal);
+
+        // Chord comping and bass punctuation may have sustain tails that run
+        // past the loop seam (especially on the final offbeat). Keep every
+        // exported layer inside the actual loop, not just the melody line.
+        note.length = juce::jlimit (1, juce::jmax (1, maxStep - note.step + 1),
+                                    juce::jmax (1, note.length));
+    }
+
+    snapMelodyOnsetsToGrid (v, bars);
 }
 
 static int foldIntoLane (int note, int lo, int hi)
@@ -440,6 +508,16 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     lo = juce::jlimit (0, 127, lo);
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
+
+    // MIDI Forge's current lead workflow must stay grounded. The creator
+    // can still explore different hidden octave placements, but the final
+    // standard melodic lane stays between MIDI 48 and 90 in every case.
+    // The lower edge matters too: octave 3 used to let later safety passes
+    // inherit pitches below 48 even though the release contract says 48–90.
+    hi = juce::jmin (90, hi);
+    lo = juce::jmax (48, lo);
+    hi = juce::jmax (lo + 1, hi);
+    lo = juce::jmin (lo, hi - 1);
     // 0.87 Style / Safety split: this contract is a hard validity ceiling,
     // not a melodic-style rule. Keep it aligned with the sound profile so the
     // final pass does not undo expressive interval language that generation
@@ -5258,6 +5336,14 @@ float MidiForgeAudioProcessor::localMelodyQualityScore (const Section& section, 
         if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0 && ((d0 > 0) != (d1 > 0)))
             q -= 0.12f; // tiny up/down rocking is a common artificial pattern
 
+        // Two large intervals that immediately reverse direction create an
+        // awkward "ping-pong" contour. Treat this as a local defect even when
+        // neither individual leap exceeds the hard safety limit.
+        const bool largeLeapReversal = ad0 >= 7 && ad1 >= 7
+            && ((d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0));
+        if (largeLeapReversal)
+            q -= 0.24f;
+
         windowQuality.push_back (juce::jlimit (0.0f, 1.0f, q));
     }
 
@@ -5352,6 +5438,8 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
 
         float score = 0.0f;
         const bool recovered = (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0);
+        if (ad0 >= 7 && ad1 >= 7 && recovered)
+            score += 1.10f;
         if (ad0 >= 8 && (! recovered || ad1 > 5))
             score += 1.0f;
         if (ad0 >= 10)
@@ -5439,7 +5527,9 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
     if (targets.size() > 2)
         targets.resize (2);
 
-    const int offsets[] = { -5, -3, -2, -1, 1, 2, 3, 5 };
+    // Include wider scale-safe alternatives: a ±5-only search could never
+    // repair a pair of opposing 7–9 semitone intervals in the middle note.
+    const int offsets[] = { -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7 };
 
     for (const int i : targets)
     {
@@ -5488,6 +5578,72 @@ void MidiForgeAudioProcessor::repairLocalMelodyQuality (Section& section, uint32
         }
 
         section.notes[idx].note = bestPitch;
+    }
+
+    // The score-based repair above is intentionally conservative (only its
+    // two worst targets are changed). Finish with a deterministic local pass
+    // over every remaining large leap reversal, including spots outside those
+    // two targets. Move only the middle pitch; timing and phrase identity stay
+    // intact, and both adjacent intervals remain inside the leap contract.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        bool changed = false;
+        for (int i = 1; i + 2 < (int) melody.size(); ++i)
+        {
+            auto& leftNote = section.notes[melody[(size_t) i - 1]];
+            auto& middleNote = section.notes[melody[(size_t) i]];
+            auto& rightNote = section.notes[melody[(size_t) i + 1]];
+
+            const int leftDelta = middleNote.note - leftNote.note;
+            const int rightDelta = rightNote.note - middleNote.note;
+            const bool reverses = (leftDelta > 0 && rightDelta < 0)
+                               || (leftDelta < 0 && rightDelta > 0);
+            if (! reverses || std::abs (leftDelta) < 7 || std::abs (rightDelta) < 7)
+                continue;
+
+            const int lo = juce::jmax (laneLo,
+                juce::jmax (leftNote.note - maxLeap, rightNote.note - maxLeap));
+            const int hi = juce::jmin (laneHi,
+                juce::jmin (leftNote.note + maxLeap, rightNote.note + maxLeap));
+            if (lo > hi)
+                continue;
+
+            const int outerLow = juce::jmin (leftNote.note, rightNote.note);
+            const int outerHigh = juce::jmax (leftNote.note, rightNote.note);
+            const int midpoint = (leftNote.note + rightNote.note) / 2;
+            int bestPitch = middleNote.note;
+            int bestCost = std::numeric_limits<int>::max();
+
+            for (int pitch = lo; pitch <= hi; ++pitch)
+            {
+                if (! inScale (pitch))
+                    continue;
+
+                const int leftJump = std::abs (pitch - leftNote.note);
+                const int rightJump = std::abs (rightNote.note - pitch);
+                int cost = 100 * juce::jmax (leftJump, rightJump)
+                         + 5 * (leftJump + rightJump)
+                         + std::abs (pitch - midpoint);
+                if (pitch == leftNote.note || pitch == rightNote.note)
+                    cost += 500; // Avoid turning a leap defect into a repeated-note triplet.
+                if (pitch < outerLow || pitch > outerHigh)
+                    cost += 30;
+
+                if (cost < bestCost)
+                {
+                    bestCost = cost;
+                    bestPitch = pitch;
+                }
+            }
+
+            if (bestPitch != middleNote.note)
+            {
+                middleNote.note = bestPitch;
+                changed = true;
+            }
+        }
+        if (! changed)
+            break;
     }
 
     cleanMelodyLine (section.notes);
@@ -7787,41 +7943,35 @@ float MidiForgeAudioProcessor::similarity (const Section& a, const Section& b) c
 
 float MidiForgeAudioProcessor::behaviorDistance (const Candidate& a, const Candidate& b)
 {
-
-        const float d[] =
-        {
-            std::abs (a.density - b.density),
-            std::abs (a.space - b.space),
-            std::abs (a.rhythm - b.rhythm),
-            std::abs (a.motif - b.motif),
-            std::abs (a.leap - b.leap),
-            std::abs (a.reg - b.reg),
-            std::abs (a.surprise - b.surprise),
-            std::abs (a.context - b.context),
-            std::abs (a.loop - b.loop),
-            std::abs (a.groove - b.groove),
-            std::abs (a.memory - b.memory),
-            std::abs (a.phraseArc - b.phraseArc),
-            std::abs (a.tension - b.tension)
-        };
-
-        // Tension, surprise, rhythm and density carry slightly more weight:
-        // they are the dimensions most likely to make two otherwise similar
-        // loops feel like different musical behaviors.
-        const float w[] =
-        {
-            0.09f, 0.06f, 0.12f, 0.08f, 0.09f, 0.06f, 0.12f,
-            0.06f, 0.08f, 0.08f, 0.06f, 0.05f, 0.13f
-        };
-
-        float sum = 0.0f, weight = 0.0f;
-        for (size_t i = 0; i < sizeof (d) / sizeof (d[0]); ++i)
-        {
-            sum += d[i] * w[i];
-            weight += w[i];
-        }
-        return weight > 0.0f ? juce::jlimit (0.0f, 1.0f, sum / weight) : 0.0f;
-    
+    const float d[] =
+    {
+        std::abs (a.density - b.density),
+        std::abs (a.space - b.space),
+        std::abs (a.rhythm - b.rhythm),
+        std::abs (a.motif - b.motif),
+        std::abs (a.leap - b.leap),
+        std::abs (a.reg - b.reg),
+        std::abs (a.registerCenter - b.registerCenter),
+        std::abs (a.surprise - b.surprise),
+        std::abs (a.context - b.context),
+        std::abs (a.loop - b.loop),
+        std::abs (a.groove - b.groove),
+        std::abs (a.memory - b.memory),
+        std::abs (a.phraseArc - b.phraseArc),
+        std::abs (a.tension - b.tension)
+    };
+    const float w[] =
+    {
+        0.08f, 0.06f, 0.12f, 0.08f, 0.09f, 0.10f, 0.10f,
+        0.12f, 0.06f, 0.08f, 0.08f, 0.05f, 0.05f, 0.10f
+    };
+    float sum = 0.0f, weight = 0.0f;
+    for (size_t i = 0; i < sizeof (d) / sizeof (d[0]); ++i)
+    {
+        sum += d[i] * w[i];
+        weight += w[i];
+    }
+    return weight > 0.0f ? juce::jlimit (0.0f, 1.0f, sum / weight) : 0.0f;
 }
 
 MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongData& song, int candidateIndex, juce::Random& local, int mLo, int mHi) const
@@ -9396,12 +9546,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
         {
             const uint32_t strategyHash = hash32 (
                 identity ^ 0xC7E4A1B3u ^ (uint32_t) (c + 1) * 0x9E3779B9u);
-            mood = (int) (strategyHash % 9u);
-            melodyType = (int) ((strategyHash >> 5) % 8u);
-            rhythm = (int) ((strategyHash >> 11) % 4u);
-            progression = (int) ((strategyHash >> 17) % 7u);
-            static constexpr int octaveChoices[] = { 3, 4, 4, 5, 6 };
-            octave = octaveChoices[(strategyHash >> 23) % 5u];
+            if (!isMagicParameterLocked (MagicLock::Mood))
+                mood = (int) (strategyHash % 9u);
+            if (!isMagicParameterLocked (MagicLock::MelodyType))
+                melodyType = (int) ((strategyHash >> 5) % 8u);
+            if (!isMagicParameterLocked (MagicLock::Rhythm))
+                rhythm = (int) ((strategyHash >> 11) % 4u);
+            if (!isMagicParameterLocked (MagicLock::Progression))
+                progression = (int) ((strategyHash >> 17) % 7u);
+            if (!isMagicParameterLocked (MagicLock::Octave))
+            {
+                static constexpr int octaveChoices[] = { 3, 4, 4, 5, 6 };
+                octave = octaveChoices[(strategyHash >> 23) % 5u];
+            }
         }
 
         // First pass explores broadly. After 600 candidates, MAGIC 4 nudges the
@@ -9418,23 +9575,31 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 adaptive.motif + randomJitter * 0.10f);
             const float targetSurprise = juce::jlimit (0.10f, 0.90f,
                 adaptive.surprise + randomJitter * 0.14f);
-            melodyDensity = juce::jlimit (0.10f, 0.92f,
-                oldMelodyDensity * (1.0f - adapt) + targetDensity * adapt);
-            pauseChance = juce::jlimit (0.02f, 0.46f,
-                (1.0f - melodyDensity) * 0.34f + adaptive.space * 0.16f);
-            leapChance = juce::jlimit (0.03f, 0.52f,
-                oldLeapChance * (1.0f - adapt) + targetLeap * adapt);
-            motifStrength = juce::jlimit (0.30f, 0.99f,
-                oldMotifStrength * (1.0f - adapt) + targetMotif * adapt);
-            complexity = juce::jlimit (0.14f, 0.94f,
-                oldComplexity * (1.0f - adapt) + targetSurprise * adapt);
-            swing = juce::jlimit (0.0f, 0.55f,
-                oldSwing * (1.0f - adapt) + adaptive.rhythm * 0.42f * adapt);
-            octave = juce::jlimit (2, 6, oldOctave + (adaptive.reg > 0.62f ? 1 : adaptive.reg < 0.30f ? -1 : 0));
+            if (!isMagicParameterLocked (MagicLock::MelodyDensity))
+                melodyDensity = juce::jlimit (0.10f, 0.92f,
+                    oldMelodyDensity * (1.0f - adapt) + targetDensity * adapt);
+            if (!isMagicParameterLocked (MagicLock::PauseChance))
+                pauseChance = juce::jlimit (0.02f, 0.46f,
+                    (1.0f - melodyDensity) * 0.34f + adaptive.space * 0.16f);
+            if (!isMagicParameterLocked (MagicLock::LeapChance))
+                leapChance = juce::jlimit (0.03f, 0.52f,
+                    oldLeapChance * (1.0f - adapt) + targetLeap * adapt);
+            if (!isMagicParameterLocked (MagicLock::MotifStrength))
+                motifStrength = juce::jlimit (0.30f, 0.99f,
+                    oldMotifStrength * (1.0f - adapt) + targetMotif * adapt);
+            if (!isMagicParameterLocked (MagicLock::Complexity))
+                complexity = juce::jlimit (0.14f, 0.94f,
+                    oldComplexity * (1.0f - adapt) + targetSurprise * adapt);
+            // Swing is an explicit performance choice: adaptive search must
+            // not rewrite the user's feel while MAGIC searches for new ideas.
+            if (!isMagicParameterLocked (MagicLock::Octave))
+                octave = juce::jlimit (2, 6, oldOctave
+                    + (adaptive.reg > 0.62f ? 1 : adaptive.reg < 0.30f ? -1 : 0));
         }
 
-        variationAmount = juce::jlimit (0.f, 1.f,
-            oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
+        if (!isMagicParameterLocked (MagicLock::VariationAmount))
+            variationAmount = juce::jlimit (0.f, 1.f,
+                oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
         buildBaseSong(song,local,c+1);
 
         // Keep this candidate's hidden strategy active while the complete
@@ -9457,10 +9622,13 @@ void MidiForgeAudioProcessor::buildVariationBank()
         traceMelodyStage (4, flat);
 
         applyMelodyFoundation (flat, identity);
-        repairLocalMelodyQuality (flat, identity);
         applyPhraseArchitecture (flat, identity);
         enforceFinalMelodyContract (flat, identity);
-        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
+        // Phrase shaping can introduce new adjacent leap reversals. Repair the
+        // final composed line, rather than an intermediate version that is
+        // about to be rewritten by the phrase architecture.
+        repairLocalMelodyQuality (flat, identity);
+        snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
@@ -10367,6 +10535,59 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // shared musical-quality judge.
         quality += 0.15f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
+// Grade the finished melody against its complexity budget, after later phrase edits.
+{
+    const int barsForBudget = juce::jmax (1, flat.bars);
+    std::vector<int> attacksPerBar ((size_t) barsForBudget, 0);
+    std::array<bool, 128> seenPitches {};
+    int melodyAttackCount = 0, distinctPitchCount = 0, maxAttacksInBar = 0;
+    for (const auto& note : flat.notes)
+    {
+        if (note.channel != 3) continue;
+        const int bar = juce::jlimit (0, barsForBudget - 1, note.step / 16);
+        ++attacksPerBar[(size_t) bar];
+        ++melodyAttackCount;
+        const int pitch = juce::jlimit (0, 127, note.note);
+        if (! seenPitches[(size_t) pitch]) { seenPitches[(size_t) pitch] = true; ++distinctPitchCount; }
+    }
+    for (const int count : attacksPerBar) maxAttacksInBar = juce::jmax (maxAttacksInBar, count);
+    const float attacksPerBarMean = (float) melodyAttackCount / (float) barsForBudget;
+    auto axisFit = [] (float actual, float wanted, float tolerance)
+    {
+        return 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (actual - wanted) / juce::jmax (0.08f, tolerance));
+    };
+    float complexityBudgetFit = 0.5f;
+    if (flat.melodyComplexityClass == 0)
+    {
+        const float eventCapFit = maxAttacksInBar <= 4 ? 1.0f
+            : 1.0f - juce::jlimit (0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 3.0f);
+        complexityBudgetFit = 0.42f * eventCapFit
+            + 0.22f * axisFit (attacksPerBarMean, 3.1f, 2.2f)
+            + 0.20f * f.simplicity
+            + 0.16f * axisFit (f.repetition, 0.58f, 0.45f);
+        if (maxAttacksInBar > 4)
+            quality -= 0.22f * juce::jlimit (0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 2.0f);
+    }
+    else if (flat.melodyComplexityClass == 2)
+    {
+        complexityBudgetFit = 0.24f * axisFit (attacksPerBarMean, 5.1f, 2.8f)
+            + 0.20f * axisFit ((float) distinctPitchCount, 7.0f, 4.0f)
+            + 0.20f * axisFit (f.variety, 0.64f, 0.36f)
+            + 0.16f * axisFit (f.leap, 0.48f, 0.42f)
+            + 0.12f * axisFit (f.surprise, 0.44f, 0.44f)
+            + 0.08f * axisFit (f.simplicity, 0.36f, 0.46f);
+    }
+    else
+    {
+        complexityBudgetFit = 0.28f * axisFit (attacksPerBarMean, 4.2f, 2.5f)
+            + 0.22f * axisFit (f.simplicity, 0.56f, 0.38f)
+            + 0.20f * axisFit (f.variety, 0.53f, 0.38f)
+            + 0.16f * axisFit (f.leap, 0.36f, 0.40f)
+            + 0.14f * axisFit (f.surprise, 0.30f, 0.42f);
+    }
+    quality += 0.22f * juce::jlimit (0.0f, 1.0f, complexityBudgetFit);
+}
+
         {
             const IdeaFingerprint idea = makeIdeaFingerprint (flat);
             // 0.85.6 Character Fit Judge: a character is only useful when the
@@ -10425,7 +10646,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
                                   grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
-                                  characterFit, idea});
+                                  characterFit, idea, f.registerCenter});
 
             // Restore the pre-candidate state after the complete generation/judge
             // pipeline has finished. Each candidate therefore carries its own
@@ -10532,14 +10753,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         if (cls == 0)
         {
-            if (count == 0) return 0.085f;
-            if (count == 1) return 0.045f;
-            if (count >= 3) return -0.022f;
+            if (count == 0) return 0.100f;
+            if (count == 1) return 0.055f;
+            if (count >= 3) return -0.035f;
+        }
+        else if (cls == 2)
+        {
+            if (count == 0) return 0.075f;
+            if (count >= 3) return -0.030f;
         }
         else
         {
-            if (count == 0) return 0.028f;
-            if (count >= 4) return -0.012f;
+            if (count == 0) return 0.045f;
+            if (count >= 4) return -0.020f;
         }
 
         return 0.0f;
@@ -10574,10 +10800,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
             const float characterBonus = characterCollision > 0.5f ? -0.085f : 0.028f;
 
             const float score = candidates[i].quality
-                              - 0.62f * maxSim
-                              + 0.13f * diversity
-                              + 0.11f * ideaNovelty
-                              - 0.035f * familyCollision
+                              - 0.58f * maxSim
+                              + 0.17f * diversity
+                              + 0.14f * ideaNovelty
+                              - 0.045f * familyCollision
                               + characterBonus
                               + complexityCoverageBonus (candidates[i]);
             if (score > bestScore)
@@ -10613,11 +10839,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
                 const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
                 const float score = candidates[i].quality
-                                  - 0.76f * maxSim
+                                  - 0.70f * maxSim
                                   - gatePenalty
-                                  + 0.08f * diversity
-                                  + 0.075f * ideaNovelty
-                                  - 0.025f * familyCollision
+                                  + 0.10f * diversity
+                                  + 0.10f * ideaNovelty
+                                  - 0.030f * familyCollision
                                   + characterBonus
                                   + complexityCoverageBonus (candidates[i]);
                 if (score > relaxedBest)
@@ -10681,7 +10907,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                    });
 
         // Grid is a hard timing invariant, including after layer locks.
-        snapMelodyOnsetsToGrid (flat.notes, flat.bars);
+        snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         result.push_back (std::move (flat));
     }
 
@@ -10691,7 +10917,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
         juce::Random fallback((juce::int64)generationSeed);
         SongData song;
         buildBaseSong(song,fallback,0);
-        if(!song.sections.empty()) result.push_back(song.sections.front());
+        if (! song.sections.empty())
+        {
+            snapSectionOnsetsToMusicalGrid (song.sections.front().notes, song.sections.front().bars, arpRate);
+            result.push_back (song.sections.front());
+        }
     }
 
     {
@@ -10773,72 +11003,90 @@ void MidiForgeAudioProcessor::magicRandomize()
     dnaEnergy  = juce::jlimit(.0f,1.0f, .20f + rf(.0f,.70f));
     dnaSurprise= juce::jlimit(.0f,1.0f, .12f + rf(.0f,.58f));
 
-    // Keep layer locks meaningful: a locked layer keeps its character controls.
-    if (!lockChordsLayer)
-    {
-        // Key and scale are explicit creator constraints. MAGIC explores the
-        // musical idea inside them instead of moving the goalposts.
-        progression = pick(7);
-        chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
-        chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
+    // Each visible control has its own MAGIC lock. Locks are independent:
+    // protecting chord density must not also freeze progression or inversions.
+    // Key / Scale / Bars remain explicit creator constraints and are never randomized.
+    if (!isMagicParameterLocked (MagicLock::Progression))
+        progression = pick (7);
+    if (!isMagicParameterLocked (MagicLock::ChordDensity))
+        chordDensity = juce::jlimit (.35f, 1.0f, .50f + dnaHarmony * .48f);
+    if (!isMagicParameterLocked (MagicLock::ChordExtensions))
+        chordExtensions = r.nextFloat() > (.48f - dnaHarmony * .22f);
+    if (!isMagicParameterLocked (MagicLock::Inversions))
         inversions = r.nextFloat() > .28f;
-        voicingWidth = juce::jlimit(.20f,.85f,.25f + dnaHarmony*.55f);
-    }
+    if (!isMagicParameterLocked (MagicLock::BassDensity))
+        bassDensity = juce::jlimit (.25f, .95f, .28f + dnaRhythm * .52f);
 
-    if (!lockBassLayer)
-    {
-        bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
-    }
+    if (!isMagicParameterLocked (MagicLock::MelodyDensity))
+        melodyDensity = juce::jlimit (.20f, .88f, .22f + dnaMelody * .62f);
+    if (!isMagicParameterLocked (MagicLock::MelodyLength))
+        melodyLength = juce::jlimit (.12f, .82f, .18f + dnaMelody * .48f);
+    if (!isMagicParameterLocked (MagicLock::PauseChance))
+        pauseChance = juce::jlimit (.04f, .42f, .32f - dnaRhythm * .20f);
+    if (!isMagicParameterLocked (MagicLock::LeapChance))
+        leapChance = juce::jlimit (.04f, .48f, .06f + dnaRegister * .34f);
+    if (!isMagicParameterLocked (MagicLock::GhostChance))
+        ghostChance = juce::jlimit (.01f, .24f, .03f + dnaGroove * .12f);
+    if (!isMagicParameterLocked (MagicLock::MotifStrength))
+        motifStrength = juce::jlimit (.45f, .98f, dnaMotif);
+    if (!isMagicParameterLocked (MagicLock::VariationAmount))
+        variationAmount = juce::jlimit (.18f, .85f, .22f + dnaSurprise * .55f);
 
-    if (!lockMelodyLayer)
-    {
-        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
-        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
-        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
-        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
-        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
-        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
-        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
-    }
-
-    if (!lockArpLayer)
-    {
-        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
-        static constexpr int arpChoices[] = {1,2,4,8};
-        arpRate = arpChoices[pick(4)];
-    }
+    // Voicing width has no separate creator control yet; keep it aligned with
+    // the chord-generation controls without overriding a fully locked chord setup.
+    if (!isMagicParameterLocked (MagicLock::Progression)
+        || !isMagicParameterLocked (MagicLock::ChordDensity))
+        voicingWidth = juce::jlimit (.20f, .85f, .25f + dnaHarmony * .55f);
 
     // Global musical identity. These affect all layers coherently.
         // Hidden strategy axes are still free to change on every MAGIC press.
     // They are implementation detail, not user-facing genre/mood/type controls.
-    mood = pick(9);
-    melodyType = pick(8);
-    rhythm = pick(4);
-    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
+    if (!isMagicParameterLocked (MagicLock::Mood))
+        mood = pick (9);
+    if (!isMagicParameterLocked (MagicLock::MelodyType))
+        melodyType = pick (8);
+    if (!isMagicParameterLocked (MagicLock::Rhythm))
+        rhythm = pick (4);
+    if (!isMagicParameterLocked (MagicLock::Octave))
+    {
+        static constexpr int octaveChoices[] = { 3, 4, 4, 5 };
+        octave = octaveChoices[pick (4)];
+    }
     era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
-    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
-    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
-    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
-    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
-    energy = dnaEnergy;
+    // Swing and Humanize are explicit performance choices. MAGIC must not
+    // randomize them; authored MIDI stays rhythmically clean unless the user
+    // deliberately applies a performance override.
 
-    // Rhythm DNA still gets a chance to create distinct identities.
-    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
-    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
-    hookMode = dnaMotif > .46f;
-    chordsEnabled = true;
-    bassEnabled = r.nextFloat() > .06f;
-    melodyEnabled = true;
-    arpEnabled = dnaRhythm > .52f || r.nextFloat() > .72f;
-    if (!lockMelodyLayer)
+    if (!isMagicParameterLocked (MagicLock::Complexity))
+        complexity = juce::jlimit (.20f, .92f, .25f + dnaSurprise * .48f + dnaMelody * .15f);
+    if (!isMagicParameterLocked (MagicLock::FillAmount))
+        fillAmount = juce::jlimit (.04f, .38f, .06f + dnaEnergy * .25f);
+    if (!isMagicParameterLocked (MagicLock::Energy))
+        energy = dnaEnergy;
+
+    // Let the hidden rhythm DNA refine the rhythm only when its lock is open.
+    if (!isMagicParameterLocked (MagicLock::Rhythm))
     {
-        // SoundCloud is intentionally a minority MAGIC language:
-        // sparse chant cells, repeated home notes and strong harmonic pull.
-        const float soundCloudChance = juce::jlimit (0.10f, 0.28f,
-            0.10f + (1.0f - dnaMelody) * 0.14f + (dnaMotif < 0.42f ? 0.04f : 0.0f));
-        leadStyleSoundCloud = r.nextFloat() < soundCloudChance;
+        if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
+        if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
     }
+    // The legacy HOOK toggle is no longer exposed in the creator UI, so MAGIC
+    // does not silently change its saved value behind the user's back.
+
+    // Chords and bass are first-class output layers again. Unlocked layer
+    // switches are biased ON so MAGIC explores the arrangement without
+    // frequently collapsing back to melody-only. A lock preserves either ON or OFF.
+    if (!isMagicParameterLocked (MagicLock::ChordsEnabled))
+        chordsEnabled = r.nextFloat() > .18f;
+    if (!isMagicParameterLocked (MagicLock::BassEnabled))
+        bassEnabled = r.nextFloat() > .14f;
+    melodyEnabled = true;
+    arpEnabled = false;
+    drumsEnabled = false;
+    // SoundCloud-specific generation lives in the separate Shakalizer project.
+    // Retire that legacy mode unconditionally, even for old locked project state.
+    leadStyleSoundCloud = false;
 
     // Seed controls the candidate search; DNA seed remains stable for
     // REROLL, so REROLL explores the same musical universe.
@@ -11083,19 +11331,7 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
             if (notes[i].channel == 5)
                 drumIdx.push_back (i);
 
-        if (mode == 1 && !drumIdx.empty())
-        {
-            const int delta = (base & 1u) ? 2 : -2;
-            const int selectedRow = (int) ((base >> 6) % (uint32_t) kDrumRows);
-            for (size_t k : drumIdx)
-            {
-                if (drumRowForNote (notes[k].note) != selectedRow) continue;
-                const int cell = notes[k].step / phraseSteps;
-                const int local = notes[k].step % phraseSteps;
-                if (cell == (int) ((base >> 12) % (uint32_t) juce::jmax (1, (totalSteps + phraseSteps - 1) / phraseSteps)))
-                    notes[k].step = juce::jlimit (0, totalSteps - 1, cell * phraseSteps + local + delta);
-            }
-        }
+        // Preserve drum onsets and kit pitches; MUTATE / EVOLVE only adjust accents.
 
         for (size_t k : drumIdx)
         {
@@ -11108,8 +11344,82 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
         }
     }
 
+    // MUTATE / EVOLVE are generation operations too: preserve the same authored
+    // eighth-note lattice as MAGIC, and drop over-dense attacks rather than
+    // moving them into a neighbouring bar.
+    snapMelodyOnsetsToGrid (notes, getVisibleBars());
     removeDuplicateNotes (notes);
     cleanMelodyLine (notes);
+
+    // A mutation may lengthen the final bass hit or move a melody note after
+    // another voice has already been normalized. Re-assert the exported-loop
+    // contract across every supported lane, not only melody onsets.
+    const int safeLoopSteps = juce::jmax (16, getVisibleBars() * 16);
+    for (auto& n : notes)
+    {
+        n.step = juce::jlimit (0, safeLoopSteps - 1, n.step);
+        n.length = juce::jlimit (1, juce::jmin (16, safeLoopSteps - n.step), n.length);
+        n.note = juce::jlimit (0, 127, n.note);
+        n.velocity = juce::jlimit (1, 127, n.velocity);
+    }
+
+    // Keep mutations musical after pitch transformations too: a valid starting
+    // line can gain an out-of-scale pitch or >12-semitone leap after a local edit.
+    // Choose the nearest in-scale pitch within the grounded lead lane and the
+    // previous note's leap window, without rewriting the intended rhythm.
+    std::vector<size_t> melodyIndices;
+    for (size_t i = 0; i < notes.size(); ++i)
+        if (notes[i].channel == 3)
+            melodyIndices.push_back (i);
+    std::stable_sort (melodyIndices.begin(), melodyIndices.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (notes[a].step != notes[b].step) return notes[a].step < notes[b].step;
+            return notes[a].note < notes[b].note;
+        });
+
+    const auto activeScale = scaleSemitones();
+    int melodyLo = 48, melodyHi = 90, maximumMelodyLeap = 9;
+    melodyRegisterContract (melodyLo, melodyHi, maximumMelodyLeap);
+    auto nearestSafeMelodyPitch = [&] (int target, int lo, int hi)
+    {
+        lo = juce::jlimit (melodyLo, melodyHi, lo);
+        hi = juce::jlimit (lo, melodyHi, hi);
+        int best = lo;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (int pitch = lo; pitch <= hi; ++pitch)
+        {
+            const int relative = ((pitch % 12) - rootPc + 12) % 12;
+            if (std::find (activeScale.begin(), activeScale.end(), relative) == activeScale.end())
+                continue;
+            const int distance = std::abs (pitch - target);
+            if (distance < bestDistance)
+            {
+                best = pitch;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    };
+
+    int previousMelodyPitch = -1;
+    for (const size_t index : melodyIndices)
+    {
+        auto& note = notes[index];
+        const int pitchLo = previousMelodyPitch < 0 ? melodyLo
+            : juce::jmax (melodyLo, previousMelodyPitch - maximumMelodyLeap);
+        const int pitchHi = previousMelodyPitch < 0 ? melodyHi
+            : juce::jmin (melodyHi, previousMelodyPitch + maximumMelodyLeap);
+        note.note = nearestSafeMelodyPitch (note.note, pitchLo, pitchHi);
+        previousMelodyPitch = note.note;
+    }
+
+    // Pitch repair does not change note positions, but keep collision/length
+    // cleanup last so later edits can never leave overlapping melody notes.
+    cleanMelodyLine (notes);
+    for (auto& n : notes)
+        n.length = juce::jlimit (1, juce::jmin (16, safeLoopSteps - n.step), n.length);
+
     std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
     {
         if (a.step != b.step) return a.step < b.step;
@@ -11142,7 +11452,10 @@ int MidiForgeAudioProcessor::similarToSelected()
         std::vector<uint32_t> keys;
         keys.reserve (sec.notes.size());
         for (const auto& n : sec.notes)
-            keys.push_back (((uint32_t) n.step << 16) | ((uint32_t) n.note << 8) | (uint32_t) n.channel);
+            keys.push_back (((uint32_t) n.step << 18)
+                | ((uint32_t) juce::jlimit (0, 127, n.note) << 11)
+                | ((uint32_t) juce::jlimit (0, 127, n.length) << 4)
+                | (uint32_t) (n.channel & 0x0F));
         std::sort (keys.begin(), keys.end());
         return keys;
     };
@@ -11399,77 +11712,17 @@ for (auto& p : pendingEvents)
 pendingEvents.push_back ({ onGlobal,  midiCh, e.note, velocity, true  });
 pendingEvents.push_back ({ offGlobal, midiCh, e.note, 0,        false });
 }
-bool MidiForgeAudioProcessor::exportMidi(const juce::File& targetFile) const
+bool MidiForgeAudioProcessor::exportMidi (const juce::File& targetFile) const
 {
-const juce::ScopedLock sl(variationsLock);
-if (variations.empty())
-return false;
-const auto& song = variations[(size_t)juce::jlimit(0, (int)variations.size() - 1, selectedVariation)];
-constexpr int ppq = 960;
-constexpr int ticksPerStep = ppq / 4;
-juce::MidiFile file;
-file.setTicksPerQuarterNote(ppq);
-juce::MidiMessageSequence conductor;
-const int microsecondsPerQuarterNote = juce::roundToInt (60000000.0 / juce::jmax (20.0, currentBpm.load()));
-conductor.addEvent (juce::MidiMessage::tempoMetaEvent (microsecondsPerQuarterNote), 0.0);
-conductor.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0.0);
-const int totalSteps = juce::jmax(1, song.bars * 16);
-const double endTick = (double) totalSteps * ticksPerStep;
-const auto songArt = articulationFor (song.notes);
-conductor.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
-file.addTrack(conductor);
-for (int channel = 1; channel <= 5; ++channel)
-{
-const int midiCh = (channel == 5) ? 10 : channel;
-if (channel == 5 && std::none_of (song.notes.begin(), song.notes.end(), [] (const NoteEvent& q) { return q.channel == 5; })) continue;
-if (channel == 5)
-{
-    for (int row = 0; row < kDrumRows; ++row)
-    {
-        if ((drumMuteMask & (1 << row)) != 0) continue;
-        juce::MidiMessageSequence dtrack;
-        dtrack.addEvent (juce::MidiMessage::textMetaEvent (3, drumRowName (row)), 0.0);
-        bool any = false;
-        for (const auto& n : song.notes)
-        {
-            if (n.channel != 5 || drumRowForNote (n.note) != row) continue;
-            any = true;
-            const double onTick = (double) n.step * ticksPerStep + swingTicks (n.step, (double) ticksPerStep);
-            const double offTick = swungEndTick (n.step, juce::jmax (1, n.length), (double) ticksPerStep);
-            const int pitch = drumOutPitch (row, n.note);
-            dtrack.addEvent (juce::MidiMessage::noteOn (10, pitch, (juce::uint8) juce::jlimit (1, 127, n.velocity)), onTick);
-            dtrack.addEvent (juce::MidiMessage::noteOff (10, pitch), offTick);
-        }
-        if (any) { dtrack.updateMatchedPairs(); dtrack.addEvent (juce::MidiMessage::endOfTrack(), endTick + ppq); file.addTrack (dtrack); }
-    }
-    continue;
+    // Keep the dialog-based export and drag-and-drop on the exact same MIDI
+    // renderer so tempo, time signature, tracks, and articulation cannot drift.
+    const auto output = targetFile.withFileExtension (".mid");
+    const bool exported = exportMidiFileTo (output);
+    if (exported)
+        logFeedback (-1, "export");
+    return exported;
 }
-juce::MidiMessageSequence track;
-for (size_t ei = 0; ei < song.notes.size(); ++ei)
-{
-const auto& e = song.notes[ei];
-if (e.channel != channel)
-continue;
-const double onTick = (double) e.step * ticksPerStep + swingTicks (e.step, (double) ticksPerStep);
-double offTick = swungEndTick (e.step, juce::jmax (1, e.length), (double) ticksPerStep);
-addArticulation (track, songArt[ei], midiCh, onTick, offTick, (double) ticksPerStep);
-const int velocity = juce::jlimit(1, 127, e.velocity);
-track.addEvent(juce::MidiMessage::noteOn(midiCh, e.note, (juce::uint8) velocity), onTick);
-track.addEvent(juce::MidiMessage::noteOff(midiCh, e.note), offTick);
-}
-track.updateMatchedPairs();
-track.addEvent(juce::MidiMessage::endOfTrack(), endTick + ppq);
-file.addTrack(track);
-}
-juce::File output = targetFile.withFileExtension(".mid");
-output.deleteFile();   // 0.45.1: FileOutputStream appends to an existing file
-auto stream = output.createOutputStream();
-if (stream == nullptr)
-return false;
-const bool exported = file.writeTo (*stream, 1);
-if (exported) logFeedback (-1, "export");
-return exported;
-}
+
 void MidiForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
     audio.clear();

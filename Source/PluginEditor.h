@@ -20,6 +20,12 @@ private:
 void timerCallback() override;
 void refreshTaste();
 void scheduleRegeneration (bool preserveSelection);
+void setAdvancedControlsVisible (bool visible);
+void setupMagicLockButton (MidiForgeAudioProcessor::MagicLock parameter, const juce::String& name);
+void syncMagicLockButton (MidiForgeAudioProcessor::MagicLock parameter);
+void refreshMagicLockButtons();
+void placeLockedControl (juce::Component& control, MidiForgeAudioProcessor::MagicLock parameter,
+                         int x, int y, int width, int height = 24);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 // 0.78: MAGIC runs on a worker thread; this overlay blocks input while it works (the generator reads the live controls).
@@ -61,13 +67,17 @@ bool preserveSelectionOnRegenerate = false;
 // Queue one MAGIC request while the background generator is busy.
 // The processor already coalesces normal regeneration requests; this flag keeps MAGIC clicks from being lost.
 bool magicPending = false;
+// Extra musical controls are available on demand without cluttering the compact layout.
+bool advancedControlsVisible = false;
  juce::ComboBox root, scale, progression, rhythm, mode, bars, octave, arpRate, variationBox, moodBox, melodyTypeBox, soundBox, articBox, chordBox;
  juce::Slider chordDensity,bassDensity,melodyDensity,arpDensity;
  juce::Slider swing,humanize,complexity,motifStrength,variationAmount,fillAmount,energy;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
  juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton,humanizeModeButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
+std::array<juce::TextButton, MidiForgeAudioProcessor::kMagicLockCount> magicLockButtons;
  juce::TextButton generate,newSeed,applyVariation,exportMidi,revertBtn;
+juce::TextButton advancedButton { "ADVANCED" };
  juce::ComboBox pianoGridBox;
  juce::TextButton quantizeButton{"QUANTIZE"}, resetViewButton{"RESET VIEW"};
  juce::TextButton phraseButton{"PHRASE"}, barButton{"BAR"}, transposeDownButton{"-12"}, transposeUpButton{"+12"},
@@ -501,7 +511,8 @@ bool magicPending = false;
      {
          if (key.getKeyCode() >= '1' && key.getKeyCode() <= '4')
          {
-             selectedChannel = key.getKeyCode() - '0';
+             // Legacy channel shortcuts now select the only editable lane.
+             selectedChannel = 3;
              repaint();
              return true;
          }

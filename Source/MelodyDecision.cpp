@@ -155,6 +155,7 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
     // unrecovered leaps, tiny mechanical rocking, excessive exact repeats, and
     // weak phrase endings. It remains a soft preference rather than a hard rule.
     float transitionIntegrity = 1.0f;
+    int unrecoveredLargeLeaps = 0;
     if (ordered.size() >= 3)
     {
         float sum = 0.0f;
@@ -176,7 +177,9 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
                 {
                     const bool recovered = d0 != 0 && d1 != 0
                         && ((d0 > 0) != (d1 > 0)) && ad1 <= 5;
-                    q = recovered ? 1.0f : 0.05f;
+                    if (! recovered)
+                        ++unrecoveredLargeLeaps;
+                    q = recovered ? 1.0f : 0.0f;
                 }
 
                 if (ad0 <= 2 && ad1 <= 2 && d0 != 0 && d1 != 0
@@ -242,10 +245,14 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
 
     out.cadenceFit = cadence;
     out.contourFit = contourFit;
+    const float unrecoveredLeapPenalty = std::clamp (
+        (float) unrecoveredLargeLeaps / (float) std::max<size_t> (1, ordered.size() - 1),
+        0.0f, 1.0f) * 0.18f;
     out.phraseIntegrity = std::clamp (
         0.58f * transitionIntegrity
         + 0.22f * out.cadenceFit
-        + 0.20f * out.contourFit,
+        + 0.20f * out.contourFit
+        - unrecoveredLeapPenalty,
         0.0f, 1.0f);
 
     float targetDensity = 0.48f;
@@ -260,21 +267,29 @@ MelodyDecision::Evaluation MelodyDecision::evaluate (
         targetRhythm = 0.26f;
         targetRepeats = 0.68f;
     }
-    else if (complexityClass == Complex)
+    float densityTolerance = 0.33f;
+    float intervalTolerance = 0.38f;
+    float rhythmTolerance = 0.38f;
+    if (complexityClass == Complex)
     {
-        targetDensity = 0.70f;
-        targetIntervals = 0.68f;
-        targetRhythm = 0.68f;
-        targetRepeats = 0.24f;
+        // Complex material must show richer language, but a finite loop should
+        // not be required to hit an unrealistically high normalized density.
+        targetDensity = 0.64f;
+        targetIntervals = 0.60f;
+        targetRhythm = 0.62f;
+        targetRepeats = 0.28f;
+        densityTolerance = 0.40f;
+        intervalTolerance = 0.43f;
+        rhythmTolerance = 0.43f;
     }
 
     out.complexityFit =
-          0.34f * fit (density, targetDensity, 0.33f)
-        + 0.23f * fit (intervalVariety, targetIntervals, 0.38f)
-        + 0.20f * fit (rhythmVariety, targetRhythm, 0.38f)
-        + 0.13f * fit (repeatRatio, targetRepeats, 0.42f)
+          0.34f * fit (density, targetDensity, densityTolerance)
+        + 0.23f * fit (intervalVariety, targetIntervals, intervalTolerance)
+        + 0.20f * fit (rhythmVariety, targetRhythm, rhythmTolerance)
+        + 0.13f * fit (repeatRatio, targetRepeats, 0.46f)
         + 0.10f * fit (longRatio, complexityClass == Simple ? 0.30f
-                           : complexityClass == Complex ? 0.22f : 0.26f, 0.34f);
+                           : complexityClass == Complex ? 0.22f : 0.26f, 0.36f);
 
     // Strong positions carry more harmonic responsibility than weak positions.
     // Weak notes are allowed to be colorful; the line should still feel anchored.

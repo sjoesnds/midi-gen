@@ -1,8 +1,75 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The creator workflow combines a melody with optional chord and bass layers. MAGIC explores new ideas within Key / Scale / Bars, while individual locks keep each chosen switch or parameter fixed across generations.
 
-**Current version: 0.100.0**
+**Current version: 0.106.2**
+
+### 0.106.2 — MUTATE / EVOLVE Safety Repair
+- Mutations now re-check every note's pitch, velocity, onset and loop-tail bounds after rhythmic edits, including bass notes whose lengths were extended.
+- Melody mutations receive a final in-scale pitch repair inside the grounded 48–90 register and a maximum 12-semitone step-to-step leap.
+- The transform QA uses a fixed source seed and reports each failed invariant separately, making sanitizer failures reproducible.
+- No new generator layer or user-facing controls.
+
+### 0.106.1 — Lock & Legacy-State Regression Coverage
+- Extends release QA to prove that individually locked CHORDS and BASS switches remain OFF through repeated MAGIC presses, not only that locked ON states survive.
+- Adds a legacy v3 state fixture matching 0.105.x projects: the previously edited melody must be retained while chord and bass lanes are restored.
+- Keeps the 0.106.0 behavior unchanged; this patch strengthens the release gate before merge.
+
+### 0.106.0 — Chords, Bass & Per-Control MAGIC Locks
+- Restores chord and bass generation as first-class output layers, enabled by default. They are exported and dragged into FL Studio with the melody.
+- Adds a lock button beside every visible parameter MAGIC can randomize: chord/bass switches, progression, rhythm, register, mood, melody type, densities, note length, pause/leap/ghost behavior, complexity, motif, variation, energy, chord extensions and inversions.
+- A locked value survives MAGIC exactly. Unlocked chord/bass switches can explore enabled/disabled states, biased toward leaving both layers on. Key / Scale / Bars remain fixed creator constraints.
+- Keeps arpeggios, drums and retired SoundCloud mode disabled in the compact creator workflow.
+- Advances project state to v4 so per-control locks survive save/load. Older 0.105.x melody-only projects that saved both accompaniment layers off are migrated with both layers restored.
+- Expands headless QA to cover mixed-layer MIDI, loop bounds, tonal/register safety, all 21 parameter locks, export/drag payloads and state round-trips.
+
+### 0.105.2 — Melody Phrase Quality
+- Repairs consecutive large intervals that immediately reverse direction.
+- Penalizes these awkward “ping-pong” contours and tries wider scale-safe pitch alternatives.
+- Runs repair after phrase shaping and adds a regression metric for severe opposing leap pairs across 96 variations.
+
+### 0.105.1 — Melody Grid & Creator Focus
+- Keeps the creator-facing composition boundary to **Key / Scale / Bars**; the ADVANCED drawer, HOOK mode and the legacy SOUNDCLOUD mode are removed from the visible workflow.
+- Enforces the melody's eighth-note onset grid after both generation and MUTATE / EVOLVE; when a crowded bar has no open grid position, excess attacks are dropped instead of being pushed into the next bar.
+- MAGIC preserves the creator's explicit Swing / Humanize performance settings instead of randomizing them as part of melody generation.
+- MAGIC no longer randomly enables the retired SoundCloud-specific melody behavior, which belongs to the separate Shakalizer project.
+- Added the original melody-focused release suite across every scale and all eight MAGIC slots for tonal safety, grounded register, variation diversity and the strict rhythmic grid.
+- The 0.105.x state loader normalized chord/bass flags off. Version 0.106.0 upgrades states saved by that release and restores both layers by default while retaining MIDI/project-state compatibility.
+
+### 0.105.0 — Melody-Only Core
+- Makes new generation produce a single editable melody lane; MAGIC keeps chord, bass, arpeggio and drum output disabled.
+- Removes the chord-driven final repair pass from the generation line. Scale, register, rhythm and phrase quality are judged from the melody itself.
+- Preserves compatibility with older project-state formats, then normalizes deprecated accompaniment flags/locks off and imports only saved MIDI channel 3 notes.
+- Hides chord/bass, arpeggio/drum, accompaniment density, and separate-layer controls from the creator UI while keeping MIDI export, piano roll editing, MAGIC, SIMILAR, MUTATE and EVOLVE.
+- This branch follows the clean strict-grid branch plus the independent .104 melody-quality work; it deliberately does not include PR #59's unwanted harmony layer.
+
+### 0.104.0 — MAGIC Melody Quality & Diversity
+- Scores the finished melody against its declared Simple / Medium / Complex intent, so Simple loops are rewarded for leaving space and Complex loops need genuine pitch and rhythmic vocabulary.
+- Adds register center to candidate-behavior distance, helping the eight-slot bank preserve distinct melodic placements instead of over-pruning them as near-clones.
+- Rebalances MAGIC selection toward musical novelty and minimum pairwise diversity while retaining the existing shared musical-quality judge.
+- Strengthens phrase-integrity scoring for unrecovered large leaps and makes the SIMILAR structural distance include note lengths.
+- Keeps drum onset patterns fixed during MUTATE / EVOLVE; transformations can still change accents without unexpectedly moving the groove.
+- Retains internal tonal guidance while keeping user-facing output focused on a single melodic lane.
+
+### 0.102.0 — Strict Musical Grid
+- Enforces a predictable note-onset lattice and loop boundaries; the melody-only path keeps melody attacks on eighth-note subdivisions.
+- Keeps Swing and optional Humanize separate from authored note positions, so timing feel remains a deliberate performance choice.
+- Low-level compatibility tests still exercise legacy layer builders, but MAGIC excludes those separate layers from new generated loops.
+
+### 0.101.0 — MIDI Workflow Reliability
+- Unifies dialog export and drag-and-drop behind one MIDI renderer so both paths preserve the same tempo, 4/4 time signature, note tracks and articulation.
+- Adds a conductor track with the current host BPM and 4/4 signature to every exported and temporary drag MIDI file.
+- Avoids generating empty instrument tracks and refuses to create a part-drag file when the selected variation has no notes for that part.
+- Validates drum-row and part-channel requests, writes temporary MIDI files using unique paths, flushes output before checking file size, and deletes partial files after write failures.
+- Adds headless checks for tempo/time-signature metadata, per-part MIDI channel isolation, and the absence of fake drag files for empty layers.
+- A successful CI build still does not replace FL Studio validation of OLE Drag-and-Drop and long-session behavior.
+
+### 0.100.1 — Feature Restoration & Advanced Controls
+- Adds an **ADVANCED / HIDE ADVANCED** drawer so progression, rhythm, mood, melody type, sound target, articulation, chord style, octave, arp rate and per-part musical controls remain user-accessible without crowding the compact default screen.
+- Restores visible access to NEW SEED, chord extensions, inversions, HOOK, SOUNDCLOUD, TASTE ML and Taste reset; the core chord, bass, melody, arp and drums layer switches remain on the main surface.
+- Expands the editor only while Advanced is open and reflows the Piano Roll, performance controls and export workflow so controls do not overlap.
+- Adds state round-trip regression coverage for layer switches, layer locks, SoundCloud mode, Humanize, Swing and per-layer density settings.
+- Keeps all restored functions in the existing generator; this release focuses on access and preservation, not adding another generation engine.
 
 ### 0.100.0 — Musical Expression Core
 - Tightens the existing Rhythm Grammar so low-complexity material is authored with a smaller event budget instead of being filled by ornament density.
@@ -389,7 +456,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - The candidate Judge now scores backing/lead interplay: meaningful shared accents, use of open space and register separation all influence MAGIC selection.
 - The feature remains loop-centric and deterministic; it does not add song/arrangement generation.
 
-## What it does
+## Historical feature inventory (older versions; the current creator workflow supports melody, chords and bass)
 
 ### Composition
 - Root note, scale and progression control
@@ -611,7 +678,7 @@ Requirements:
 - a C++17 compiler
 - JUCE 8.0.14 is fetched automatically by CMake
 
-The project currently builds **VST3 only**.
+The project currently builds **VST3 only**. Chords and bass are supported alongside the melody; per-control MAGIC locks are part of the 0.106.0 creator workflow.
 
 Typical CMake flow:
 ```powershell
