@@ -10988,8 +10988,12 @@ void MidiForgeAudioProcessor::magicRandomize()
         x *= 0x846ca68bu; x ^= x >> 16; return x;
     };
 
-    const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
-    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
+    // MAGIC's creative search must be reproducible from the project seed and
+    // persisted press index. NEW SEED remains the explicit way to request a
+    // fresh random starting point; wall-clock time must not leak into MAGIC.
+    const uint32_t pressIndex = ++magicPressCounter;
+    const uint32_t pressHash = magicHash32 (pressIndex ^ 0x4D414749u);
+    magicDnaSeed = magicHash32 (generationSeed ^ pressHash ^ 0x51A7D00Du);
     juce::Random r((juce::int64) magicDnaSeed);
     auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
     auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
