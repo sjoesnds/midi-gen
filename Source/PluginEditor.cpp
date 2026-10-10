@@ -621,11 +621,13 @@ void MidiForgeAudioProcessorEditor::placeLockedControl (
 void MidiForgeAudioProcessorEditor::setAdvancedControlsVisible (bool visible)
 {
     advancedControlsVisible = visible;
-    for (auto* c : { &progression, &rhythm, &octave, &moodBox, &melodyTypeBox, &soundBox,
-                     &articBox, &extensions, &inversions, &chordDensity, &bassDensity })
-        c->setVisible (visible);
-    for (auto* slider : { &melodyDensity, &complexity, &motifStrength, &variationAmount,
-                          &fillAmount, &energy, &melodyLength, &pauseChance, &leapChance, &ghostChance })
+    for (auto* combo : { &progression, &rhythm, &octave, &moodBox, &melodyTypeBox, &soundBox, &articBox })
+        combo->setVisible (visible);
+    for (auto* toggle : { &extensions, &inversions })
+        toggle->setVisible (visible);
+    for (auto* slider : { &chordDensity, &bassDensity, &melodyDensity, &complexity,
+                          &motifStrength, &variationAmount, &fillAmount, &energy,
+                          &melodyLength, &pauseChance, &leapChance, &ghostChance })
         slider->setVisible (visible);
 
     for (const auto parameter : {
