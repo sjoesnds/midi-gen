@@ -310,6 +310,8 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
         }
 
         v[index].step = target;
+        const int availableLength = juce::jmax (1, maxStep - target + 1);
+        v[index].length = juce::jlimit (1, availableLength, v[index].length);
         previous = target;
     }
 
@@ -500,6 +502,12 @@ void MidiForgeAudioProcessor::melodyRegisterContract (int& lo, int& hi, int& max
     lo = juce::jlimit (0, 127, lo);
     hi = juce::jlimit (lo + 1, 127, hi);
     hi = juce::jmin (hi, profile.laneCap);
+
+    // MIDI Forge's current lead workflow must stay grounded; wider register
+    // exploration is deliberate, but no standard melodic output may rise
+    // above MIDI pitch 90. Keep the lower bound valid if a profile starts high.
+    hi = juce::jmin (90, hi);
+    lo = juce::jmin (lo, hi - 1);
     // 0.87 Style / Safety split: this contract is a hard validity ceiling,
     // not a melodic-style rule. Keep it aligned with the sound profile so the
     // final pass does not undo expressive interval language that generation
