@@ -2043,8 +2043,8 @@ int main()
     {
         MidiForgeAudioProcessor a; a.setSoundTarget (7); a.setArticulation (2); a.setAutoNext (false); a.setChordStyle (2); a.setDrumsEnabled (true);
         a.setDrumMuteMask (0x0A); a.setDrumPitchMode (1);
-        // Feature-restoration regression: layer switches, locks and expressive controls
-        // must survive a save/load instead of silently reverting to factory defaults.
+        // Legacy fields remain readable, but deprecated layers and SoundCloud behavior
+        // must normalize off when an old project is loaded into the melody-only product.
         a.setChordsEnabled (false); a.setBassEnabled (false);
         a.setMelodyEnabled (true); a.setArpEnabled (true);
         a.setLeadStyleSoundCloud (true);
@@ -2071,7 +2071,7 @@ int main()
         const bool restoredLayerState =
             ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled()
             && ! b.isArpEnabled() && ! b.isDrumsEnabled()
-            && b.getLeadStyleSoundCloud()
+            && ! b.getLeadStyleSoundCloud()
             && ! b.getLockChords() && ! b.getLockBass() && ! b.getLockMelody() && ! b.getLockArp()
             && std::abs (b.getMelodyDensity() - 0.72f) < 0.001f
             && std::abs (b.getSwing() - 0.12f) < 0.001f
@@ -4072,36 +4072,162 @@ int main()
                      (double) channelNotes[5]));
     }
 
-    // 0.105.0 removes the arrangement-level chord/bass correction contract:
-    // melody candidates are now judged and exported as independent single-line ideas.
-
+    // ------------------------------------------------------------------ 16. 0.105.1 melody-only, tonal, register and strict-grid contract
     {
-        MidiForgeAudioProcessor melodyOnly;
-        melodyOnly.setFeedbackLogFile (juce::File());
-        melodyOnly.setRoot (7);
-        melodyOnly.setScale (2);
-        melodyOnly.setBars (4);
-        melodyOnly.setSeed (105010);
-        melodyOnly.magicRandomize();
-        melodyOnly.waitForGeneration();
-
-        const auto notes = melodyOnly.getVisibleNotes();
-        const bool hasMelody = std::any_of (notes.begin(), notes.end(),
-            [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
-        const bool onlyMelody = ! notes.empty() && hasMelody
-            && std::all_of (notes.begin(), notes.end(),
-                [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
-        const bool inLoop = std::all_of (notes.begin(), notes.end(),
-            [] (const MidiForgeAudioProcessor::VisibleNote& n)
+        static const std::array<std::array<int, 12>, 12> scales =
+        {{
+            {{0,2,4,5,7,9,11, -1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,9,10,-1,-1,-1,-1,-1}},
+            {{0,1,3,5,7,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,8,11,-1,-1,-1,-1,-1}},
+            {{0,2,3,5,7,9,11,-1,-1,-1,-1,-1}},
+            {{0,2,4,7,9,-1,-1,-1,-1,-1,-1,-1}},
+            {{0,2,4,6,7,9,11,-1,-1,-1,-1,-1}},
+            {{0,2,4,5,7,9,10,-1,-1,-1,-1,-1}},
+            {{0,1,3,5,6,8,10,-1,-1,-1,-1,-1}},
+            {{0,2,4,5,7,8,11,-1,-1,-1,-1,-1}},
+            {{0,3,5,6,7,10,-1,-1,-1,-1,-1,-1}}
+        }};
+        const auto isInScale = [&] (const Note& n, int root, int scaleIndex)
+        {
+            if (scaleIndex < 0 || scaleIndex >= (int) scales.size())
+                return false;
+            const int rel = ((n.note % 12) - root + 12) % 12;
+            for (const int degree : scales[(size_t) scaleIndex])
             {
-                return n.step >= 0 && n.step < 64 && n.length >= 1 && n.length <= 16
-                    && n.note >= 0 && n.note <= 127;
-            });
+                if (degree < 0) break;
+                if (degree == rel) return true;
+            }
+            return false;
+        };
 
-        report ("0.105 melody-only: generation emits a single melodic lane",
-                onlyMelody, fmt ("%d visible notes", (int) notes.size()));
-        report ("0.105 melody-only: output notes remain valid inside the loop",
-                inLoop, fmt ("%d checked notes", (int) notes.size()));
+        bool onlyMelody = true;
+        bool populated = true;
+        bool inLoop = true;
+        bool onEighthGrid = true;
+        bool tonal = true;
+        bool registerSafe = true;
+        bool leapsSafe = true;
+        bool spacingSafe = true;
+        bool uniqueOnsets = true;
+        bool creatorConstraintsPreserved = true;
+        bool soundCloudRetired = true;
+        int checkedNotes = 0;
+        int checkedLoops = 0;
+
+        for (int scaleIndex = 0; scaleIndex < 12; ++scaleIndex)
+        {
+            MidiForgeAudioProcessor p;
+            p.setFeedbackLogFile (juce::File());
+            const int root = (scaleIndex * 5 + 7) % 12;
+            p.setRoot (root);
+            p.setScale (scaleIndex);
+            p.setBars (4);
+            p.setSeed (105100 + scaleIndex * 97);
+            p.waitForGeneration();
+            p.magicRandomize();
+            p.waitForGeneration();
+
+            creatorConstraintsPreserved = creatorConstraintsPreserved
+                && p.getRoot() == root && p.getScale() == scaleIndex && p.getVisibleBars() == 4;
+            soundCloudRetired = soundCloudRetired && ! p.getLeadStyleSoundCloud();
+
+            for (int v = 0; v < p.getVariationCount(); ++v)
+            {
+                p.chooseVariation (v);
+                const auto notes = p.getVisibleNotes();
+                ++checkedLoops;
+                populated = populated && ! notes.empty();
+                onlyMelody = onlyMelody && ! notes.empty()
+                    && std::all_of (notes.begin(), notes.end(),
+                        [] (const Note& n) { return n.channel == 3; });
+
+                const int loopSteps = p.getVisibleBars() * 16;
+                inLoop = inLoop && std::all_of (notes.begin(), notes.end(),
+                    [loopSteps] (const Note& n)
+                    {
+                        return n.step >= 0 && n.step < loopSteps
+                            && n.length >= 1 && n.length <= 16
+                            && n.note >= 0 && n.note <= 127;
+                    });
+
+                std::vector<std::pair<int, int>> timeline;
+                std::set<int> onsetSteps;
+                for (const auto& n : notes)
+                {
+                    if (n.channel != 3) continue;
+                    ++checkedNotes;
+                    onEighthGrid = onEighthGrid && ((n.step & 1) == 0);
+                    tonal = tonal && isInScale (n, p.getRoot(), p.getScale());
+                    registerSafe = registerSafe && n.note >= 48 && n.note <= 90;
+                    uniqueOnsets = uniqueOnsets && onsetSteps.insert (n.step).second;
+                    timeline.push_back ({ n.step, n.note });
+                }
+                std::stable_sort (timeline.begin(), timeline.end(),
+                    [] (const auto& a, const auto& b)
+                    {
+                        if (a.first != b.first) return a.first < b.first;
+                        return a.second < b.second;
+                    });
+                for (size_t i = 1; i < timeline.size(); ++i)
+                {
+                    spacingSafe = spacingSafe && timeline[i].first - timeline[i - 1].first >= 2;
+                    leapsSafe = leapsSafe && std::abs (timeline[i].second - timeline[i - 1].second) <= 12;
+                }
+            }
+        }
+
+        report ("0.105.1 melody-only: all MAGIC variations contain only one melodic lane",
+                onlyMelody && checkedLoops >= 96,
+                fmt ("%d populated variation slots checked", checkedLoops));
+        report ("0.105.1 rhythm: melody onsets stay on the strict 1/8 grid",
+                onEighthGrid && checkedNotes > 0,
+                fmt ("%d melody attacks checked", checkedNotes));
+        report ("0.105.1 rhythm: no same-step collisions or one-step gaps",
+                uniqueOnsets && spacingSafe,
+                "attacks are unique and at least two sixteenth-steps apart");
+        report ("0.105.1 melody-only: every note stays inside loop and MIDI bounds",
+                inLoop && populated,
+                fmt ("%d populated loops checked", checkedLoops));
+        report ("0.105.1 tonal: every melody note stays in the selected scale",
+                tonal && checkedNotes > 0, fmt ("%d melody notes checked", checkedNotes));
+        report ("0.105.1 register: generated melody stays inside the safe register",
+                registerSafe && checkedNotes > 0, "pitch range 48-90");
+        report ("0.105.1 phrase: adjacent melody notes avoid unsafe leaps",
+                leapsSafe && checkedNotes > 0, "all chronological pitch gaps <= 12 semitones");
+        report ("0.105.1 creator-first: MAGIC preserves Key / Scale / Bars",
+                creatorConstraintsPreserved, "all 12 scales and all eight variations");
+        report ("0.105.1 creative focus: retired SoundCloud mode stays disabled",
+                soundCloudRetired, "SoundCloud-specific generation belongs to Shakalizer");
+
+        MidiForgeAudioProcessor transformed;
+        transformed.setFeedbackLogFile (juce::File());
+        transformed.setRoot (7);
+        transformed.setScale (2);
+        transformed.setBars (4);
+        transformed.setSeed (105901);
+        transformed.waitForGeneration();
+        transformed.magicRandomize();
+        transformed.waitForGeneration();
+
+        const auto transformedMelodyOnGrid = [] (const std::vector<Note>& notes, int bars)
+        {
+            if (notes.empty()) return false;
+            for (const auto& n : notes)
+                if (n.channel != 3 || n.step < 0 || n.step >= bars * 16 || (n.step & 1) != 0)
+                    return false;
+            return true;
+        };
+        bool transformedGrid = true;
+        transformed.mutateSelected (0.45f);
+        transformedGrid = transformedGrid
+            && transformedMelodyOnGrid (transformed.getVisibleNotes(), transformed.getVisibleBars());
+        transformed.evolveSelected();
+        transformedGrid = transformedGrid
+            && transformedMelodyOnGrid (transformed.getVisibleNotes(), transformed.getVisibleBars());
+        report ("0.105.1 rhythm: MUTATE / EVOLVE preserve the melody grid",
+                transformedGrid, "transformed notes remain on eighths and inside the loop");
     }
 
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
