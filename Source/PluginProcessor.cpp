@@ -10906,6 +10906,54 @@ void MidiForgeAudioProcessor::magicRandomize()
         bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
     }
 
+    if (!lockMelodyLayer)
+    {
+        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
+        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
+        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
+        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
+        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
+        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
+        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
+    }
+
+    if (!lockArpLayer)
+    {
+        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
+        static constexpr int arpChoices[] = {1,2,4,8};
+        arpRate = arpChoices[pick(4)];
+    }
+
+    // Global musical identity. These affect all layers coherently.
+        // Hidden strategy axes are still free to change on every MAGIC press.
+    // They are implementation detail, not user-facing genre/mood/type controls.
+    mood = pick(9);
+    melodyType = pick(8);
+    rhythm = pick(4);
+    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
+    era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
+
+    swing = juce::jlimit(.0f,.40f, dnaGroove*.34f);
+    humanize = juce::jlimit(.05f,.30f,.07f + dnaGroove*.16f);
+    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
+    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
+    energy = dnaEnergy;
+
+    // Rhythm DNA still gets a chance to create distinct identities.
+    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
+    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
+    hookMode = dnaMotif > .46f;
+    // Retired accompaniment layers remain off in the melody-only creator.
+    // Keep legacy builders for compatibility QA, but MAGIC must not add separate
+    // chord, bass, arpeggio or drum lanes to a new loop.
+    chordsEnabled = false;
+    bassEnabled = false;
+    melodyEnabled = true;
+    arpEnabled = false;
+    drumsEnabled = false;
+    lockChordsLayer = false;
+    lockBassLayer = false;
+    lockArpLayer = false;
     // SoundCloud-specific generation lives in the separate Shakalizer project.
     // Retire that legacy mode unconditionally, even for old locked project state.
     leadStyleSoundCloud = false;
