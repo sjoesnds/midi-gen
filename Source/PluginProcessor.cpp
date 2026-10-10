@@ -9546,12 +9546,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
         {
             const uint32_t strategyHash = hash32 (
                 identity ^ 0xC7E4A1B3u ^ (uint32_t) (c + 1) * 0x9E3779B9u);
-            mood = (int) (strategyHash % 9u);
-            melodyType = (int) ((strategyHash >> 5) % 8u);
-            rhythm = (int) ((strategyHash >> 11) % 4u);
-            progression = (int) ((strategyHash >> 17) % 7u);
-            static constexpr int octaveChoices[] = { 3, 4, 4, 5, 6 };
-            octave = octaveChoices[(strategyHash >> 23) % 5u];
+            if (!isMagicParameterLocked (MagicLock::Mood))
+                mood = (int) (strategyHash % 9u);
+            if (!isMagicParameterLocked (MagicLock::MelodyType))
+                melodyType = (int) ((strategyHash >> 5) % 8u);
+            if (!isMagicParameterLocked (MagicLock::Rhythm))
+                rhythm = (int) ((strategyHash >> 11) % 4u);
+            if (!isMagicParameterLocked (MagicLock::Progression))
+                progression = (int) ((strategyHash >> 17) % 7u);
+            if (!isMagicParameterLocked (MagicLock::Octave))
+            {
+                static constexpr int octaveChoices[] = { 3, 4, 4, 5, 6 };
+                octave = octaveChoices[(strategyHash >> 23) % 5u];
+            }
         }
 
         // First pass explores broadly. After 600 candidates, MAGIC 4 nudges the
@@ -9568,23 +9575,31 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 adaptive.motif + randomJitter * 0.10f);
             const float targetSurprise = juce::jlimit (0.10f, 0.90f,
                 adaptive.surprise + randomJitter * 0.14f);
-            melodyDensity = juce::jlimit (0.10f, 0.92f,
-                oldMelodyDensity * (1.0f - adapt) + targetDensity * adapt);
-            pauseChance = juce::jlimit (0.02f, 0.46f,
-                (1.0f - melodyDensity) * 0.34f + adaptive.space * 0.16f);
-            leapChance = juce::jlimit (0.03f, 0.52f,
-                oldLeapChance * (1.0f - adapt) + targetLeap * adapt);
-            motifStrength = juce::jlimit (0.30f, 0.99f,
-                oldMotifStrength * (1.0f - adapt) + targetMotif * adapt);
-            complexity = juce::jlimit (0.14f, 0.94f,
-                oldComplexity * (1.0f - adapt) + targetSurprise * adapt);
-            swing = juce::jlimit (0.0f, 0.55f,
-                oldSwing * (1.0f - adapt) + adaptive.rhythm * 0.42f * adapt);
-            octave = juce::jlimit (2, 6, oldOctave + (adaptive.reg > 0.62f ? 1 : adaptive.reg < 0.30f ? -1 : 0));
+            if (!isMagicParameterLocked (MagicLock::MelodyDensity))
+                melodyDensity = juce::jlimit (0.10f, 0.92f,
+                    oldMelodyDensity * (1.0f - adapt) + targetDensity * adapt);
+            if (!isMagicParameterLocked (MagicLock::PauseChance))
+                pauseChance = juce::jlimit (0.02f, 0.46f,
+                    (1.0f - melodyDensity) * 0.34f + adaptive.space * 0.16f);
+            if (!isMagicParameterLocked (MagicLock::LeapChance))
+                leapChance = juce::jlimit (0.03f, 0.52f,
+                    oldLeapChance * (1.0f - adapt) + targetLeap * adapt);
+            if (!isMagicParameterLocked (MagicLock::MotifStrength))
+                motifStrength = juce::jlimit (0.30f, 0.99f,
+                    oldMotifStrength * (1.0f - adapt) + targetMotif * adapt);
+            if (!isMagicParameterLocked (MagicLock::Complexity))
+                complexity = juce::jlimit (0.14f, 0.94f,
+                    oldComplexity * (1.0f - adapt) + targetSurprise * adapt);
+            // Swing is an explicit performance choice: adaptive search must
+            // not rewrite the user's feel while MAGIC searches for new ideas.
+            if (!isMagicParameterLocked (MagicLock::Octave))
+                octave = juce::jlimit (2, 6, oldOctave
+                    + (adaptive.reg > 0.62f ? 1 : adaptive.reg < 0.30f ? -1 : 0));
         }
 
-        variationAmount = juce::jlimit (0.f, 1.f,
-            oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
+        if (!isMagicParameterLocked (MagicLock::VariationAmount))
+            variationAmount = juce::jlimit (0.f, 1.f,
+                oldVariation + randomJitter * (adaptive.ready ? 0.11f : 0.035f));
         buildBaseSong(song,local,c+1);
 
         // Keep this candidate's hidden strategy active while the complete
