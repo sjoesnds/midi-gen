@@ -1,4 +1,4 @@
-// MIDI Forge 0.105.1 release checks for the supported melody-only product.
+// MIDI Forge 0.105.2 release checks for the supported melody-only product.
 #include "PluginProcessor.h"
 
 #include <algorithm>
@@ -64,6 +64,7 @@ namespace
         bool registerSafe = true;
         bool leapsSafe = true;
         int noteCount = 0;
+        int severeLeapReversals = 0;
     };
 
     MelodyChecks inspectMelody (const std::vector<Note>& notes,
@@ -111,6 +112,18 @@ namespace
             c.spacing = c.spacing && timeline[i].first - timeline[i - 1].first >= 2;
             c.leapsSafe = c.leapsSafe
                 && std::abs (timeline[i].second - timeline[i - 1].second) <= 12;
+
+            if (i >= 2)
+            {
+                const int previousDelta = timeline[i - 1].second - timeline[i - 2].second;
+                const int currentDelta = timeline[i].second - timeline[i - 1].second;
+                const bool reverses = (previousDelta > 0 && currentDelta < 0)
+                                   || (previousDelta < 0 && currentDelta > 0);
+                if (std::abs (previousDelta) >= 7
+                    && std::abs (currentDelta) >= 7
+                    && reverses)
+                    ++c.severeLeapReversals;
+            }
         }
         return c;
     }
@@ -184,6 +197,7 @@ int main()
     bool allRetiredModesOff = true;
     int checkedSlots = 0;
     int checkedNotes = 0;
+    int severeLeapReversals = 0;
     int diverseBanks = 0;
 
     // Exercise all declared scales with eight selected candidates per scale.
@@ -223,6 +237,7 @@ int main()
             const auto c = inspectMelody (notes, p.getVisibleBars(), root, scale);
             ++checkedSlots;
             checkedNotes += c.noteCount;
+            severeLeapReversals += c.severeLeapReversals;
             allMelodyOnly = allMelodyOnly && c.populated && c.onlyMelody;
             allInLoop = allInLoop && c.inLoop;
             allOnGrid = allOnGrid && c.onGrid;
@@ -253,6 +268,10 @@ int main()
           allRegisterSafe && checkedNotes > 0, "MIDI pitches 48–90");
     check ("Generated melody avoids unsafe pitch leaps",
           allLeapsSafe && checkedNotes > 0, "adjacent pitches differ by at most 12 semitones");
+    check ("MAGIC limits abrupt large-leap reversals",
+          severeLeapReversals <= 14,
+          juce::String (severeLeapReversals)
+              + " opposing leap pairs across 96 generated variations");
     check ("MAGIC preserves explicit performance settings",
           allPerformancePreserved, "Swing and Humanize remain user-controlled");
     check ("Retired accompaniment and SoundCloud modes stay disabled",
