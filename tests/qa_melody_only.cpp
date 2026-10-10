@@ -450,7 +450,7 @@ int main()
                juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + juce::String (firstBank.c_str()));
         check ("MAGIC first press matches frozen MIDI golden",
                firstBank == expectedFirstBank,
-               juce::String ("expected=") + expectedFirstBank
+               juce::String ("expected=") + juce::String (expectedFirstBank)
                    + " actual=" + juce::String (firstBank.c_str()));
         std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
                      fixedSeed, firstBank.c_str());
@@ -462,7 +462,7 @@ int main()
         const std::string expectedNextBank = midiBankFingerprint (first);
         check ("MAGIC second press matches frozen MIDI golden",
                expectedNextBank == expectedNextBankGolden,
-               juce::String ("expected=") + expectedNextBankGolden
+               juce::String ("expected=") + juce::String (expectedNextBankGolden)
                    + " actual=" + juce::String (expectedNextBank.c_str()));
         std::printf ("MAGIC_GOLDEN_NEXT seed=%d fingerprint=%s\n",
                      fixedSeed, expectedNextBank.c_str());
