@@ -1,8 +1,8 @@
 name: Quality checks
 
-# Runs the generator headless on Linux and fails the build when the music gets worse:
-# incomplete chords, missing bass, jumpy melodies, one groove everywhere, broken profiles,
-# broken articulation, Taste ML that no longer learns, broken project state.
+# Runs the current melody-only product headless. The predecessor's all-layer QA is kept in
+# tests/qa_main.cpp as historical coverage; release gates here match the supported workflow:
+# Key / Scale / Bars, strict rhythm grid, musical safety, MIDI export and state round-trip.
 on:
   push:
   pull_request:
