@@ -10982,73 +10982,86 @@ void MidiForgeAudioProcessor::magicRandomize()
     dnaEnergy  = juce::jlimit(.0f,1.0f, .20f + rf(.0f,.70f));
     dnaSurprise= juce::jlimit(.0f,1.0f, .12f + rf(.0f,.58f));
 
-    // Keep layer locks meaningful: a locked layer keeps its character controls.
-    if (!lockChordsLayer)
-    {
-        // Key and scale are explicit creator constraints. MAGIC explores the
-        // musical idea inside them instead of moving the goalposts.
-        progression = pick(7);
-        chordDensity = juce::jlimit(.35f,1.0f,.50f + dnaHarmony*.48f);
-        chordExtensions = r.nextFloat() > (.48f - dnaHarmony*.22f);
+    // Each visible control has its own MAGIC lock. Locks are independent:
+    // protecting chord density must not also freeze progression or inversions.
+    // Key / Scale / Bars remain explicit creator constraints and are never randomized.
+    if (!isMagicParameterLocked (MagicLock::Progression))
+        progression = pick (7);
+    if (!isMagicParameterLocked (MagicLock::ChordDensity))
+        chordDensity = juce::jlimit (.35f, 1.0f, .50f + dnaHarmony * .48f);
+    if (!isMagicParameterLocked (MagicLock::ChordExtensions))
+        chordExtensions = r.nextFloat() > (.48f - dnaHarmony * .22f);
+    if (!isMagicParameterLocked (MagicLock::Inversions))
         inversions = r.nextFloat() > .28f;
-        voicingWidth = juce::jlimit(.20f,.85f,.25f + dnaHarmony*.55f);
-    }
+    if (!isMagicParameterLocked (MagicLock::BassDensity))
+        bassDensity = juce::jlimit (.25f, .95f, .28f + dnaRhythm * .52f);
 
-    if (!lockBassLayer)
-    {
-        bassDensity = juce::jlimit(.25f,.95f,.28f + dnaRhythm*.52f);
-    }
+    if (!isMagicParameterLocked (MagicLock::MelodyDensity))
+        melodyDensity = juce::jlimit (.20f, .88f, .22f + dnaMelody * .62f);
+    if (!isMagicParameterLocked (MagicLock::MelodyLength))
+        melodyLength = juce::jlimit (.12f, .82f, .18f + dnaMelody * .48f);
+    if (!isMagicParameterLocked (MagicLock::PauseChance))
+        pauseChance = juce::jlimit (.04f, .42f, .32f - dnaRhythm * .20f);
+    if (!isMagicParameterLocked (MagicLock::LeapChance))
+        leapChance = juce::jlimit (.04f, .48f, .06f + dnaRegister * .34f);
+    if (!isMagicParameterLocked (MagicLock::GhostChance))
+        ghostChance = juce::jlimit (.01f, .24f, .03f + dnaGroove * .12f);
+    if (!isMagicParameterLocked (MagicLock::MotifStrength))
+        motifStrength = juce::jlimit (.45f, .98f, dnaMotif);
+    if (!isMagicParameterLocked (MagicLock::VariationAmount))
+        variationAmount = juce::jlimit (.18f, .85f, .22f + dnaSurprise * .55f);
 
-    if (!lockMelodyLayer)
-    {
-        melodyDensity = juce::jlimit(.20f,.88f,.22f + dnaMelody*.62f);
-        melodyLength = juce::jlimit(.12f,.82f,.18f + dnaMelody*.48f);
-        pauseChance = juce::jlimit(.04f,.42f,.32f - dnaRhythm*.20f);
-        leapChance = juce::jlimit(.04f,.48f,.06f + dnaRegister*.34f);
-        ghostChance = juce::jlimit(.01f,.24f,.03f + dnaGroove*.12f);
-        motifStrength = juce::jlimit(.45f,.98f,dnaMotif);
-        variationAmount = juce::jlimit(.18f,.85f,.22f + dnaSurprise*.55f);
-    }
-
-    if (!lockArpLayer)
-    {
-        arpDensity = juce::jlimit(.03f,.58f,.05f + dnaRhythm*.42f);
-        static constexpr int arpChoices[] = {1,2,4,8};
-        arpRate = arpChoices[pick(4)];
-    }
+    // Voicing width has no separate creator control yet; keep it aligned with
+    // the chord-generation controls without overriding a fully locked chord setup.
+    if (!isMagicParameterLocked (MagicLock::Progression)
+        || !isMagicParameterLocked (MagicLock::ChordDensity))
+        voicingWidth = juce::jlimit (.20f, .85f, .25f + dnaHarmony * .55f);
 
     // Global musical identity. These affect all layers coherently.
         // Hidden strategy axes are still free to change on every MAGIC press.
     // They are implementation detail, not user-facing genre/mood/type controls.
-    mood = pick(9);
-    melodyType = pick(8);
-    rhythm = pick(4);
-    { static constexpr int octaveChoices[] = {3, 4, 4, 5}; octave = octaveChoices[pick(4)]; }
+    if (!isMagicParameterLocked (MagicLock::Mood))
+        mood = pick (9);
+    if (!isMagicParameterLocked (MagicLock::MelodyType))
+        melodyType = pick (8);
+    if (!isMagicParameterLocked (MagicLock::Rhythm))
+        rhythm = pick (4);
+    if (!isMagicParameterLocked (MagicLock::Octave))
+    {
+        static constexpr int octaveChoices[] = { 3, 4, 4, 5 };
+        octave = octaveChoices[pick (4)];
+    }
     era = 5; // Fixed modern melodic context (20s); retained only for legacy state compatibility.
 
     // Swing and Humanize are explicit performance choices. MAGIC must not
     // randomize them; authored MIDI stays rhythmically clean unless the user
     // deliberately applies a performance override.
 
-    complexity = juce::jlimit(.20f,.92f,.25f + dnaSurprise*.48f + dnaMelody*.15f);
-    fillAmount = juce::jlimit(.04f,.38f,.06f + dnaEnergy*.25f);
-    energy = dnaEnergy;
+    if (!isMagicParameterLocked (MagicLock::Complexity))
+        complexity = juce::jlimit (.20f, .92f, .25f + dnaSurprise * .48f + dnaMelody * .15f);
+    if (!isMagicParameterLocked (MagicLock::FillAmount))
+        fillAmount = juce::jlimit (.04f, .38f, .06f + dnaEnergy * .25f);
+    if (!isMagicParameterLocked (MagicLock::Energy))
+        energy = dnaEnergy;
 
-    // Rhythm DNA still gets a chance to create distinct identities.
-    if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
-    if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
+    // Let the hidden rhythm DNA refine the rhythm only when its lock is open.
+    if (!isMagicParameterLocked (MagicLock::Rhythm))
+    {
+        if (dnaRhythm > .72f && r.nextFloat() > .35f) rhythm = Syncopated;
+        if (dnaRhythm < .28f && r.nextFloat() > .30f) rhythm = Straight;
+    }
     hookMode = dnaMotif > .46f;
-    // Retired accompaniment layers remain off in the melody-only creator.
-    // Keep legacy builders for compatibility QA, but MAGIC must not add separate
-    // chord, bass, arpeggio or drum lanes to a new loop.
-    chordsEnabled = false;
-    bassEnabled = false;
+
+    // Chords and bass are first-class output layers again. Unlocked layer
+    // switches are biased ON so MAGIC explores the arrangement without
+    // frequently collapsing back to melody-only. A lock preserves either ON or OFF.
+    if (!isMagicParameterLocked (MagicLock::ChordsEnabled))
+        chordsEnabled = r.nextFloat() > .18f;
+    if (!isMagicParameterLocked (MagicLock::BassEnabled))
+        bassEnabled = r.nextFloat() > .14f;
     melodyEnabled = true;
     arpEnabled = false;
     drumsEnabled = false;
-    lockChordsLayer = false;
-    lockBassLayer = false;
-    lockArpLayer = false;
     // SoundCloud-specific generation lives in the separate Shakalizer project.
     // Retire that legacy mode unconditionally, even for old locked project state.
     leadStyleSoundCloud = false;
