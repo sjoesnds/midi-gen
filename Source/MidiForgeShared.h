@@ -18,7 +18,7 @@ inline int creativeTextureFamily (uint32_t seed)
 }
 
 inline constexpr int kStateMagic = 0x4D464752;
-inline constexpr int kStateVersion = 4;
+inline constexpr int kStateVersion = 5;
 
 inline juce::File& settingsDirectoryOverride()
 {

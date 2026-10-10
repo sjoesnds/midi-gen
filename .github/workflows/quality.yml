@@ -47,11 +47,26 @@ jobs:
           echo "Running $QA with melody pipeline trace"
           "$QA" | tee qa-report.txt
 
+      - name: Run ablation pilot (2 fixed seeds; headless target only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --ablation-report 2 ablation-pilot.csv
+          test -s ablation-pilot.csv
+          rows=$(wc -l < ablation-pilot.csv)
+          test "$rows" -eq 61
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: quality-report
           path: qa-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ablation-pilot
+          path: ablation-pilot.csv
 
   sanitizers:
     runs-on: ubuntu-latest

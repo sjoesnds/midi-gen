@@ -18,6 +18,7 @@
 #include <limits>
 
 #include "MidiForgeShared.h"
+#include "MidiForgeAblation.h"
 
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
@@ -8851,20 +8852,21 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
         if (sec.notes.empty()) return -1.0f;
+        if (midiforge::qa::isAblated ("loopForgeScore")) return 0.0f;
 
         const auto f = melodyFeatures (sec, generationSeed);
-        const float motif = motifMemoryScore (sec);
-        const float groove = grooveQualityScore (sec);
-        const float rhythmGrammar = rhythmGrammarScore (sec);
-        const float melodyExpression = melodyExpressionScore (sec);
-        const float harmonicIntelligence = harmonicIntelligenceScore (sec);
-        const float phraseMemory4 = phraseMemory4Score (sec);
-        const float composerGrammar = composerGrammarScore (sec);
-        const float melodicProsody = melodicProsodyScore (sec);
-        const float creativeRange = creativeRangeScore (sec, generationSeed);
-        const float contextualPhrase = contextualPhraseQualityScore (sec);
-        const float motifSemantics = motifSemanticsScore (sec, generationSeed);
-        const float loopClosure = loopClosureScore (sec, generationSeed);
+        const float motif = midiforge::qa::scoreOrZero ("motifMemoryScore", motifMemoryScore (sec));
+        const float groove = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (sec));
+        const float rhythmGrammar = midiforge::qa::scoreOrZero ("rhythmGrammarScore", rhythmGrammarScore (sec));
+        const float melodyExpression = midiforge::qa::scoreOrZero ("melodyExpressionScore", melodyExpressionScore (sec));
+        const float harmonicIntelligence = midiforge::qa::scoreOrZero ("harmonicIntelligenceScore", harmonicIntelligenceScore (sec));
+        const float phraseMemory4 = midiforge::qa::scoreOrZero ("phraseMemory4Score", phraseMemory4Score (sec));
+        const float composerGrammar = midiforge::qa::scoreOrZero ("composerGrammarScore", composerGrammarScore (sec));
+        const float melodicProsody = midiforge::qa::scoreOrZero ("melodicProsodyScore", melodicProsodyScore (sec));
+        const float creativeRange = midiforge::qa::scoreOrZero ("creativeRangeScore", creativeRangeScore (sec, generationSeed));
+        const float contextualPhrase = midiforge::qa::scoreOrZero ("contextualPhraseQualityScore", contextualPhraseQualityScore (sec));
+        const float motifSemantics = midiforge::qa::scoreOrZero ("motifSemanticsScore", motifSemanticsScore (sec, generationSeed));
+        const float loopClosure = midiforge::qa::scoreOrZero ("loopClosureScore", loopClosureScore (sec, generationSeed));
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -9633,15 +9635,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
-        const float grooveQuality = grooveQualityScore (flat);
-        const float motifMemory = motifMemoryScore(flat);
-        const float rhythmGrammarQuality = rhythmGrammarScore (flat);
-        const float melodyExpressionQuality = melodyExpressionScore (flat);
-        const float harmonicIntelligenceQuality = harmonicIntelligenceScore (flat);
-        const float phraseMemory4Quality = phraseMemory4Score (flat);
-        const float composerGrammarQuality = composerGrammarScore (flat);
-        const float melodicProsodyQuality = melodicProsodyScore (flat);
-        const float creativeRangeQuality = creativeRangeScore (flat, identity);
+        const float grooveQuality = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (flat));
+        const float motifMemory = midiforge::qa::scoreOrZero ("motifMemoryScore", motifMemoryScore (flat));
+        const float rhythmGrammarQuality = midiforge::qa::scoreOrZero ("rhythmGrammarScore", rhythmGrammarScore (flat));
+        const float melodyExpressionQuality = midiforge::qa::scoreOrZero ("melodyExpressionScore", melodyExpressionScore (flat));
+        const float harmonicIntelligenceQuality = midiforge::qa::scoreOrZero ("harmonicIntelligenceScore", harmonicIntelligenceScore (flat));
+        const float phraseMemory4Quality = midiforge::qa::scoreOrZero ("phraseMemory4Score", phraseMemory4Score (flat));
+        const float composerGrammarQuality = midiforge::qa::scoreOrZero ("composerGrammarScore", composerGrammarScore (flat));
+        const float melodicProsodyQuality = midiforge::qa::scoreOrZero ("melodicProsodyScore", melodicProsodyScore (flat));
+        const float creativeRangeQuality = midiforge::qa::scoreOrZero ("creativeRangeScore", creativeRangeScore (flat, identity));
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -10378,12 +10380,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // 0.75 Composer Judge 2.0: one top-level coherence score over the
         // already-generated candidate. It evaluates the composition as a whole
         // and never rewrites the MIDI.
-        const float motifSemantics = motifSemanticsScore (flat, identity);
-        const float phraseContrast = phraseContrastScore (flat, identity);
-        const float loopClosure = loopClosureScore (flat, identity);
-        const float closureJudge = closureJudgeScore (flat, identity);
-        const float localMelodyQuality = localMelodyQualityScore (flat, identity);
-        const float localMelodyRhythm = localMelodyRhythmScore (flat, identity);
+        const float motifSemantics = midiforge::qa::scoreOrZero ("motifSemanticsScore", motifSemanticsScore (flat, identity));
+        const float phraseContrast = midiforge::qa::scoreOrZero ("phraseContrastScore", phraseContrastScore (flat, identity));
+        const float loopClosure = midiforge::qa::scoreOrZero ("loopClosureScore", loopClosureScore (flat, identity));
+        const float closureJudge = midiforge::qa::scoreOrZero ("closureJudgeScore", closureJudgeScore (flat, identity));
+        const float localMelodyQuality = midiforge::qa::scoreOrZero ("localMelodyQualityScore", localMelodyQualityScore (flat, identity));
+        const float localMelodyRhythm = midiforge::qa::scoreOrZero ("localMelodyRhythmScore", localMelodyRhythmScore (flat, identity));
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -10398,22 +10400,27 @@ void MidiForgeAudioProcessor::buildVariationBank()
             loopClosure,
             development
         };
-        const float composerJudge = composerJudgeScore (flat, identity, composerJudgeInputs);
+        const float composerJudge = midiforge::qa::scoreOrZero (
+            "composerJudgeScore", composerJudgeScore (flat, identity, composerJudgeInputs));
         quality += 0.15f * composerJudge;
         quality += 0.10f * phraseContrast;
         quality += 0.10f * closureJudge;
-        // 0.85.2 Local Melody Quality 2.0: do not let a strong global score
-        // hide one or two ugly micro-transitions.
-        quality += 0.16f * localMelodyQuality;
-        if (localMelodyQuality < 0.42f)
-            quality -= 0.24f * (0.42f - localMelodyQuality);
-        // 0.85.4 Micro-Rhythm Quality: reject locally mechanical timing even
-        // when the pitch contour itself is strong.
-        quality += 0.11f * localMelodyRhythm;
-        if (localMelodyRhythm < 0.40f)
-            quality -= 0.14f * (0.40f - localMelodyRhythm);
-        if (localMelodyQuality < 0.30f)
-            quality -= 0.10f * (0.30f - localMelodyQuality);
+        // Ablation removes a score's reward/penalty from ranking only. The
+        // generation and final note-repair passes are deliberately unchanged.
+        if (! midiforge::qa::isAblated ("localMelodyQualityScore"))
+        {
+            quality += 0.16f * localMelodyQuality;
+            if (localMelodyQuality < 0.42f)
+                quality -= 0.24f * (0.42f - localMelodyQuality);
+            if (localMelodyQuality < 0.30f)
+                quality -= 0.10f * (0.30f - localMelodyQuality);
+        }
+        if (! midiforge::qa::isAblated ("localMelodyRhythmScore"))
+        {
+            quality += 0.11f * localMelodyRhythm;
+            if (localMelodyRhythm < 0.40f)
+                quality -= 0.14f * (0.40f - localMelodyRhythm);
+        }
         // 0.97 Unified Melody Decision: evaluate the finished phrase against
         // one composition budget. Existing local/global judges remain authoritative;
         // this layer only decides whether the candidate actually matches the intent
@@ -10480,13 +10487,17 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 quality -= 0.08f * (0.34f - decision.score);
         }
 
-        const float pleasantness = melodyPleasantnessScore (flat);
+        const float pleasantness = midiforge::qa::scoreOrZero (
+            "melodyPleasantnessScore", melodyPleasantnessScore (flat));
         // 0.86.x: pleasantness is now a soft safety preference, not a dominant
         // musical preference. Otherwise stepwise / polite candidates can beat
         // more memorable but slightly rougher ideas.
-        quality += 0.17f * pleasantness;
-        if (pleasantness < 0.48f)
-            quality -= 0.08f * (0.48f - pleasantness);
+        if (! midiforge::qa::isAblated ("melodyPleasantnessScore"))
+        {
+            quality += 0.17f * pleasantness;
+            if (pleasantness < 0.48f)
+                quality -= 0.08f * (0.48f - pleasantness);
+        }
 
         // Explicit memorability gate. This is intentionally orthogonal to
         // pleasantness: a strong idea should survive even when it is not bland.
@@ -10988,8 +10999,12 @@ void MidiForgeAudioProcessor::magicRandomize()
         x *= 0x846ca68bu; x ^= x >> 16; return x;
     };
 
-    const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
-    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
+    // MAGIC's creative search must be reproducible from the project seed and
+    // persisted press index. NEW SEED remains the explicit way to request a
+    // fresh random starting point; wall-clock time must not leak into MAGIC.
+    const uint32_t pressIndex = ++magicPressCounter;
+    const uint32_t pressHash = magicHash32 (pressIndex ^ 0x4D414749u);
+    magicDnaSeed = magicHash32 (generationSeed ^ pressHash ^ 0x51A7D00Du);
     juce::Random r((juce::int64) magicDnaSeed);
     auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
     auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };

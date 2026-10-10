@@ -1,12 +1,18 @@
 // MIDI Forge 0.107.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
+#include "MidiForgeAblation.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <chrono>
+#include <fstream>
+#include <cstdlib>
 #include <cstdint>
+#include <iomanip>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -161,6 +167,53 @@ namespace
         return key;
     }
 
+    std::string midiBankFingerprint (MidiForgeAudioProcessor& processor)
+    {
+        std::uint64_t hash = 14695981039346656037ull;
+        auto addValue = [&] (std::uint32_t value)
+        {
+            for (int byte = 0; byte < 4; ++byte)
+            {
+                hash ^= (value >> (byte * 8)) & 0xffu;
+                hash *= 1099511628211ull;
+            }
+        };
+
+        const int count = processor.getVariationCount();
+        addValue (0x4D494449u); // "MIDI" domain separator
+        addValue (static_cast<std::uint32_t> (count));
+        for (int variation = 0; variation < count; ++variation)
+        {
+            processor.chooseVariation (variation);
+            auto notes = processor.getVisibleNotes();
+            std::stable_sort (notes.begin(), notes.end(),
+                [] (const Note& a, const Note& b)
+                {
+                    if (a.channel != b.channel) return a.channel < b.channel;
+                    if (a.step != b.step) return a.step < b.step;
+                    if (a.note != b.note) return a.note < b.note;
+                    if (a.length != b.length) return a.length < b.length;
+                    return a.velocity < b.velocity;
+                });
+
+            addValue (static_cast<std::uint32_t> (variation));
+            addValue (static_cast<std::uint32_t> (processor.getVisibleBars()));
+            addValue (static_cast<std::uint32_t> (notes.size()));
+            for (const auto& n : notes)
+            {
+                addValue (static_cast<std::uint32_t> (n.step));
+                addValue (static_cast<std::uint32_t> (n.length));
+                addValue (static_cast<std::uint32_t> (n.note));
+                addValue (static_cast<std::uint32_t> (n.velocity));
+                addValue (static_cast<std::uint32_t> (n.channel));
+            }
+        }
+
+        std::ostringstream text;
+        text << std::hex << std::setw (16) << std::setfill ('0') << hash;
+        return text.str();
+    }
+
     bool parseSupportedMidi (const juce::File& file, int& noteOns,
                              int& chordNoteOns, int& bassNoteOns)
     {
@@ -199,12 +252,236 @@ namespace
     }
 }
 
-int main()
+
+    struct AblationTreatment
+    {
+        const char* name;
+        const char* category;
+        const char* target;
+        bool disablesTaste = false;
+    };
+
+    std::vector<AblationTreatment> ablationTreatments()
+    {
+        return {
+            { "Baseline", "baseline", "", false },
+            { "rhythmGrammarScore", "score", "rhythmGrammarScore", false },
+            { "melodyPleasantnessScore", "score", "melodyPleasantnessScore", false },
+            { "melodyExpressionScore", "score", "melodyExpressionScore", false },
+            { "harmonicIntelligenceScore", "score", "harmonicIntelligenceScore", false },
+            { "phraseMemory4Score", "score", "phraseMemory4Score", false },
+            { "composerGrammarScore", "score", "composerGrammarScore", false },
+            { "melodicProsodyScore", "score", "melodicProsodyScore", false },
+            { "creativeRangeScore", "score", "creativeRangeScore", false },
+            { "contextualPhraseQualityScore", "score", "contextualPhraseQualityScore", false },
+            { "motifMemoryScore", "score", "motifMemoryScore", false },
+            { "grooveQualityScore", "score", "grooveQualityScore", false },
+            { "loopForgeScore", "score", "loopForgeScore", false },
+            { "motifSemanticsScore", "score", "motifSemanticsScore", false },
+            { "phraseContrastScore", "score", "phraseContrastScore", false },
+            { "loopClosureScore", "score", "loopClosureScore", false },
+            { "closureJudgeScore", "score", "closureJudgeScore", false },
+            { "localMelodyQualityScore", "score", "localMelodyQualityScore", false },
+            { "localMelodyRhythmScore", "score", "localMelodyRhythmScore", false },
+            { "composerJudgeScore", "score", "composerJudgeScore", false },
+            { "judge:idea", "composer_judge_group", "judge:idea", false },
+            { "judge:expression", "composer_judge_group", "judge:expression", false },
+            { "judge:harmony", "composer_judge_group", "judge:harmony", false },
+            { "judge:rhythm", "composer_judge_group", "judge:rhythm", false },
+            { "judge:novelty", "composer_judge_group", "judge:novelty", false },
+            { "judge:register_fit", "composer_judge_group", "judge:register_fit", false },
+            { "judge:closure", "composer_judge_group", "judge:closure", false },
+            { "judge:density_space", "composer_judge_group", "judge:density_space", false },
+            { "judge:role_consistency", "composer_judge_group", "judge:role_consistency", false },
+            { "TasteML", "taste_ml", "", true }
+        };
+    }
+
+    int runAblationReport (int seedCount, const juce::File& outputFile)
+    {
+        seedCount = juce::jlimit (1, 4096, seedCount);
+        if (! outputFile.getParentDirectory().createDirectory())
+        {
+            std::fprintf (stderr, "Could not create report directory: %s\n",
+                          outputFile.getParentDirectory().getFullPathName().toRawUTF8());
+            return 2;
+        }
+        std::ofstream csv (outputFile.getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
+        if (! csv.is_open())
+        {
+            std::fprintf (stderr, "Could not open ablation report: %s\n",
+                          outputFile.getFullPathName().toRawUTF8());
+            return 2;
+        }
+        csv << "treatment,category,seed,variation_count,total_notes,melody_notes,"
+               "tonal_safe_fraction,grid_fraction,melody_grid_fraction,unique_melodies,"
+               "complexity_simple,complexity_balanced,complexity_complex,"
+               "mean_melody_attacks_per_bar,mean_distinct_melody_pitches,"
+               "mean_pitch_range_semitones,elapsed_ms,bank_fingerprint\n";
+
+        const auto treatments = ablationTreatments();
+        const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("midiforge_ablation_report");
+        reportRoot.createDirectory();
+
+        for (int seedIndex = 0; seedIndex < seedCount; ++seedIndex)
+        {
+            // Every condition uses the same publicly documented fixed seed set.
+            const int fixedSeed = 108000 + seedIndex;
+            for (const auto& treatment : treatments)
+            {
+                midiforge::qa::setActiveAblation ("");
+                const auto safeName = juce::String (treatment.name).replaceCharacter (':', '_');
+                const auto runSettings = reportRoot.getChildFile (safeName + "_" + juce::String (fixedSeed));
+                runSettings.deleteRecursively();
+                if (! runSettings.createDirectory())
+                {
+                    std::fprintf (stderr, "Could not create settings directory for %s\n", treatment.name);
+                    return 2;
+                }
+                MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
+
+                int totalNotes = 0, melodyNotes = 0, tonalSafeNotes = 0;
+                int onGridNotes = 0, melodyOnGridNotes = 0;
+                int simpleLoops = 0, balancedLoops = 0, complexLoops = 0;
+                int variationCount = 0;
+                double attacksPerBarSum = 0.0, distinctPitchesSum = 0.0, pitchRangeSum = 0.0;
+                int measuredMelodyLoops = 0;
+                std::set<std::string> ideas;
+                std::string bankHash;
+                const auto started = std::chrono::steady_clock::now();
+
+                {
+                    MidiForgeAudioProcessor processor;
+                    processor.setFeedbackLogFile (juce::File());
+                    processor.setTasteEnabled (true);
+                    processor.setSeed (fixedSeed);
+                    processor.waitForGeneration();
+
+                    // Same synthetic taste context for each arm: initial variation 1
+                    // gets a like, initial variation 8 a dislike.
+                    processor.trainTaste (0, 1.0f, 1.0f);
+                    processor.trainTaste (7, 0.0f, 1.0f);
+                    midiforge::qa::setActiveAblation (treatment.target);
+                    if (treatment.disablesTaste)
+                        processor.setTasteEnabled (false);
+
+                    processor.magicRandomize();
+                    processor.waitForGeneration();
+                    bankHash = midiBankFingerprint (processor);
+                    variationCount = processor.getVariationCount();
+
+                    for (int variation = 0; variation < variationCount; ++variation)
+                    {
+                        const int complexityClass = processor.getVariationMelodyComplexityClass (variation);
+                        if (complexityClass == 0) ++simpleLoops;
+                        else if (complexityClass == 1) ++balancedLoops;
+                        else if (complexityClass == 2) ++complexLoops;
+
+                        processor.chooseVariation (variation);
+                        const auto notes = processor.getVisibleNotes();
+                        const int loopBars = juce::jmax (1, processor.getVisibleBars());
+                        int loopMelodyNotes = 0;
+                        std::set<int> pitches;
+                        int lowPitch = 128, highPitch = -1;
+                        std::vector<Note> melody;
+                        for (const auto& note : notes)
+                        {
+                            if (note.channel < 1 || note.channel > 3)
+                                continue;
+                            ++totalNotes;
+                            if (inScale (note.note, processor.getRoot(), processor.getScale()))
+                                ++tonalSafeNotes;
+                            if ((note.step % 2) == 0)
+                                ++onGridNotes;
+                            if (note.channel != 3)
+                                continue;
+
+                            ++melodyNotes;
+                            ++loopMelodyNotes;
+                            melody.push_back (note);
+                            if ((note.step % 2) == 0)
+                                ++melodyOnGridNotes;
+                            pitches.insert (note.note);
+                            lowPitch = juce::jmin (lowPitch, note.note);
+                            highPitch = juce::jmax (highPitch, note.note);
+                        }
+                        ideas.insert (fingerprint (melody));
+                        if (loopMelodyNotes > 0)
+                        {
+                            ++measuredMelodyLoops;
+                            attacksPerBarSum += (double) loopMelodyNotes / (double) loopBars;
+                            distinctPitchesSum += (double) pitches.size();
+                            pitchRangeSum += (double) juce::jmax (0, highPitch - lowPitch);
+                        }
+                    }
+                }
+
+                midiforge::qa::setActiveAblation ("");
+                const auto ended = std::chrono::steady_clock::now();
+                const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds> (ended - started).count();
+                const double tonalFraction = totalNotes > 0 ? (double) tonalSafeNotes / (double) totalNotes : 0.0;
+                const double gridFraction = totalNotes > 0 ? (double) onGridNotes / (double) totalNotes : 0.0;
+                const double melodyGridFraction = melodyNotes > 0 ? (double) melodyOnGridNotes / (double) melodyNotes : 0.0;
+                const double meanAttacks = measuredMelodyLoops > 0 ? attacksPerBarSum / measuredMelodyLoops : 0.0;
+                const double meanPitches = measuredMelodyLoops > 0 ? distinctPitchesSum / measuredMelodyLoops : 0.0;
+                const double meanRange = measuredMelodyLoops > 0 ? pitchRangeSum / measuredMelodyLoops : 0.0;
+
+                csv << treatment.name << ',' << treatment.category << ',' << fixedSeed << ','
+                    << variationCount << ',' << totalNotes << ',' << melodyNotes << ','
+                    << std::fixed << std::setprecision (4)
+                    << tonalFraction << ',' << gridFraction << ',' << melodyGridFraction << ','
+                    << ideas.size() << ',' << simpleLoops << ',' << balancedLoops << ',' << complexLoops << ','
+                    << meanAttacks << ',' << meanPitches << ',' << meanRange << ','
+                    << elapsedMs << ',' << bankHash << '\n';
+                csv.flush();
+                runSettings.deleteRecursively();
+            }
+        }
+
+        csv.close();
+        std::printf ("Ablation report: %s (%d seeds x %d conditions; %d data rows)\n",
+                     outputFile.getFullPathName().toRawUTF8(),
+                     seedCount, (int) treatments.size(), seedCount * (int) treatments.size());
+        return 0;
+    }
+
+    bool validateAblationSwitches()
+    {
+        const float untouched = midiforge::qa::scoreOrZero ("test-only-score", 0.75f);
+        midiforge::qa::setActiveAblation ("test-only-score");
+        const float disabled = midiforge::qa::scoreOrZero ("test-only-score", 0.75f);
+        midiforge::qa::setActiveAblation ("");
+        const midiforge::ComposerJudge::Metrics metrics {
+            0.82f, 0.64f, 0.77f, 0.71f, 0.75f, 0.48f, 0.69f,
+            0.78f, 0.73f, 0.81f, 0.66f, 0.74f, 0.62f
+        };
+        const float judgeBaseline = midiforge::ComposerJudge::score (metrics);
+        midiforge::qa::setActiveAblation ("judge:idea");
+        const float judgeAblated = midiforge::ComposerJudge::score (metrics);
+        midiforge::qa::setActiveAblation ("");
+        return std::abs (untouched - 0.75f) < 0.00001f
+            && std::abs (disabled) < 0.00001f
+            && std::abs (judgeBaseline - judgeAblated) > 0.00001f;
+    }
+
+int main (int argc, char** argv)
 {
+    if (argc >= 2 && std::string (argv[1]) == "--ablation-report")
+    {
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 256;
+        const auto output = argc >= 4 ? juce::File (argv[3])
+            : juce::File::getCurrentWorkingDirectory().getChildFile ("ablation-report.csv");
+        return runAblationReport (seedCount, output);
+    }
+
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getChildFile ("midiforge_0_107_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
+
+    check ("Headless-only ablation switches are isolated", validateAblationSwitches(),
+           "default scores unchanged; selected score and Composer Judge group can be excluded");
 
     bool allSupportedLayers = true;
     bool allInLoop = true;
@@ -373,6 +650,65 @@ int main()
                    + juce::String (nostalgicMotifMean - energeticMotifMean, 2));
     }
 
+    // MAGIC reproducibility contract: identical project state and press history
+    // must produce equivalent MIDI events in all eight generated variation slots.
+    // First CI run publishes candidate fingerprints; fixed golden values are added
+    // only after those checks have been observed from the actual Windows/Linux toolchain.
+    {
+        constexpr int fixedSeed = 108107;
+        MidiForgeAudioProcessor first;
+        MidiForgeAudioProcessor peer;
+        first.setFeedbackLogFile (juce::File());
+        peer.setFeedbackLogFile (juce::File());
+        first.setTasteEnabled (false);
+        peer.setTasteEnabled (false);
+        first.setSeed (fixedSeed);
+        peer.setSeed (fixedSeed);
+        first.magicRandomize();
+        first.waitForGeneration();
+        peer.magicRandomize();
+        peer.waitForGeneration();
+
+        const std::string firstBank = midiBankFingerprint (first);
+        const std::string peerBank = midiBankFingerprint (peer);
+        constexpr const char* expectedFirstBank = "32f2a094f35d8174";
+        constexpr const char* expectedNextBankGolden = "f9b3b2e6969582dd";
+        check ("MAGIC repeats the same complete MIDI bank for identical initial state",
+               firstBank == peerBank,
+               juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + juce::String (firstBank.c_str()));
+        check ("MAGIC first press matches frozen MIDI golden",
+               firstBank == expectedFirstBank,
+               juce::String ("expected=") + juce::String (expectedFirstBank)
+                   + " actual=" + juce::String (firstBank.c_str()));
+        std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
+                     fixedSeed, firstBank.c_str());
+
+        juce::MemoryBlock checkpoint;
+        first.getStateInformation (checkpoint);
+        first.magicRandomize();
+        first.waitForGeneration();
+        const std::string expectedNextBank = midiBankFingerprint (first);
+        check ("MAGIC second press matches frozen MIDI golden",
+               expectedNextBank == expectedNextBankGolden,
+               juce::String ("expected=") + juce::String (expectedNextBankGolden)
+                   + " actual=" + juce::String (expectedNextBank.c_str()));
+        std::printf ("MAGIC_GOLDEN_NEXT seed=%d fingerprint=%s\n",
+                     fixedSeed, expectedNextBank.c_str());
+
+        MidiForgeAudioProcessor resumed;
+        resumed.setFeedbackLogFile (juce::File());
+        resumed.setTasteEnabled (false);
+        resumed.setStateInformation (checkpoint.getData(), (int) checkpoint.getSize());
+        resumed.waitForGeneration();
+        resumed.magicRandomize();
+        resumed.waitForGeneration();
+        const std::string resumedNextBank = midiBankFingerprint (resumed);
+        check ("MAGIC sequence resumes after state save/load",
+               expectedNextBank == resumedNextBank,
+               juce::String ("expected=") + juce::String (expectedNextBank.c_str())
+                   + " resumed=" + juce::String (resumedNextBank.c_str()));
+    }
+
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
     MidiForgeAudioProcessor locked;
     locked.setFeedbackLogFile (juce::File());
@@ -446,20 +782,20 @@ int main()
     legacySource.setChordsEnabled (false);
     legacySource.setBassEnabled (false);
     legacySource.replaceVisibleNotes (std::vector<Note> { { 0, 4, 64, 100, 3 } });
-    juce::MemoryBlock stateV4;
-    legacySource.getStateInformation (stateV4);
+    juce::MemoryBlock stateCurrent;
+    legacySource.getStateInformation (stateCurrent);
     constexpr size_t legacyMaskOffset = 170;
-    constexpr size_t v4MaskEnd = legacyMaskOffset + sizeof (std::int32_t);
+    constexpr size_t lockMaskEnd = legacyMaskOffset + sizeof (std::int32_t);
     juce::MemoryBlock stateV3;
-    bool builtLegacyState = stateV4.getSize() >= v4MaskEnd + sizeof (int32_t);
+    bool builtLegacyState = stateCurrent.getSize() >= lockMaskEnd + sizeof (int32_t);
     if (builtLegacyState)
     {
         juce::MemoryOutputStream legacyStream (stateV3, false);
-        const auto* bytes = static_cast<const std::uint8_t*> (stateV4.getData());
+        const auto* bytes = static_cast<const std::uint8_t*> (stateCurrent.getData());
         legacyStream.write (bytes, 4);        // state magic
         legacyStream.writeInt (3);            // legacy state version
         legacyStream.write (bytes + 8, legacyMaskOffset - 8);
-        legacyStream.write (bytes + v4MaskEnd, stateV4.getSize() - v4MaskEnd);
+        legacyStream.write (bytes + lockMaskEnd, stateCurrent.getSize() - lockMaskEnd);
     }
 
     MidiForgeAudioProcessor legacyLoaded;
@@ -546,7 +882,7 @@ int main()
               + juce::String (draggedBass) + " bass)");
     if (dragFile.existsAsFile()) dragFile.deleteFile();
 
-    // State v4 must preserve the restored layers and all individual MAGIC locks.
+    // State v5 must preserve the restored layers, MAGIC locks and sequence state.
     juce::MemoryBlock state;
     transform.getStateInformation (state);
     MidiForgeAudioProcessor restored;

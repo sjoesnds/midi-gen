@@ -17,6 +17,7 @@ target_sources(MidiForgeQA PRIVATE
     qa_melody_only.cpp
     ../Source/PluginProcessor.cpp
     ../Source/MidiForgeShared.h
+    ../Source/MidiForgeAblation.h
     ../Source/MidiForgeMidiIO.cpp
     ../Source/MidiForgeState.cpp
     ../Source/MidiForgeTaste.cpp
