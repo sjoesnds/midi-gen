@@ -27,6 +27,7 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     o.writeBool(leadStyleSoundCloud);
     o.writeBool(lockChordsLayer);o.writeBool(lockBassLayer);o.writeBool(lockMelodyLayer);o.writeBool(lockArpLayer);
     o.writeBool(tasteEnabled); o.writeBool(humanizeEnabled);
+    o.writeInt ((int) magicParameterLockMask);
 
     // State v3: persist the editable Piano Roll MIDI so a saved project restores
     // the exact edited variation instead of regenerating over user edits.
@@ -73,7 +74,8 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     melodyLength = 0.35f; pauseChance = 0.10f; leapChance = 0.18f; ghostChance = 0.08f;
     arpRate = 4; voicingWidth = 0.45f; chordExtensions = true; inversions = true;
     motifStrength = 0.78f; variationAmount = 0.40f; fillAmount = 0.18f; energy = 0.65f;
-    chordsEnabled = bassEnabled = false; melodyEnabled = true; arpEnabled = false; hookMode = true;
+    chordsEnabled = true; bassEnabled = true; melodyEnabled = true; arpEnabled = false; hookMode = true;
+    magicParameterLockMask = 0;
     mood = NeutralMood; melodyType = HookMelody; era = 5; soundTarget = 0;
     articulation = 0; autoNextOnDislike = true; chordStyle = 0; drumsEnabled = false;
     drumMuteMask = 0; drumPitchMode = 0; leadStyleSoundCloud = false;
@@ -145,12 +147,20 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     }
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(tasteEnabled);
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(humanizeEnabled);
+    if (stateVersion >= 4 && i.getNumBytesRemaining() >= 4)
+    {
+        int rawLockMask = 0;
+        if (readIntRaw (rawLockMask)) setMagicParameterLockMask ((uint32_t) rawLockMask);
+    }
 
-    // MIDI Forge 0.105.1 is melody-only. Read legacy fields to preserve the
-    // binary layout, then normalize retired layers, locks and SoundCloud behavior.
-    chordsEnabled = bassEnabled = arpEnabled = drumsEnabled = false;
+    // States saved by 0.105.x were forcibly normalized to melody-only. Restore
+    // both accompaniment layers when upgrading that specific legacy state, but
+    // retain an intentionally disabled single layer from older arrangements.
+    if (stateVersion == 3 && ! chordsEnabled && ! bassEnabled)
+        chordsEnabled = bassEnabled = true;
+    arpEnabled = false;
+    drumsEnabled = false;
     melodyEnabled = true;
-    chordExtensions = inversions = false;
     lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
     leadStyleSoundCloud = false;
 
@@ -195,7 +205,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (stateVersion >= 3 && hasSavedNotes)
     {
         savedNotes.erase (std::remove_if (savedNotes.begin(), savedNotes.end(),
-            [] (const VisibleNote& note) { return note.channel != 3; }), savedNotes.end());
+            [] (const VisibleNote& note) { return note.channel < 1 || note.channel > 3; }), savedNotes.end());
         replaceVisibleNotes (savedNotes);
     }
 }
