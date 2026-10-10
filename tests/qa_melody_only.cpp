@@ -1,4 +1,4 @@
-// MIDI Forge 0.106.0 release checks for the melody + chords + bass creator.
+// MIDI Forge 0.106.1 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 
 #include <algorithm>
@@ -362,6 +362,64 @@ int main()
         && locked.isBassEnabled() == keepBass;
     check ("Every parameter lock survives MAGIC", lockContract,
            "all 21 individual lockable values remain unchanged");
+
+    // Locks must preserve OFF as well as ON. Keep the other MAGIC parameters free.
+    MidiForgeAudioProcessor lockedOffLayers;
+    lockedOffLayers.setFeedbackLogFile (juce::File());
+    lockedOffLayers.setChordsEnabled (false);
+    lockedOffLayers.setBassEnabled (false);
+    lockedOffLayers.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, true);
+    lockedOffLayers.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::BassEnabled, true);
+    for (int pass = 0; pass < 8; ++pass)
+    {
+        lockedOffLayers.magicRandomize();
+        lockedOffLayers.waitForGeneration();
+    }
+    check ("Locked-OFF CHORDS/BASS switches remain OFF",
+           ! lockedOffLayers.isChordsEnabled() && ! lockedOffLayers.isBassEnabled(),
+           "both individual locks preserve OFF through eight MAGIC presses");
+
+    // Recreate the serialized layout used by 0.105.x (state v3): v4 added a
+    // four-byte MAGIC-lock mask immediately before the saved-note count.
+    // The legacy state has both accompaniment flags off and one edited melody note.
+    MidiForgeAudioProcessor legacySource;
+    legacySource.setFeedbackLogFile (juce::File());
+    legacySource.setChordsEnabled (false);
+    legacySource.setBassEnabled (false);
+    legacySource.replaceVisibleNotes (std::vector<Note> { { 0, 4, 64, 100, 3 } });
+    juce::MemoryBlock stateV4;
+    legacySource.getStateInformation (stateV4);
+    constexpr size_t legacyMaskOffset = 170;
+    constexpr size_t v4MaskEnd = legacyMaskOffset + sizeof (int32_t);
+    juce::MemoryBlock stateV3;
+    bool builtLegacyState = stateV4.getSize() >= v4MaskEnd + sizeof (int32_t);
+    if (builtLegacyState)
+    {
+        juce::MemoryOutputStream legacyStream (stateV3, false);
+        const auto* bytes = static_cast<const uint8_t*> (stateV4.getData());
+        legacyStream.write (bytes, 4);        // state magic
+        legacyStream.writeInt (3);            // legacy state version
+        legacyStream.write (bytes + 8, legacyMaskOffset - 8);
+        legacyStream.write (bytes + v4MaskEnd, stateV4.getSize() - v4MaskEnd);
+    }
+
+    MidiForgeAudioProcessor legacyLoaded;
+    legacyLoaded.setFeedbackLogFile (juce::File());
+    if (builtLegacyState)
+        legacyLoaded.setStateInformation (stateV3.getData(), (int) stateV3.getSize());
+    legacyLoaded.waitForGeneration();
+    const auto migratedNotes = legacyLoaded.getVisibleNotes();
+    const bool keptLegacyMelody = std::any_of (migratedNotes.begin(), migratedNotes.end(),
+        [] (const Note& n) { return n.channel == 3 && n.step == 0 && n.note == 64; });
+    const bool restoredChordLayer = std::any_of (migratedNotes.begin(), migratedNotes.end(),
+        [] (const Note& n) { return n.channel == 1; });
+    const bool restoredBassLayer = std::any_of (migratedNotes.begin(), migratedNotes.end(),
+        [] (const Note& n) { return n.channel == 2; });
+    check ("0.105.x state migration restores accompaniment without losing melody",
+           builtLegacyState && legacyLoaded.isChordsEnabled() && legacyLoaded.isBassEnabled()
+               && keptLegacyMelody && restoredChordLayer && restoredBassLayer,
+           juce::String (migratedNotes.size())
+               + " notes; old melody retained and chord/bass material restored");
 
     // Mutations must keep the same musical safety contract as newly authored MIDI.
     MidiForgeAudioProcessor transform;
