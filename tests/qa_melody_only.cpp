@@ -6,7 +6,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <iomanip>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -159,6 +161,53 @@ namespace
             key += std::to_string (n.step) + ":" + std::to_string (n.note)
                 + ":" + std::to_string (n.length) + ";";
         return key;
+    }
+
+    std::string midiBankFingerprint (MidiForgeAudioProcessor& processor)
+    {
+        std::uint64_t hash = 14695981039346656037ull;
+        auto addValue = [&] (std::uint32_t value)
+        {
+            for (int byte = 0; byte < 4; ++byte)
+            {
+                hash ^= (value >> (byte * 8)) & 0xffu;
+                hash *= 1099511628211ull;
+            }
+        };
+
+        const int count = processor.getVariationCount();
+        addValue (0x4D494449u); // "MIDI" domain separator
+        addValue (static_cast<std::uint32_t> (count));
+        for (int variation = 0; variation < count; ++variation)
+        {
+            processor.chooseVariation (variation);
+            auto notes = processor.getVisibleNotes();
+            std::stable_sort (notes.begin(), notes.end(),
+                [] (const Note& a, const Note& b)
+                {
+                    if (a.channel != b.channel) return a.channel < b.channel;
+                    if (a.step != b.step) return a.step < b.step;
+                    if (a.note != b.note) return a.note < b.note;
+                    if (a.length != b.length) return a.length < b.length;
+                    return a.velocity < b.velocity;
+                });
+
+            addValue (static_cast<std::uint32_t> (variation));
+            addValue (static_cast<std::uint32_t> (processor.getVisibleBars()));
+            addValue (static_cast<std::uint32_t> (notes.size()));
+            for (const auto& n : notes)
+            {
+                addValue (static_cast<std::uint32_t> (n.step));
+                addValue (static_cast<std::uint32_t> (n.length));
+                addValue (static_cast<std::uint32_t> (n.note));
+                addValue (static_cast<std::uint32_t> (n.velocity));
+                addValue (static_cast<std::uint32_t> (n.channel));
+            }
+        }
+
+        std::ostringstream text;
+        text << std::hex << std::setw (16) << std::setfill ('0') << hash;
+        return text.str();
     }
 
     bool parseSupportedMidi (const juce::File& file, int& noteOns,
@@ -373,6 +422,55 @@ int main()
                    + juce::String (nostalgicMotifMean - energeticMotifMean, 2));
     }
 
+    // MAGIC reproducibility contract: identical project state and press history
+    // must produce equivalent MIDI events in all eight generated variation slots.
+    // First CI run publishes candidate fingerprints; fixed golden values are added
+    // only after those checks have been observed from the actual Windows/Linux toolchain.
+    {
+        constexpr int fixedSeed = 108107;
+        MidiForgeAudioProcessor first;
+        MidiForgeAudioProcessor peer;
+        first.setFeedbackLogFile (juce::File());
+        peer.setFeedbackLogFile (juce::File());
+        first.setTasteEnabled (false);
+        peer.setTasteEnabled (false);
+        first.setSeed (fixedSeed);
+        peer.setSeed (fixedSeed);
+        first.magicRandomize();
+        first.waitForGeneration();
+        peer.magicRandomize();
+        peer.waitForGeneration();
+
+        const std::string firstBank = midiBankFingerprint (first);
+        const std::string peerBank = midiBankFingerprint (peer);
+        check ("MAGIC repeats the same complete MIDI bank for identical initial state",
+               firstBank == peerBank,
+               juce::String ("seed=") + fixedSeed + " fingerprint=" + firstBank);
+        std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
+                     fixedSeed, firstBank.c_str());
+
+        juce::MemoryBlock checkpoint;
+        first.getStateInformation (checkpoint);
+        first.magicRandomize();
+        first.waitForGeneration();
+        const std::string expectedNextBank = midiBankFingerprint (first);
+        std::printf ("MAGIC_GOLDEN_NEXT seed=%d fingerprint=%s\n",
+                     fixedSeed, expectedNextBank.c_str());
+
+        MidiForgeAudioProcessor resumed;
+        resumed.setFeedbackLogFile (juce::File());
+        resumed.setTasteEnabled (false);
+        resumed.setStateInformation (checkpoint.getData(), (int) checkpoint.getSize());
+        resumed.waitForGeneration();
+        resumed.magicRandomize();
+        resumed.waitForGeneration();
+        const std::string resumedNextBank = midiBankFingerprint (resumed);
+        check ("MAGIC sequence resumes after state save/load",
+               expectedNextBank == resumedNextBank,
+               juce::String ("expected=") + expectedNextBank
+                   + " resumed=" + resumedNextBank);
+    }
+
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
     MidiForgeAudioProcessor locked;
     locked.setFeedbackLogFile (juce::File());
@@ -446,20 +544,20 @@ int main()
     legacySource.setChordsEnabled (false);
     legacySource.setBassEnabled (false);
     legacySource.replaceVisibleNotes (std::vector<Note> { { 0, 4, 64, 100, 3 } });
-    juce::MemoryBlock stateV4;
-    legacySource.getStateInformation (stateV4);
+    juce::MemoryBlock stateCurrent;
+    legacySource.getStateInformation (stateCurrent);
     constexpr size_t legacyMaskOffset = 170;
-    constexpr size_t v4MaskEnd = legacyMaskOffset + sizeof (std::int32_t);
+    constexpr size_t lockMaskEnd = legacyMaskOffset + sizeof (std::int32_t);
     juce::MemoryBlock stateV3;
-    bool builtLegacyState = stateV4.getSize() >= v4MaskEnd + sizeof (int32_t);
+    bool builtLegacyState = stateCurrent.getSize() >= lockMaskEnd + sizeof (int32_t);
     if (builtLegacyState)
     {
         juce::MemoryOutputStream legacyStream (stateV3, false);
-        const auto* bytes = static_cast<const std::uint8_t*> (stateV4.getData());
+        const auto* bytes = static_cast<const std::uint8_t*> (stateCurrent.getData());
         legacyStream.write (bytes, 4);        // state magic
         legacyStream.writeInt (3);            // legacy state version
         legacyStream.write (bytes + 8, legacyMaskOffset - 8);
-        legacyStream.write (bytes + v4MaskEnd, stateV4.getSize() - v4MaskEnd);
+        legacyStream.write (bytes + lockMaskEnd, stateCurrent.getSize() - lockMaskEnd);
     }
 
     MidiForgeAudioProcessor legacyLoaded;
