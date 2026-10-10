@@ -73,7 +73,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     melodyLength = 0.35f; pauseChance = 0.10f; leapChance = 0.18f; ghostChance = 0.08f;
     arpRate = 4; voicingWidth = 0.45f; chordExtensions = true; inversions = true;
     motifStrength = 0.78f; variationAmount = 0.40f; fillAmount = 0.18f; energy = 0.65f;
-    chordsEnabled = bassEnabled = melodyEnabled = true; arpEnabled = false; hookMode = true;
+    chordsEnabled = bassEnabled = false; melodyEnabled = true; arpEnabled = false; hookMode = true;
     mood = NeutralMood; melodyType = HookMelody; era = 5; soundTarget = 0;
     articulation = 0; autoNextOnDislike = true; chordStyle = 0; drumsEnabled = false;
     drumMuteMask = 0; drumPitchMode = 0; leadStyleSoundCloud = false;
@@ -146,6 +146,13 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(tasteEnabled);
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(humanizeEnabled);
 
+    // MIDI Forge 0.105.0 is melody-only. Read legacy fields to preserve the
+    // binary layout, then normalize obsolete layer flags and locks before generation.
+    chordsEnabled = bassEnabled = arpEnabled = drumsEnabled = false;
+    melodyEnabled = true;
+    chordExtensions = inversions = false;
+    lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
+
     std::vector<VisibleNote> savedNotes;
     bool hasSavedNotes = false;
     if (stateVersion >= 3 && i.getNumBytesRemaining() >= 4)
@@ -185,5 +192,9 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     realtimeHumanizeEnabled.store(humanizeEnabled); realtimeDrumMuteMask.store(drumMuteMask);
     regenerateBlocking(savedSelection);
     if (stateVersion >= 3 && hasSavedNotes)
+    {
+        savedNotes.erase (std::remove_if (savedNotes.begin(), savedNotes.end(),
+            [] (const VisibleNote& note) { return note.channel != 3; }), savedNotes.end());
         replaceVisibleNotes (savedNotes);
+    }
 }
