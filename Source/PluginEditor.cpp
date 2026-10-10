@@ -565,14 +565,85 @@ addChildComponent (busyOverlay);
 lastGenerationDone = processor.getGenerationDoneCounter();
 startTimerHz (10);
 }
+void MidiForgeAudioProcessorEditor::setupMagicLockButton (
+    MidiForgeAudioProcessor::MagicLock parameter, const juce::String& name)
+{
+    auto& button = magicLockButtons[(size_t) parameter];
+    button.setClickingTogglesState (true);
+    button.setTooltip ("Unlocked: MAGIC may change " + name + ". Click to lock this value.");
+    button.onClick = [this, parameter]
+    {
+        const bool locked = magicLockButtons[(size_t) parameter].getToggleState();
+        processor.setMagicParameterLocked (parameter, locked);
+        syncMagicLockButton (parameter);
+    };
+    addAndMakeVisible (button);
+    syncMagicLockButton (parameter);
+}
+
+void MidiForgeAudioProcessorEditor::syncMagicLockButton (
+    MidiForgeAudioProcessor::MagicLock parameter)
+{
+    auto& button = magicLockButtons[(size_t) parameter];
+    const bool locked = processor.isMagicParameterLocked (parameter);
+    button.setToggleState (locked, juce::dontSendNotification);
+    button.setButtonText (locked ? juce::String::fromUTF8 ("🔒") : juce::String::fromUTF8 ("🔓"));
+    button.setTooltip (locked
+        ? "LOCKED: MAGIC keeps this control's value. Click to unlock."
+        : "UNLOCKED: MAGIC may randomize this control. Click to lock.");
+}
+
+void MidiForgeAudioProcessorEditor::refreshMagicLockButtons()
+{
+    for (int i = 0; i < MidiForgeAudioProcessor::kMagicLockCount; ++i)
+        syncMagicLockButton ((MidiForgeAudioProcessor::MagicLock) i);
+}
+
+void MidiForgeAudioProcessorEditor::placeLockedControl (
+    juce::Component& control, MidiForgeAudioProcessor::MagicLock parameter,
+    int x, int y, int width, int height)
+{
+    constexpr int lockWidth = 24;
+    constexpr int gap = 4;
+    control.setBounds (x, y, width - lockWidth - gap, height);
+    magicLockButtons[(size_t) parameter].setBounds (
+        x + width - lockWidth, y + 1, lockWidth, height - 2);
+}
+
 void MidiForgeAudioProcessorEditor::setAdvancedControlsVisible (bool visible)
 {
     advancedControlsVisible = visible;
-    for (auto* c : { &rhythm, &octave, &moodBox, &melodyTypeBox, &soundBox, &articBox })
+    for (auto* c : { &progression, &rhythm, &octave, &moodBox, &melodyTypeBox, &soundBox,
+                     &articBox, &extensions, &inversions, &chordDensity, &bassDensity })
         c->setVisible (visible);
     for (auto* slider : { &melodyDensity, &complexity, &motifStrength, &variationAmount,
                           &fillAmount, &energy, &melodyLength, &pauseChance, &leapChance, &ghostChance })
         slider->setVisible (visible);
+
+    for (const auto parameter : {
+            MidiForgeAudioProcessor::MagicLock::Progression,
+            MidiForgeAudioProcessor::MagicLock::Rhythm,
+            MidiForgeAudioProcessor::MagicLock::Octave,
+            MidiForgeAudioProcessor::MagicLock::Mood,
+            MidiForgeAudioProcessor::MagicLock::MelodyType,
+            MidiForgeAudioProcessor::MagicLock::ChordDensity,
+            MidiForgeAudioProcessor::MagicLock::BassDensity,
+            MidiForgeAudioProcessor::MagicLock::MelodyDensity,
+            MidiForgeAudioProcessor::MagicLock::Complexity,
+            MidiForgeAudioProcessor::MagicLock::MotifStrength,
+            MidiForgeAudioProcessor::MagicLock::VariationAmount,
+            MidiForgeAudioProcessor::MagicLock::FillAmount,
+            MidiForgeAudioProcessor::MagicLock::Energy,
+            MidiForgeAudioProcessor::MagicLock::MelodyLength,
+            MidiForgeAudioProcessor::MagicLock::PauseChance,
+            MidiForgeAudioProcessor::MagicLock::LeapChance,
+            MidiForgeAudioProcessor::MagicLock::GhostChance,
+            MidiForgeAudioProcessor::MagicLock::ChordExtensions,
+            MidiForgeAudioProcessor::MagicLock::Inversions })
+        magicLockButtons[(size_t) parameter].setVisible (visible);
+
+    magicLockButtons[(size_t) MidiForgeAudioProcessor::MagicLock::ChordsEnabled].setVisible (true);
+    magicLockButtons[(size_t) MidiForgeAudioProcessor::MagicLock::BassEnabled].setVisible (true);
 
     advancedButton.setButtonText (visible ? "HIDE ADVANCED" : "ADVANCED");
     const int targetHeight = visible ? 980 : 820;
