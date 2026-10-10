@@ -9338,8 +9338,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
     float dnaRegister = juce::jlimit (0.0f, 1.0f,
         0.50f + 0.05f * judgeCreativeRange.registerBias);
 
-    const float moodDensityTarget[] = {0.00f,-.06f,-.10f,.10f,.14f,-.12f,-.02f,-.05f,.16f};
-    const float moodSpaceTarget[]   = {0.00f,.10f,.16f,-.08f,-.10f,.22f,.08f,.16f,-.12f};
+    // The language already includes mood influence, so these secondary targets
+    // align selection pressure with the stronger intent used during generation.
+    const float moodDensityTarget[] = {0.00f,-.05f,-.10f,.08f,.16f,-.14f,-.04f,-.06f,.18f};
+    const float moodSpaceTarget[]   = {0.00f,.08f,.14f,-.08f,-.12f,.20f,.10f,.15f,-.14f};
     const int mi = juce::jlimit(0,8,mood);
     dnaDensity = juce::jlimit(0.0f,1.0f,dnaDensity + moodDensityTarget[mi]);
     dnaSpace = juce::jlimit(0.0f,1.0f,dnaSpace + moodSpaceTarget[mi]);
