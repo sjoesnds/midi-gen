@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
-project(MidiForgeQA VERSION 0.105.2)
+project(MidiForgeQA VERSION 0.106.0)
 
-# Headless release gates for the current melody-only product (no GUI or plugin host).
+# Headless release gates for the current melody/chords/bass creator (no GUI or plugin host).
 # Build:  cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release && cmake --build build-qa && ./build-qa/MidiForgeQA_artefacts/Release/MidiForgeQA
 include(FetchContent)
 FetchContent_Declare(JUCE
