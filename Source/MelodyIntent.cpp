@@ -123,8 +123,13 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     intent.dnaDensity = std::clamp (
         intent.dnaDensity + intent.moodDensity + intent.roleDensity,
         0.0f, 1.0f);
+    // Mood and the selected phrase language should remain visible on the motif axis.
+    // A full additive role/character bias often saturated this value near 1.0,
+    // hiding the intended contrast between moods such as Nostalgic and Energetic.
+    constexpr float kRoleMotifWeight = 0.55f;
+    constexpr float kCharacterMotifWeight = 0.35f;
     intent.dnaMotif = std::clamp (
-        intent.dnaMotif + intent.roleMotif,
+        intent.dnaMotif + kRoleMotifWeight * intent.roleMotif,
         0.0f, 1.0f);
 
     const int characterCount = 12;
@@ -144,7 +149,9 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     intent.dnaLeap = std::clamp (
         intent.dnaLeap + kMoodSensitiveCharacterWeight * intent.character.leapBias, 0.0f, 1.0f);
     intent.dnaSync = std::clamp (intent.dnaSync + intent.character.syncBias, 0.0f, 1.0f);
-    intent.dnaMotif = std::clamp (intent.dnaMotif + intent.character.motifBias, 0.0f, 1.0f);
+    intent.dnaMotif = std::clamp (
+        intent.dnaMotif + kCharacterMotifWeight * intent.character.motifBias,
+        0.0f, 1.0f);
     intent.dnaRegister = std::clamp (intent.dnaRegister + intent.character.registerBias, 0.0f, 1.0f);
 
     // 0.87 Fundamental Musicality:
