@@ -4082,7 +4082,7 @@ int main()
         melodyOnly.setScale (2);
         melodyOnly.setBars (4);
         melodyOnly.setSeed (105010);
-        melodyOnly.regenerate();
+        melodyOnly.magicRandomize();
         melodyOnly.waitForGeneration();
 
         const auto notes = melodyOnly.getVisibleNotes();
