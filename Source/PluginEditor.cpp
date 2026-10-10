@@ -519,11 +519,29 @@ mode.setVisible (false);
 setAdvancedControlsVisible (false);
 // 0.105.0 intentionally exposes only the melody lane. Legacy layer controls remain
 // deserializable for project compatibility, but are not part of the creator UI.
-for (auto* c : { &chords, &bass, &melody, &arp, &drums, &extensions, &inversions,
-                 &drumViewBtn, &drumGrid, &lockChordsBtn, &lockBassBtn, &lockMelodyBtn,
-                 &lockArpBtn, &dragChords, &dragBass, &dragArp, &dragDrums,
-                 &chordDensity, &bassDensity, &arpDensity, &progression, &arpRate, &chordBox })
-    c->setVisible (false);
+chords.setVisible (false);
+bass.setVisible (false);
+melody.setVisible (false);
+arp.setVisible (false);
+drums.setVisible (false);
+extensions.setVisible (false);
+inversions.setVisible (false);
+drumViewBtn.setVisible (false);
+drumGrid.setVisible (false);
+lockChordsBtn.setVisible (false);
+lockBassBtn.setVisible (false);
+lockMelodyBtn.setVisible (false);
+lockArpBtn.setVisible (false);
+dragChords.setVisible (false);
+dragBass.setVisible (false);
+dragArp.setVisible (false);
+dragDrums.setVisible (false);
+chordDensity.setVisible (false);
+bassDensity.setVisible (false);
+arpDensity.setVisible (false);
+progression.setVisible (false);
+arpRate.setVisible (false);
+chordBox.setVisible (false);
 
 addChildComponent (busyOverlay);
 lastGenerationDone = processor.getGenerationDoneCounter();
@@ -586,7 +604,7 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont (juce::FontOptions (9.0f));
     g.drawText ("MIDI", margin + 28, 20, 36, 12, juce::Justification::left, false);
 
-    const int layoutShift = advancedControlsVisible ? 208 : 0;
+    const int layoutShift = advancedControlsVisible ? 166 : 0;
     drawCard (g, { margin, 76, innerW, advancedControlsVisible ? 284 : 76 }, "01  CREATIVE SPACE", juce::Colour (kAccent).withAlpha (0.40f));
     drawCard (g, { margin, 160 + layoutShift, innerW, 64 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
     drawCard (g, { margin, 232 + layoutShift, innerW, 54 }, "03  PARTS", juce::Colour (kAccent2).withAlpha (0.35f));
