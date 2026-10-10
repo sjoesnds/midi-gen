@@ -1,15 +1,22 @@
 # MIDI Forge
 
-**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
+**MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is to generate coherent, editable melodic loops with purposeful rhythm, motifs, phrasing, register, dynamics and meaningful variation.
 
-**Current version: 0.104.0**
+**Current version: 0.105.0**
+
+### 0.105.0 — Melody-Only Core
+- Refocuses the default generator and visible workflow on a single melodic line; chord, bass, arpeggio and drum layer controls are no longer part of the creator UI.
+- Removes the final arrangement-level chord/bass correction pass so melody selection and phrase shaping can be evaluated independently instead of having the generated line repaired against an accompaniment layer.
+- Maintains backward parsing for older project state, but normalizes legacy layer flags and locks off and imports only saved notes on the melody lane (MIDI channel 3).
+- Keeps MAGIC quality/diversity selection, strict onset-grid enforcement, SIMILAR, MUTATE/EVOLVE, editable piano-roll notes and MIDI export in the focused workflow.
+- Simplifies the Advanced drawer to melody-relevant controls and removes chord/bass/arp density controls from the visible layout.
 
 ### 0.104.0 — MAGIC Quality & Diversity
 - MAGIC candidate selection now scores the finished loop against its declared Simple / Medium / Complex intent, instead of relying only on generic melody quality and a small class-coverage bonus.
 - Simple candidates are strongly penalized when any bar exceeds four melody attacks; Complex candidates earn credit for genuinely richer pitch vocabulary, interval variety, rhythmic variety and controlled surprise.
 - Diversity selection now compares register center as well as register spread, so transposition-safe motif matching does not discard otherwise distinct pitch placements.
 - Rebalances the eight-slot search to reward minimum pairwise diversity and idea novelty while retaining musical quality as the main objective.
-- Keeps deterministic register and character decisions stable across finalization passes; a subset of non-chord tones on beats 2/4 can remain as intentional color instead of being automatically repaired.
+- Keeps candidate register and character decisions stable across finalization passes without a separate chord-driven correction of the melody.
 - Tunes the existing MelodyDecision evaluator so Complex budgets fit realistic generated examples and unrecovered large leaps receive a clearer penalty.
 - Keeps MUTATE/EVOLVE changes away from drum onset/pitch patterns and adds QA that verifies both drum-groove preservation and a real change to another unlocked part.
 - SIMILAR's structural distance also includes note lengths, so close-to-bold ordering can distinguish phrase/articulation changes even when onset and pitch skeletons match.
