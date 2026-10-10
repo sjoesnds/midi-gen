@@ -7,6 +7,7 @@
 ### 0.105.1 — Melody Grid & Creator Focus
 - Keeps the creator-facing composition boundary to **Key / Scale / Bars**; the ADVANCED drawer, HOOK mode and the legacy SOUNDCLOUD mode are removed from the visible workflow.
 - Enforces the melody's eighth-note onset grid after both generation and MUTATE / EVOLVE; when a crowded bar has no open grid position, excess attacks are dropped instead of being pushed into the next bar.
+- MAGIC preserves the creator's explicit Swing / Humanize performance settings instead of randomizing them as part of melody generation.
 - MAGIC no longer randomly enables the retired SoundCloud-specific melody behavior, which belongs to the separate Shakalizer project.
 - Adds melody-only QA across every scale and all eight MAGIC slots for lane isolation, in-loop note bounds, scale membership, safe register, leap size, unique attacks and the strict rhythmic grid.
 - Legacy project-state bytes are still read in their original order, then obsolete layer/lock flags and the retired SoundCloud mode are normalized off.
