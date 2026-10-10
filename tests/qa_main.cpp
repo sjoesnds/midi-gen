@@ -1898,14 +1898,16 @@ int main()
                     if (onKick) ++locked;
                 }
         report ("808 locks to the kick when drums are on", hits808 > 0 && locked == hits808, fmt ("%.0f of %.0f hits on a kick", locked, hits808));
-        // Mutations must preserve the drum pattern and still change musical material.
+        // MUTATE / EVOLVE preserve the drum pattern while changing another
+        // unlocked part; a no-op mutation must not accidentally pass this test.
         p.setSoundTarget (0); p.magicRandomize();
         auto drumSteps = [&] { std::multiset<std::pair<int,int>> v; for (auto& n : p.getVisibleNotes()) if (n.channel == 5) v.insert ({ n.step, n.note }); return v; };
         auto nonDrumState = [&]
         {
             std::multiset<std::array<int, 5>> v;
             for (const auto& n : p.getVisibleNotes())
-                if (n.channel != 5) v.insert ({ n.step, n.note, n.length, n.velocity, n.channel });
+                if (n.channel != 5)
+                    v.insert ({ n.step, n.note, n.length, n.velocity, n.channel });
             return v;
         };
         const auto before = drumSteps();
@@ -1913,8 +1915,10 @@ int main()
         p.mutateSelected (0.9f); p.evolveSelected();
         const auto nonDrumAfter = nonDrumState();
         report ("MUTATE / EVOLVE keep the drum groove", drumSteps() == before && ! before.empty(), fmt ("%.0f drum hits", (double) before.size()));
-        report ("MUTATE / EVOLVE changes an unlocked musical part", nonDrumAfter != nonDrumBefore,
-                fmt ("%.0f non-drum notes before, %.0f after", (double) nonDrumBefore.size(), (double) nonDrumAfter.size()));
+        report ("MUTATE / EVOLVE changes an unlocked musical part",
+                nonDrumAfter != nonDrumBefore,
+                fmt ("%.0f non-drum notes before, %.0f after",
+                     (double) nonDrumBefore.size(), (double) nonDrumAfter.size()));
         p.setDrumsEnabled (false); p.setSoundTarget (0);
     }
 
@@ -2061,30 +2065,28 @@ int main()
                 versionedHeader ? "magic + version 3" : "missing/invalid header");
 
         MidiForgeAudioProcessor b; b.setStateInformation (mb.getData(), (int) mb.getSize());
-        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && b.isDrumsEnabled()
+        report ("state round-trip", b.getSoundTarget() == 7 && b.getArticulation() == 2 && ! b.getAutoNext() && b.getChordStyle() == 2 && ! b.isDrumsEnabled()
                && b.getDrumMuteMask() == 0x0A && b.getDrumPitchMode() == 1,
                fmt ("sound %.0f, articulation %.0f, chord style %.0f", b.getSoundTarget(), b.getArticulation(), b.getChordStyle()));
         const bool restoredLayerState =
-            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled() && b.isArpEnabled()
+            ! b.isChordsEnabled() && ! b.isBassEnabled() && b.isMelodyEnabled()
+            && ! b.isArpEnabled() && ! b.isDrumsEnabled()
             && b.getLeadStyleSoundCloud()
-            && b.getLockChords() && b.getLockBass() && b.getLockMelody() && b.getLockArp()
-            && std::abs (b.getChordDensity() - 0.41f) < 0.001f
-            && std::abs (b.getBassDensity() - 0.47f) < 0.001f
+            && ! b.getLockChords() && ! b.getLockBass() && ! b.getLockMelody() && ! b.getLockArp()
             && std::abs (b.getMelodyDensity() - 0.72f) < 0.001f
-            && std::abs (b.getArpDensity() - 0.33f) < 0.001f
             && std::abs (b.getSwing() - 0.12f) < 0.001f
             && std::abs (b.getHumanize() - 0.23f) < 0.001f
             && b.isHumanizeEnabled();
-        report ("restored layer controls survive state round-trip", restoredLayerState,
-                restoredLayerState ? "all layer flags, locks, density and performance values preserved"
-                                   : "one or more restored feature settings changed after load");
+        report ("legacy project state normalizes to melody-only", restoredLayerState,
+                restoredLayerState ? "obsolete layers/locks disabled; melody and performance values preserved"
+                                   : "legacy state restored an obsolete layer or lost a supported value");
 
         // Strip the V2 envelope to construct a real legacy positional state.
         juce::MemoryBlock legacy;
         legacy.append (static_cast<const char*> (mb.getData()) + 8, mb.getSize() - 8);
 
         MidiForgeAudioProcessor c1; c1.setStateInformation (legacy.getData(), (int) legacy.getSize() - 8);
-        report ("0.44 project (no drum mute / pitch fields) loads", c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "defaults applied");
+        report ("0.44 project (no drum mute / pitch fields) loads", ! c1.isDrumsEnabled() && c1.getDrumMuteMask() == 0 && c1.getDrumPitchMode() == 0, "legacy fields parsed; layers remain disabled");
         MidiForgeAudioProcessor c0; c0.setStateInformation (legacy.getData(), (int) legacy.getSize() - 16);
         report ("0.42 project (no chord style / drums fields) loads", c0.getArticulation() == 2 && c0.getChordStyle() == 0 && ! c0.isDrumsEnabled(), "defaults applied");
         MidiForgeAudioProcessor c; c.setStateInformation (legacy.getData(), (int) legacy.getSize() - 24);
@@ -2391,6 +2393,9 @@ int main()
         report ("SIMILAR: every relative differs from the source", identical == 0, fmt ("%.0f identical", (double) identical));
         report ("SIMILAR: relatives keep the loop's size and drum pattern", tooFew == 0 && tooFar == 0, fmt ("%.0f thin, %.0f drum drift", (double) tooFew, (double) tooFar));
 
+        // Relative order is intentional: slot 2 should be closest to the source,
+        // and slot 8 should be the boldest surviving mutation. Include note length
+        // in structural distance so articulation-only variants aren't called clones.
         auto structuralKeys = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
         {
             std::vector<std::uint32_t> keys;
@@ -2408,22 +2413,27 @@ int main()
         {
             const auto keys = structuralKeys (notes);
             std::vector<std::uint32_t> common;
-            std::set_intersection (sourceKeys.begin(), sourceKeys.end(), keys.begin(), keys.end(), std::back_inserter (common));
+            std::set_intersection (sourceKeys.begin(), sourceKeys.end(),
+                                   keys.begin(), keys.end(), std::back_inserter (common));
             const float denom = (float) std::max<size_t> (1, std::max (sourceKeys.size(), keys.size()));
             return 1.0f - (float) common.size() / denom;
         };
         bool distanceOrder = true;
-        float previousDistance = -1.0f, lastDistance = 0.0f;
+        float previousDistance = -1.0f;
+        float lastDistance = 0.0f;
         for (int k = 1; k < 8; ++k)
         {
             a.chooseVariation (k);
             const float distance = structuralDistance (a.getVisibleNotes());
-            if (previousDistance >= 0.0f && distance + 0.001f < previousDistance) distanceOrder = false;
+            if (previousDistance >= 0.0f && distance + 0.001f < previousDistance)
+                distanceOrder = false;
             previousDistance = distance;
             lastDistance = distance;
         }
-        report ("SIMILAR: relatives are ordered from close to bold", distanceOrder,
+        report ("SIMILAR: relatives are ordered from close to bold",
+                distanceOrder && lastDistance >= previousDistance,
                 fmt ("last relative structural distance %.3f", (double) lastDistance));
+
         // the seven relatives must not be clones of each other or of the source (compared note by note)
         {
             float worst = 1.0f;
@@ -4060,6 +4070,38 @@ int main()
                      (double) channelNotes[1], (double) channelNotes[2],
                      (double) channelNotes[3], (double) channelNotes[4],
                      (double) channelNotes[5]));
+    }
+
+    // 0.105.0 removes the arrangement-level chord/bass correction contract:
+    // melody candidates are now judged and exported as independent single-line ideas.
+
+    {
+        MidiForgeAudioProcessor melodyOnly;
+        melodyOnly.setFeedbackLogFile (juce::File());
+        melodyOnly.setRoot (7);
+        melodyOnly.setScale (2);
+        melodyOnly.setBars (4);
+        melodyOnly.setSeed (105010);
+        melodyOnly.magicRandomize();
+        melodyOnly.waitForGeneration();
+
+        const auto notes = melodyOnly.getVisibleNotes();
+        const bool hasMelody = std::any_of (notes.begin(), notes.end(),
+            [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
+        const bool onlyMelody = ! notes.empty() && hasMelody
+            && std::all_of (notes.begin(), notes.end(),
+                [] (const MidiForgeAudioProcessor::VisibleNote& n) { return n.channel == 3; });
+        const bool inLoop = std::all_of (notes.begin(), notes.end(),
+            [] (const MidiForgeAudioProcessor::VisibleNote& n)
+            {
+                return n.step >= 0 && n.step < 64 && n.length >= 1 && n.length <= 16
+                    && n.note >= 0 && n.note <= 127;
+            });
+
+        report ("0.105 melody-only: generation emits a single melodic lane",
+                onlyMelody, fmt ("%d visible notes", (int) notes.size()));
+        report ("0.105 melody-only: output notes remain valid inside the loop",
+                inLoop, fmt ("%d checked notes", (int) notes.size()));
     }
 
     // ------------------------------------------------------------------ 17. simple ideas are represented in the final bank
