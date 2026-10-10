@@ -157,10 +157,20 @@ CreativeRange::Plan CreativeRange::makePlan (int melodyType,
     if (melodyType == 6)          p.asymmetry += 0.06f; // Sparse lead
     if (melodyType == 7)          p.repetition -= 0.06f; // Phrase
 
-    // Mood remains a soft coloration layer, as before.
-    if (mood == 0 || mood == 1) p.durationContrast += 0.05f;
-    if (mood == 3 || mood == 7) p.leapBias += 0.06f;
-    if (mood == 4 || mood == 6) p.repetition -= 0.04f;
+    // Mood is a first-class musical intent. These coherent biases shape
+    // the phrase language used by both generation and candidate judging.
+    switch (mood)
+    {
+        case 1: p.harmonyColor += 0.08f; p.durationContrast += 0.06f; p.repetition += 0.04f; break; // Dark
+        case 2: p.durationContrast += 0.12f; p.leapBias -= 0.08f; p.repetition += 0.10f; break; // Melancholic
+        case 3: p.leapBias += 0.12f; p.repetition += 0.02f; p.asymmetry += 0.04f; break; // Euphoric
+        case 4: p.leapBias += 0.18f; p.repetition -= 0.10f; p.asymmetry += 0.10f; break; // Aggressive
+        case 5: p.durationContrast += 0.16f; p.leapBias -= 0.12f; p.repetition += 0.06f; break; // Dreamy
+        case 6: p.durationContrast += 0.10f; p.leapBias -= 0.05f; p.repetition += 0.14f; break; // Nostalgic
+        case 7: p.durationContrast += 0.10f; p.leapBias += 0.10f; p.repetition += 0.04f; p.harmonyColor += 0.14f; break; // Mysterious
+        case 8: p.leapBias += 0.14f; p.repetition -= 0.05f; p.asymmetry += 0.09f; break; // Energetic
+        default: break; // Neutral leaves the base language untouched.
+    }
 
     // No named-style conditioning. Creativity comes from the language profile,
     // identity, mood, role, energy and complexity.
