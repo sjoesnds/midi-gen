@@ -1,4 +1,4 @@
-// MIDI Forge 0.106.1 release checks for the melody + chords + bass creator.
+// MIDI Forge 0.106.2 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 
 #include <algorithm>
@@ -202,7 +202,7 @@ namespace
 int main()
 {
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("midiforge_0_106_0_release_qa");
+        .getChildFile ("midiforge_0_106_2_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
 
@@ -461,8 +461,8 @@ int main()
             + " register=" + (c.registerSafe ? "1" : "0")
             + " leaps=" + (c.leapsSafe ? "1" : "0");
     };
-    const auto transformDetail =
-        "seed=105901; mutate{" + describeTransformChecks (mutated)
+    const auto transformDetail = juce::String ("seed=105901; mutate{")
+        + describeTransformChecks (mutated)
         + "} evolve{" + describeTransformChecks (evolved) + "}";
     check ("MUTATE / EVOLVE preserve the melody contract",
           transformsValid, transformDetail);
