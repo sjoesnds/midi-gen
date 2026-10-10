@@ -445,7 +445,7 @@ int main()
         const std::string peerBank = midiBankFingerprint (peer);
         check ("MAGIC repeats the same complete MIDI bank for identical initial state",
                firstBank == peerBank,
-               juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + firstBank);
+               juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + juce::String (firstBank.c_str()));
         std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
                      fixedSeed, firstBank.c_str());
 
@@ -467,8 +467,8 @@ int main()
         const std::string resumedNextBank = midiBankFingerprint (resumed);
         check ("MAGIC sequence resumes after state save/load",
                expectedNextBank == resumedNextBank,
-               juce::String ("expected=") + expectedNextBank
-                   + " resumed=" + resumedNextBank);
+               juce::String ("expected=") + juce::String (expectedNextBank.c_str())
+                   + " resumed=" + juce::String (resumedNextBank.c_str()));
     }
 
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
