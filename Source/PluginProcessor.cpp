@@ -287,11 +287,13 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
         const int original = juce::jlimit (0, maxStep, v[index].step);
         const int barStart = (original / 16) * 16;
         const int localStep = original - barStart;
+        const int barEnd = juce::jmin (barStart + 14, maxStep - (maxStep & 1));
         int target = barStart + juce::jmin (14, ((localStep + 1) / 2) * 2);
-        target = juce::jmin (target, maxStep - (maxStep & 1));
 
+        // Never spill a crowded bar into the next one. If every eighth-note
+        // slot in this source bar is occupied, discard the excess attack.
         const int minimum = previous + 2;
-        if (minimum > maxStep)
+        if (minimum > barEnd)
         {
             drop[index] = true;
             continue;
@@ -301,7 +303,7 @@ static void snapMelodyOnsetsToGrid (std::vector<T>& v, int bars)
         if (target & 1)
             ++target;
 
-        if (target > maxStep)
+        if (target > barEnd)
         {
             drop[index] = true;
             continue;
@@ -10954,11 +10956,9 @@ void MidiForgeAudioProcessor::magicRandomize()
     lockArpLayer = false;
     if (!lockMelodyLayer)
     {
-        // SoundCloud is intentionally a minority MAGIC language:
-        // sparse chant cells, repeated home notes and strong harmonic pull.
-        const float soundCloudChance = juce::jlimit (0.10f, 0.28f,
-            0.10f + (1.0f - dnaMelody) * 0.14f + (dnaMotif < 0.42f ? 0.04f : 0.0f));
-        leadStyleSoundCloud = r.nextFloat() < soundCloudChance;
+            // SoundCloud-specific generation lives in the separate Shakalizer
+        // project. Retire that legacy mode from new MIDI Forge generations.
+        leadStyleSoundCloud = false;
     }
 
     // Seed controls the candidate search; DNA seed remains stable for
@@ -11217,6 +11217,10 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
         }
     }
 
+    // MUTATE / EVOLVE are generation operations too: preserve the same authored
+    // eighth-note lattice as MAGIC, and drop over-dense attacks rather than
+    // moving them into a neighbouring bar.
+    snapMelodyOnsetsToGrid (notes, getVisibleBars());
     removeDuplicateNotes (notes);
     cleanMelodyLine (notes);
     std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
