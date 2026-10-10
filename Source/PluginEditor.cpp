@@ -606,33 +606,25 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
 
     const int layoutShift = advancedControlsVisible ? 166 : 0;
     drawCard (g, { margin, 76, innerW, advancedControlsVisible ? 284 : 76 }, "01  CREATIVE SPACE", juce::Colour (kAccent).withAlpha (0.40f));
-    drawCard (g, { margin, 160 + layoutShift, innerW, 64 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
-    drawCard (g, { margin, 232 + layoutShift, innerW, 54 }, "03  PARTS", juce::Colour (kAccent2).withAlpha (0.35f));
-    drawCard (g, { margin, 294 + layoutShift, innerW, 282 }, "04  PIANO ROLL / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
-    drawCard (g, { margin, 584 + layoutShift, innerW, 116 }, "05  PERFORMANCE", juce::Colour (kAccent).withAlpha (0.26f));
-    drawCard (g, { margin, 712 + layoutShift, innerW, 120 }, "06  KEEP / EXPORT", juce::Colour (kSuccess).withAlpha (0.24f));
+    drawCard (g, { margin, 160 + layoutShift, innerW, 120 }, "02  DISCOVER", juce::Colour (kAccent).withAlpha (0.45f));
+    drawCard (g, { margin, 264 + layoutShift, innerW, 292 }, "03  MELODY / EDIT", juce::Colour (kAccent2).withAlpha (0.30f));
+    drawCard (g, { margin, 558 + layoutShift, innerW, 142 }, "04  PERFORMANCE / KEEP", juce::Colour (kSuccess).withAlpha (0.24f));
 
     drawFieldLabel (g, root, "Key");
     drawFieldLabel (g, scale, "Scale");
     drawFieldLabel (g, bars, "Bars");
     if (advancedControlsVisible)
     {
-        drawFieldLabel (g, progression, "Progression");
         drawFieldLabel (g, rhythm, "Rhythm");
         drawFieldLabel (g, moodBox, "Mood");
         drawFieldLabel (g, melodyTypeBox, "Melody type");
         drawFieldLabel (g, soundBox, "Sound target");
         drawFieldLabel (g, articBox, "Articulation");
-        drawFieldLabel (g, chordBox, "Chord style");
-        drawFieldLabel (g, octave, "Octave");
-        drawFieldLabel (g, arpRate, "Arp rate");
-        drawSliderLabel (g, chordDensity, "Chord density");
-        drawSliderLabel (g, bassDensity, "Bass density");
-        drawSliderLabel (g, melodyDensity, "Melody density");
-        drawSliderLabel (g, arpDensity, "Arp density");
+        drawFieldLabel (g, octave, "Register");
+        drawSliderLabel (g, melodyDensity, "Note density");
         drawSliderLabel (g, complexity, "Complexity");
         drawSliderLabel (g, motifStrength, "Motif strength");
-        drawSliderLabel (g, variationAmount, "Variation amount");
+        drawSliderLabel (g, variationAmount, "Variation");
         drawSliderLabel (g, fillAmount, "Phrase fill");
         drawSliderLabel (g, energy, "Energy");
         drawSliderLabel (g, melodyLength, "Note length");
