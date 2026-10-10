@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(MidiForgeQA VERSION 0.105.1)
 
-# Headless quality checks for the generator (no GUI, no plugin format needed).
+# Headless release gates for the current melody-only product (no GUI or plugin host).
 # Build:  cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release && cmake --build build-qa && ./build-qa/MidiForgeQA_artefacts/Release/MidiForgeQA
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -14,7 +14,7 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_console_app(MidiForgeQA PRODUCT_NAME "MidiForgeQA")
 
 target_sources(MidiForgeQA PRIVATE
-    qa_main.cpp
+    qa_melody_only.cpp
     ../Source/PluginProcessor.cpp
     ../Source/MidiForgeShared.h
     ../Source/MidiForgeMidiIO.cpp
