@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include "MidiForgeAblation.h"
 
 namespace midiforge
 {
@@ -58,6 +59,44 @@ struct ComposerJudge
                                + 0.15f * m.motifDevelopment);
 
         const float registerFit = c (m.registerScore);
+
+        // Headless ablation excludes one top-level group and renormalizes the
+        // remainder. Normal QA and production builds keep the exact original path.
+        const bool groupAblated =
+            midiforge::qa::isAblated ("judge:idea")
+            || midiforge::qa::isAblated ("judge:expression")
+            || midiforge::qa::isAblated ("judge:harmony")
+            || midiforge::qa::isAblated ("judge:rhythm")
+            || midiforge::qa::isAblated ("judge:novelty")
+            || midiforge::qa::isAblated ("judge:register_fit")
+            || midiforge::qa::isAblated ("judge:closure")
+            || midiforge::qa::isAblated ("judge:density_space")
+            || midiforge::qa::isAblated ("judge:role_consistency");
+        if (groupAblated)
+        {
+            float weighted = 0.0f;
+            float totalWeight = 0.0f;
+            const auto addGroup = [&] (const char* name, float weight, float value)
+            {
+                if (! midiforge::qa::isAblated (name))
+                {
+                    weighted += weight * value;
+                    totalWeight += weight;
+                }
+            };
+            addGroup ("judge:idea", 0.22f, idea);
+            addGroup ("judge:expression", 0.18f, expression);
+            addGroup ("judge:harmony", 0.16f, harmony);
+            addGroup ("judge:rhythm", 0.13f, rhythm);
+            addGroup ("judge:novelty", 0.11f, novelty);
+            addGroup ("judge:register_fit", 0.07f, registerFit);
+            addGroup ("judge:closure", 0.07f, c (m.closure));
+            addGroup ("judge:density_space", 0.04f, c (m.densitySpace));
+            addGroup ("judge:role_consistency", 0.02f, c (m.roleConsistency));
+            return totalWeight > 0.0f
+                ? std::clamp (weighted / totalWeight, 0.0f, 1.0f)
+                : 0.5f;
+        }
 
         return std::clamp (
             0.22f * idea

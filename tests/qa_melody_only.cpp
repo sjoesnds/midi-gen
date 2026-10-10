@@ -1,10 +1,14 @@
 // MIDI Forge 0.107.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
+#include "MidiForgeAblation.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <chrono>
+#include <fstream>
+#include <cstdlib>
 #include <cstdint>
 #include <iomanip>
 #include <set>
@@ -248,12 +252,236 @@ namespace
     }
 }
 
-int main()
+
+    struct AblationTreatment
+    {
+        const char* name;
+        const char* category;
+        const char* target;
+        bool disablesTaste = false;
+    };
+
+    std::vector<AblationTreatment> ablationTreatments()
+    {
+        return {
+            { "Baseline", "baseline", "", false },
+            { "rhythmGrammarScore", "score", "rhythmGrammarScore", false },
+            { "melodyPleasantnessScore", "score", "melodyPleasantnessScore", false },
+            { "melodyExpressionScore", "score", "melodyExpressionScore", false },
+            { "harmonicIntelligenceScore", "score", "harmonicIntelligenceScore", false },
+            { "phraseMemory4Score", "score", "phraseMemory4Score", false },
+            { "composerGrammarScore", "score", "composerGrammarScore", false },
+            { "melodicProsodyScore", "score", "melodicProsodyScore", false },
+            { "creativeRangeScore", "score", "creativeRangeScore", false },
+            { "contextualPhraseQualityScore", "score", "contextualPhraseQualityScore", false },
+            { "motifMemoryScore", "score", "motifMemoryScore", false },
+            { "grooveQualityScore", "score", "grooveQualityScore", false },
+            { "loopForgeScore", "score", "loopForgeScore", false },
+            { "motifSemanticsScore", "score", "motifSemanticsScore", false },
+            { "phraseContrastScore", "score", "phraseContrastScore", false },
+            { "loopClosureScore", "score", "loopClosureScore", false },
+            { "closureJudgeScore", "score", "closureJudgeScore", false },
+            { "localMelodyQualityScore", "score", "localMelodyQualityScore", false },
+            { "localMelodyRhythmScore", "score", "localMelodyRhythmScore", false },
+            { "composerJudgeScore", "score", "composerJudgeScore", false },
+            { "judge:idea", "composer_judge_group", "judge:idea", false },
+            { "judge:expression", "composer_judge_group", "judge:expression", false },
+            { "judge:harmony", "composer_judge_group", "judge:harmony", false },
+            { "judge:rhythm", "composer_judge_group", "judge:rhythm", false },
+            { "judge:novelty", "composer_judge_group", "judge:novelty", false },
+            { "judge:register_fit", "composer_judge_group", "judge:register_fit", false },
+            { "judge:closure", "composer_judge_group", "judge:closure", false },
+            { "judge:density_space", "composer_judge_group", "judge:density_space", false },
+            { "judge:role_consistency", "composer_judge_group", "judge:role_consistency", false },
+            { "TasteML", "taste_ml", "", true }
+        };
+    }
+
+    int runAblationReport (int seedCount, const juce::File& outputFile)
+    {
+        seedCount = juce::jlimit (1, 4096, seedCount);
+        if (! outputFile.getParentDirectory().createDirectory())
+        {
+            std::fprintf (stderr, "Could not create report directory: %s\\n",
+                          outputFile.getParentDirectory().getFullPathName().toRawUTF8());
+            return 2;
+        }
+        std::ofstream csv (outputFile.getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
+        if (! csv.is_open())
+        {
+            std::fprintf (stderr, "Could not open ablation report: %s\\n",
+                          outputFile.getFullPathName().toRawUTF8());
+            return 2;
+        }
+        csv << "treatment,category,seed,variation_count,total_notes,melody_notes,"
+               "tonal_safe_fraction,grid_fraction,melody_grid_fraction,unique_melodies,"
+               "complexity_simple,complexity_balanced,complexity_complex,"
+               "mean_melody_attacks_per_bar,mean_distinct_melody_pitches,"
+               "mean_pitch_range_semitones,elapsed_ms,bank_fingerprint\\n";
+
+        const auto treatments = ablationTreatments();
+        const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("midiforge_ablation_report");
+        reportRoot.createDirectory();
+
+        for (int seedIndex = 0; seedIndex < seedCount; ++seedIndex)
+        {
+            // Every condition uses the same publicly documented fixed seed set.
+            const int fixedSeed = 108000 + seedIndex;
+            for (const auto& treatment : treatments)
+            {
+                midiforge::qa::setActiveAblation ("");
+                const auto safeName = juce::String (treatment.name).replaceCharacter (':', '_');
+                const auto runSettings = reportRoot.getChildFile (safeName + "_" + juce::String (fixedSeed));
+                runSettings.deleteRecursively();
+                if (! runSettings.createDirectory())
+                {
+                    std::fprintf (stderr, "Could not create settings directory for %s\\n", treatment.name);
+                    return 2;
+                }
+                MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
+
+                int totalNotes = 0, melodyNotes = 0, tonalSafeNotes = 0;
+                int onGridNotes = 0, melodyOnGridNotes = 0;
+                int simpleLoops = 0, balancedLoops = 0, complexLoops = 0;
+                int variationCount = 0;
+                double attacksPerBarSum = 0.0, distinctPitchesSum = 0.0, pitchRangeSum = 0.0;
+                int measuredMelodyLoops = 0;
+                std::set<std::string> ideas;
+                std::string bankHash;
+                const auto started = std::chrono::steady_clock::now();
+
+                {
+                    MidiForgeAudioProcessor processor;
+                    processor.setFeedbackLogFile (juce::File());
+                    processor.setTasteEnabled (true);
+                    processor.setSeed (fixedSeed);
+                    processor.waitForGeneration();
+
+                    // Same synthetic taste context for each arm: initial variation 1
+                    // gets a like, initial variation 8 a dislike.
+                    processor.trainTaste (0, 1.0f, 1.0f);
+                    processor.trainTaste (7, 0.0f, 1.0f);
+                    midiforge::qa::setActiveAblation (treatment.target);
+                    if (treatment.disablesTaste)
+                        processor.setTasteEnabled (false);
+
+                    processor.magicRandomize();
+                    processor.waitForGeneration();
+                    bankHash = midiBankFingerprint (processor);
+                    variationCount = processor.getVariationCount();
+
+                    for (int variation = 0; variation < variationCount; ++variation)
+                    {
+                        const int complexityClass = processor.getVariationMelodyComplexityClass (variation);
+                        if (complexityClass == 0) ++simpleLoops;
+                        else if (complexityClass == 1) ++balancedLoops;
+                        else if (complexityClass == 2) ++complexLoops;
+
+                        processor.chooseVariation (variation);
+                        const auto notes = processor.getVisibleNotes();
+                        const int loopBars = juce::jmax (1, processor.getVisibleBars());
+                        int loopMelodyNotes = 0;
+                        std::set<int> pitches;
+                        int lowPitch = 128, highPitch = -1;
+                        std::vector<Note> melody;
+                        for (const auto& note : notes)
+                        {
+                            if (note.channel < 1 || note.channel > 3)
+                                continue;
+                            ++totalNotes;
+                            if (inScale (note.note, processor.getRoot(), processor.getScale()))
+                                ++tonalSafeNotes;
+                            if ((note.step % 2) == 0)
+                                ++onGridNotes;
+                            if (note.channel != 3)
+                                continue;
+
+                            ++melodyNotes;
+                            ++loopMelodyNotes;
+                            melody.push_back (note);
+                            if ((note.step % 2) == 0)
+                                ++melodyOnGridNotes;
+                            pitches.insert (note.note);
+                            lowPitch = juce::jmin (lowPitch, note.note);
+                            highPitch = juce::jmax (highPitch, note.note);
+                        }
+                        ideas.insert (fingerprint (melody));
+                        if (loopMelodyNotes > 0)
+                        {
+                            ++measuredMelodyLoops;
+                            attacksPerBarSum += (double) loopMelodyNotes / (double) loopBars;
+                            distinctPitchesSum += (double) pitches.size();
+                            pitchRangeSum += (double) juce::jmax (0, highPitch - lowPitch);
+                        }
+                    }
+                }
+
+                midiforge::qa::setActiveAblation ("");
+                const auto ended = std::chrono::steady_clock::now();
+                const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds> (ended - started).count();
+                const double tonalFraction = totalNotes > 0 ? (double) tonalSafeNotes / (double) totalNotes : 0.0;
+                const double gridFraction = totalNotes > 0 ? (double) onGridNotes / (double) totalNotes : 0.0;
+                const double melodyGridFraction = melodyNotes > 0 ? (double) melodyOnGridNotes / (double) melodyNotes : 0.0;
+                const double meanAttacks = measuredMelodyLoops > 0 ? attacksPerBarSum / measuredMelodyLoops : 0.0;
+                const double meanPitches = measuredMelodyLoops > 0 ? distinctPitchesSum / measuredMelodyLoops : 0.0;
+                const double meanRange = measuredMelodyLoops > 0 ? pitchRangeSum / measuredMelodyLoops : 0.0;
+
+                csv << treatment.name << ',' << treatment.category << ',' << fixedSeed << ','
+                    << variationCount << ',' << totalNotes << ',' << melodyNotes << ','
+                    << std::fixed << std::setprecision (4)
+                    << tonalFraction << ',' << gridFraction << ',' << melodyGridFraction << ','
+                    << ideas.size() << ',' << simpleLoops << ',' << balancedLoops << ',' << complexLoops << ','
+                    << meanAttacks << ',' << meanPitches << ',' << meanRange << ','
+                    << elapsedMs << ',' << bankHash << '\\n';
+                csv.flush();
+                runSettings.deleteRecursively();
+            }
+        }
+
+        csv.close();
+        std::printf ("Ablation report: %s (%d seeds x %d conditions; %d data rows)\\n",
+                     outputFile.getFullPathName().toRawUTF8(),
+                     seedCount, (int) treatments.size(), seedCount * (int) treatments.size());
+        return 0;
+    }
+
+    bool validateAblationSwitches()
+    {
+        const float untouched = midiforge::qa::scoreOrZero ("test-only-score", 0.75f);
+        midiforge::qa::setActiveAblation ("test-only-score");
+        const float disabled = midiforge::qa::scoreOrZero ("test-only-score", 0.75f);
+        midiforge::qa::setActiveAblation ("");
+        const midiforge::ComposerJudge::Metrics metrics {
+            0.82f, 0.64f, 0.77f, 0.71f, 0.75f, 0.48f, 0.69f,
+            0.78f, 0.73f, 0.81f, 0.66f, 0.74f, 0.62f
+        };
+        const float judgeBaseline = midiforge::ComposerJudge::score (metrics);
+        midiforge::qa::setActiveAblation ("judge:idea");
+        const float judgeAblated = midiforge::ComposerJudge::score (metrics);
+        midiforge::qa::setActiveAblation ("");
+        return std::abs (untouched - 0.75f) < 0.00001f
+            && std::abs (disabled) < 0.00001f
+            && std::abs (judgeBaseline - judgeAblated) > 0.00001f;
+    }
+
+int main (int argc, char** argv)
 {
+    if (argc >= 2 && std::string (argv[1]) == "--ablation-report")
+    {
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 256;
+        const auto output = argc >= 4 ? juce::File (argv[3])
+            : juce::File::getCurrentWorkingDirectory().getChildFile ("ablation-report.csv");
+        return runAblationReport (seedCount, output);
+    }
+
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getChildFile ("midiforge_0_107_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
+
+    check ("Headless-only ablation switches are isolated", validateAblationSwitches(),
+           "default scores unchanged; selected score and Composer Judge group can be excluded");
 
     bool allSupportedLayers = true;
     bool allInLoop = true;
