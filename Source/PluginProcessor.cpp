@@ -1709,230 +1709,7 @@ void MidiForgeAudioProcessor::applyHarmonicIntelligence (Section& section, uint3
 // supports them. Earlier harmony correction is intentionally musical and soft;
 // this last pass repairs only obvious final-stage clashes after phrase edits,
 // and leaves weak-beat color notes alone.
-void MidiForgeAudioProcessor::applyArrangementFoundation (Section& section, uint32_t identity) const
-{
-    if (section.notes.empty())
-        return;
 
-    const auto prog = progressionDegrees();
-    if (prog.empty())
-        return;
-
-    auto pitchClass = [] (int pitch) { return (pitch % 12 + 12) % 12; };
-    const auto scaleNotes = scaleSemitones();
-    auto inScale = [&] (int pitch)
-    {
-        const int relative = (pitchClass (pitch) - rootPc + 12) % 12;
-        return std::find (scaleNotes.begin(), scaleNotes.end(), relative) != scaleNotes.end();
-    };
-
-    auto chordPitchClassesForBar = [&] (int bar)
-    {
-        std::array<bool, 12> pcs {};
-        for (const auto& note : section.notes)
-        {
-            if (note.channel == 1 && note.step / 16 == bar)
-                pcs[(size_t) pitchClass (note.note)] = true;
-        }
-
-        // If the chord layer is off, retain harmonic guidance from the selected
-        // progression rather than making the bass/melody depend on visible chord notes.
-        const bool hasChord = std::any_of (pcs.begin(), pcs.end(), [] (bool value) { return value; });
-        if (! hasChord)
-        {
-            const int degree = prog[(size_t) (bar % (int) prog.size())];
-            for (int offset : { 0, 2, 4 })
-                pcs[(size_t) pitchClass (degreeToPitch (degree + offset, 3))] = true;
-        }
-        return pcs;
-    };
-
-    auto chordRootPitchClassForBar = [&] (int bar)
-    {
-        const auto pcs = chordPitchClassesForBar (bar);
-        int bestRootPc = pitchClass (degreeToPitch (prog[(size_t) (bar % (int) prog.size())], 2));
-        int bestScore = -1;
-
-        // Infer the root from the chord tones that were actually generated.
-        // MAGIC can use a candidate-local progression and then restore the UI
-        // controls before this final pass, so the current dropdown is not always
-        // the progression that authored this specific chord.
-        for (int degree = 0; degree < (int) scaleNotes.size(); ++degree)
-        {
-            const int candidateRoot = pitchClass (degreeToPitch (degree, 2));
-            if (! pcs[(size_t) candidateRoot])
-                continue;
-
-            int score = 1;
-            if (pcs[(size_t) pitchClass (degreeToPitch (degree + 2, 2))])
-                score += 2;
-            if (pcs[(size_t) pitchClass (degreeToPitch (degree + 4, 2))])
-                score += 2;
-
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestRootPc = candidateRoot;
-            }
-        }
-
-        return bestRootPc;
-    };
-
-    const int barsN = juce::jmax (1, section.bars);
-
-    // Bass: keep beat-one anchors on the progression root; other notes should
-    // belong to the active chord. Last-eighth anticipations may belong to the
-    // next chord, which preserves a useful forward pull into the loop.
-    for (auto& note : section.notes)
-    {
-        if (note.channel != 2 || lockBassLayer)
-            continue;
-
-        const int bar = juce::jlimit (0, barsN - 1, note.step / 16);
-        const int local = note.step % 16;
-        const int rootPcForBar = chordRootPitchClassForBar (bar);
-        const auto currentChord = chordPitchClassesForBar (bar);
-        const int pitchPc = pitchClass (note.note);
-
-        auto nearestPitchWithPc = [&] (int targetPc, int original)
-        {
-            int best = juce::jlimit (28, 52, original);
-            int bestDistance = 1000;
-            for (int candidate = 28; candidate <= 52; ++candidate)
-            {
-                if (pitchClass (candidate) != targetPc)
-                    continue;
-                const int distance = std::abs (candidate - original);
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = candidate;
-                }
-            }
-            return best;
-        };
-
-        if (local == 0)
-        {
-            note.note = nearestPitchWithPc (rootPcForBar, note.note);
-            continue;
-        }
-
-        bool compatible = currentChord[(size_t) pitchPc];
-        if (! compatible && local >= 12)
-        {
-            const int nextBar = (bar + 1) % barsN;
-            const auto nextChord = chordPitchClassesForBar (nextBar);
-            compatible = nextChord[(size_t) pitchPc];
-        }
-
-        if (compatible)
-            continue;
-
-        int best = note.note;
-        int bestCost = 1000;
-        for (int candidate = 28; candidate <= 52; ++candidate)
-        {
-            if (! currentChord[(size_t) pitchClass (candidate)])
-                continue;
-
-            int cost = std::abs (candidate - note.note);
-            // Prefer a root over a closer register doubling on exact ties,
-            // without changing a note that already fits the harmony.
-            if (pitchClass (candidate) == rootPcForBar)
-                cost -= 1;
-            if (cost < bestCost)
-            {
-                bestCost = cost;
-                best = candidate;
-            }
-        }
-        if (bestCost < 1000)
-            note.note = best;
-    }
-
-    // Melody: after phrase shaping and the final register/scale contract, repair
-    // only strong-beat notes that still clash with the chord. The correction is
-    // capped at three semitones and preserves the register and adjacent leap limit.
-    if (! melodyEnabled || lockMelodyLayer || soundProfileFor (soundTarget).soloLine)
-        return;
-
-    std::vector<size_t> melody;
-    for (size_t i = 0; i < section.notes.size(); ++i)
-        if (section.notes[i].channel == 3)
-            melody.push_back (i);
-
-    std::stable_sort (melody.begin(), melody.end(), [&] (size_t a, size_t b)
-    {
-        if (section.notes[a].step != section.notes[b].step)
-            return section.notes[a].step < section.notes[b].step;
-        return section.notes[a].note < section.notes[b].note;
-    });
-
-    int laneLo = 40, laneHi = 96, maxLeap = 9;
-    melodyRegisterContract (laneLo, laneHi, maxLeap);
-
-    for (size_t i = 0; i < melody.size(); ++i)
-    {
-        auto& note = section.notes[melody[i]];
-        const int local = note.step % 16;
-        if ((local % 4) != 0)
-            continue; // Passing/color notes on weaker positions retain freedom.
-
-        const int bar = juce::jlimit (0, barsN - 1, note.step / 16);
-        const auto chordPcs = chordPitchClassesForBar (bar);
-        if (chordPcs[(size_t) pitchClass (note.note)])
-            continue;
-
-        // Keep a deterministic share of non-chord tones on beats 2 and 4.
-        // Their tension is intentional color, not a generator defect; beat 1/3
-        // and long phrase anchors remain subject to the full local correction.
-        const bool backbeat = (local % 8) == 4;
-        if (backbeat)
-        {
-            const uint32_t colorRoll = hash32 (
-                identity ^ 0xC01A7E5u
-                ^ (uint32_t) (bar + 1) * 0x9E3779B9u
-                ^ (uint32_t) (note.step + 1) * 0x85EBCA6Bu
-                ^ (uint32_t) (note.note + 128) * 0x27D4EB2Du);
-            if ((colorRoll % 100u) < 40u)
-                continue;
-        }
-
-        const int previousPitch = i > 0 ? section.notes[melody[i - 1]].note : -1;
-        const int nextPitch = i + 1 < melody.size() ? section.notes[melody[i + 1]].note : -1;
-        int bestPitch = note.note;
-        float bestCost = 1.0e9f;
-
-        for (int candidate = laneLo; candidate <= laneHi; ++candidate)
-        {
-            if (! chordPcs[(size_t) pitchClass (candidate)] || ! inScale (candidate))
-                continue;
-            const int movement = std::abs (candidate - note.note);
-            if (movement > 3)
-                continue;
-            if (previousPitch >= 0 && std::abs (candidate - previousPitch) > maxLeap)
-                continue;
-            if (nextPitch >= 0 && std::abs (nextPitch - candidate) > maxLeap)
-                continue;
-
-            float cost = (float) movement;
-            if (candidate == previousPitch)
-                cost += 1.35f;
-            if (candidate == nextPitch)
-                cost += 0.85f;
-            if (cost < bestCost)
-            {
-                bestCost = cost;
-                bestPitch = candidate;
-            }
-        }
-
-        if (bestCost < 1.0e9f)
-            note.note = bestPitch;
-    }
-}
 
 float MidiForgeAudioProcessor::harmonicIntelligenceScore (const Section& section) const
 {
@@ -9750,7 +9527,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         applyPhraseArchitecture (flat, identity);
         enforceFinalMelodyContract (flat, identity);
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
-        applyArrangementFoundation (flat, identity);
+
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = grooveQualityScore (flat);
@@ -11055,7 +10832,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         // Grid is a hard timing invariant, including after layer locks.
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
-        applyArrangementFoundation (flat, candidate.identity);
+
         result.push_back (std::move (flat));
     }
 
@@ -11068,7 +10845,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         if (! song.sections.empty())
         {
             snapSectionOnsetsToMusicalGrid (song.sections.front().notes, song.sections.front().bars, arpRate);
-            applyArrangementFoundation (song.sections.front(), generationSeed);
+
             result.push_back (song.sections.front());
         }
     }
