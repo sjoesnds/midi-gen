@@ -11350,6 +11350,72 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     snapMelodyOnsetsToGrid (notes, getVisibleBars());
     removeDuplicateNotes (notes);
     cleanMelodyLine (notes);
+
+    // A mutation may lengthen the final bass hit or move a melody note after
+    // another voice has already been normalized. Re-assert the exported-loop
+    // contract across every supported lane, not only melody onsets.
+    const int safeLoopSteps = juce::jmax (16, getVisibleBars() * 16);
+    for (auto& n : notes)
+    {
+        n.step = juce::jlimit (0, safeLoopSteps - 1, n.step);
+        n.length = juce::jlimit (1, juce::jmin (16, safeLoopSteps - n.step), n.length);
+        n.note = juce::jlimit (0, 127, n.note);
+        n.velocity = juce::jlimit (1, 127, n.velocity);
+    }
+
+    // Keep mutations musical after pitch transformations too: a valid starting
+    // line can gain an out-of-scale pitch or >12-semitone leap after a local edit.
+    // Choose the nearest in-scale pitch within the grounded lead lane and the
+    // previous note's leap window, without rewriting the intended rhythm.
+    std::vector<size_t> melodyIndices;
+    for (size_t i = 0; i < notes.size(); ++i)
+        if (notes[i].channel == 3)
+            melodyIndices.push_back (i);
+    std::stable_sort (melodyIndices.begin(), melodyIndices.end(),
+        [&] (size_t a, size_t b)
+        {
+            if (notes[a].step != notes[b].step) return notes[a].step < notes[b].step;
+            return notes[a].note < notes[b].note;
+        });
+
+    const auto activeScale = scaleSemitones();
+    auto nearestSafeMelodyPitch = [&] (int target, int lo, int hi)
+    {
+        lo = juce::jlimit (48, 90, lo);
+        hi = juce::jlimit (lo, 90, hi);
+        int best = lo;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (int pitch = lo; pitch <= hi; ++pitch)
+        {
+            const int relative = ((pitch % 12) - rootPc + 12) % 12;
+            if (std::find (activeScale.begin(), activeScale.end(), relative) == activeScale.end())
+                continue;
+            const int distance = std::abs (pitch - target);
+            if (distance < bestDistance)
+            {
+                best = pitch;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    };
+
+    int previousMelodyPitch = -1;
+    for (const size_t index : melodyIndices)
+    {
+        auto& note = notes[index];
+        const int pitchLo = previousMelodyPitch < 0 ? 48 : juce::jmax (48, previousMelodyPitch - 12);
+        const int pitchHi = previousMelodyPitch < 0 ? 90 : juce::jmin (90, previousMelodyPitch + 12);
+        note.note = nearestSafeMelodyPitch (note.note, pitchLo, pitchHi);
+        previousMelodyPitch = note.note;
+    }
+
+    // Pitch repair does not change note positions, but keep collision/length
+    // cleanup last so later edits can never leave overlapping melody notes.
+    cleanMelodyLine (notes);
+    for (auto& n : notes)
+        n.length = juce::jlimit (1, juce::jmin (16, safeLoopSteps - n.step), n.length);
+
     std::sort (notes.begin(), notes.end(), [] (const VisibleNote& a, const VisibleNote& b)
     {
         if (a.step != b.step) return a.step < b.step;
