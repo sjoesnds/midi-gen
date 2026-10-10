@@ -11379,10 +11379,12 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
         });
 
     const auto activeScale = scaleSemitones();
+    int melodyLo = 48, melodyHi = 90, maximumMelodyLeap = 9;
+    melodyRegisterContract (melodyLo, melodyHi, maximumMelodyLeap);
     auto nearestSafeMelodyPitch = [&] (int target, int lo, int hi)
     {
-        lo = juce::jlimit (48, 90, lo);
-        hi = juce::jlimit (lo, 90, hi);
+        lo = juce::jlimit (melodyLo, melodyHi, lo);
+        hi = juce::jlimit (lo, melodyHi, hi);
         int best = lo;
         int bestDistance = std::numeric_limits<int>::max();
         for (int pitch = lo; pitch <= hi; ++pitch)
@@ -11404,8 +11406,10 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
     for (const size_t index : melodyIndices)
     {
         auto& note = notes[index];
-        const int pitchLo = previousMelodyPitch < 0 ? 48 : juce::jmax (48, previousMelodyPitch - 12);
-        const int pitchHi = previousMelodyPitch < 0 ? 90 : juce::jmin (90, previousMelodyPitch + 12);
+        const int pitchLo = previousMelodyPitch < 0 ? melodyLo
+            : juce::jmax (melodyLo, previousMelodyPitch - maximumMelodyLeap);
+        const int pitchHi = previousMelodyPitch < 0 ? melodyHi
+            : juce::jmin (melodyHi, previousMelodyPitch + maximumMelodyLeap);
         note.note = nearestSafeMelodyPitch (note.note, pitchLo, pitchHi);
         previousMelodyPitch = note.note;
     }
