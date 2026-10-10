@@ -186,6 +186,33 @@ for (auto* b : { &chords, &bass, &melody, &arp, &drums, &extensions, &inversions
                  &lockChordsBtn, &lockBassBtn, &lockMelodyBtn, &lockArpBtn,
                  &autoNextBtn, &tasteToggleBtn })
     styleToggle (*b);
+for (auto& lockButton : magicLockButtons)
+{
+    styleTextButton (lockButton);
+    lockButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kSuccess));
+}
+
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Progression, "Progression");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Rhythm, "Rhythm");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Octave, "Register");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Mood, "Mood");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::MelodyType, "Melody type");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ChordDensity, "Chord density");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::BassDensity, "Bass density");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::MelodyDensity, "Melody density");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Complexity, "Complexity");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::MotifStrength, "Motif strength");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::VariationAmount, "Variation");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::FillAmount, "Phrase fill");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Energy, "Energy");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::MelodyLength, "Note length");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::PauseChance, "Pause chance");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::LeapChance, "Leap chance");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::GhostChance, "Ghost notes");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ChordExtensions, "Chord extensions");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Inversions, "Chord inversions");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, "Chords on/off");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::BassEnabled, "Bass on/off");
 
 generate.setColour (juce::TextButton::buttonColourId, juce::Colour (kAccent));
 generate.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kAccent).brighter (0.12f));
@@ -511,21 +538,15 @@ addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
 
-// Creator-facing composition controls are intentionally limited to Key / Scale / Bars.
-// MAGIC explores the hidden musical strategy. Keep deprecated controls wired only for
-// source/state compatibility; they are not accessible from the current creator UI.
+// Key / Scale / Bars remain explicit creator constraints. Chord and bass layers
+// are available in the compact creator row; their additional controls live in ADVANCED.
 mode.setVisible (false);
 setAdvancedControlsVisible (false);
-advancedButton.setVisible (false);
 hookModeButton.setVisible (false);
 soundCloudButton.setVisible (false);
-chords.setVisible (false);
-bass.setVisible (false);
 melody.setVisible (false);
 arp.setVisible (false);
 drums.setVisible (false);
-extensions.setVisible (false);
-inversions.setVisible (false);
 drumViewBtn.setVisible (false);
 drumGrid.setVisible (false);
 lockChordsBtn.setVisible (false);
@@ -536,10 +557,7 @@ dragChords.setVisible (false);
 dragBass.setVisible (false);
 dragArp.setVisible (false);
 dragDrums.setVisible (false);
-chordDensity.setVisible (false);
-bassDensity.setVisible (false);
 arpDensity.setVisible (false);
-progression.setVisible (false);
 arpRate.setVisible (false);
 chordBox.setVisible (false);
 
