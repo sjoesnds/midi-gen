@@ -1,4 +1,4 @@
-// MIDI Forge 0.105.2 release checks for the supported melody-only product.
+// MIDI Forge 0.106.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 
 #include <algorithm>
@@ -55,7 +55,7 @@ namespace
     struct MelodyChecks
     {
         bool populated = true;
-        bool onlyMelody = true;
+        bool supportedLayers = true;
         bool inLoop = true;
         bool onGrid = true;
         bool noCollisions = true;
@@ -64,6 +64,9 @@ namespace
         bool registerSafe = true;
         bool leapsSafe = true;
         int noteCount = 0;
+        int melodyNotes = 0;
+        int chordNotes = 0;
+        int bassNotes = 0;
         int severeLeapReversals = 0;
     };
 
@@ -74,13 +77,13 @@ namespace
         c.populated = ! notes.empty();
         const int loopSteps = juce::jmax (1, bars) * 16;
         std::vector<std::pair<int, int>> timeline;
-        std::set<int> onsetSteps;
+        std::set<int> melodyOnsets;
 
         for (const auto& n : notes)
         {
-            if (n.channel != 3)
+            if (n.channel < 1 || n.channel > 3)
             {
-                c.onlyMelody = false;
+                c.supportedLayers = false;
                 continue;
             }
 
@@ -92,14 +95,23 @@ namespace
                 && n.note >= 0 && n.note <= 127
                 && n.velocity >= 1 && n.velocity <= 127;
             c.onGrid = c.onGrid && (n.step % 2 == 0);
-            c.noCollisions = c.noCollisions && onsetSteps.insert (n.step).second;
             c.tonal = c.tonal && inScale (n.note, root, scale);
-            c.registerSafe = c.registerSafe && n.note >= 48 && n.note <= 90;
-            timeline.push_back ({ n.step, n.note });
+
+            if (n.channel == 1)
+                ++c.chordNotes;
+            else if (n.channel == 2)
+                ++c.bassNotes;
+            else
+            {
+                ++c.melodyNotes;
+                c.noCollisions = c.noCollisions && melodyOnsets.insert (n.step).second;
+                c.registerSafe = c.registerSafe && n.note >= 48 && n.note <= 90;
+                timeline.push_back ({ n.step, n.note });
+            }
         }
 
-        c.populated = c.populated && c.noteCount > 0;
-        c.onlyMelody = c.onlyMelody && c.populated;
+        c.populated = c.populated && c.melodyNotes > 0;
+        c.supportedLayers = c.supportedLayers && c.populated;
         std::stable_sort (timeline.begin(), timeline.end(),
             [] (const auto& a, const auto& b)
             {
@@ -148,7 +160,7 @@ namespace
         return key;
     }
 
-    bool parseMelodyMidi (const juce::File& file, int& noteOns)
+    bool parseSupportedMidi (const juce::File& file, int& noteOns)
     {
         noteOns = 0;
         juce::FileInputStream input (file);
@@ -158,7 +170,8 @@ namespace
 
         bool tempo = false;
         bool timeSignature = false;
-        bool onlyMelody = true;
+        bool supportedChannels = true;
+        bool melodyPresent = false;
         for (int t = 0; t < midi.getNumTracks(); ++t)
         {
             if (midi.getTrack (t) == nullptr) continue;
@@ -170,10 +183,12 @@ namespace
                 timeSignature = timeSignature || message.isTimeSignatureMetaEvent();
                 if (! message.isNoteOn()) continue;
                 ++noteOns;
-                onlyMelody = onlyMelody && message.getChannel() == 3;
+                const int channel = message.getChannel();
+                supportedChannels = supportedChannels && channel >= 1 && channel <= 3;
+                melodyPresent = melodyPresent || channel == 3;
             }
         }
-        return noteOns > 0 && onlyMelody && tempo && timeSignature;
+        return noteOns > 0 && supportedChannels && melodyPresent && tempo && timeSignature;
     }
 }
 
