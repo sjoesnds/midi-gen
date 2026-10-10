@@ -302,14 +302,14 @@ namespace
         seedCount = juce::jlimit (1, 4096, seedCount);
         if (! outputFile.getParentDirectory().createDirectory())
         {
-            std::fprintf (stderr, "Could not create report directory: %s\\n",
+            std::fprintf (stderr, "Could not create report directory: %s\n",
                           outputFile.getParentDirectory().getFullPathName().toRawUTF8());
             return 2;
         }
         std::ofstream csv (outputFile.getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
         if (! csv.is_open())
         {
-            std::fprintf (stderr, "Could not open ablation report: %s\\n",
+            std::fprintf (stderr, "Could not open ablation report: %s\n",
                           outputFile.getFullPathName().toRawUTF8());
             return 2;
         }
@@ -317,7 +317,7 @@ namespace
                "tonal_safe_fraction,grid_fraction,melody_grid_fraction,unique_melodies,"
                "complexity_simple,complexity_balanced,complexity_complex,"
                "mean_melody_attacks_per_bar,mean_distinct_melody_pitches,"
-               "mean_pitch_range_semitones,elapsed_ms,bank_fingerprint\\n";
+               "mean_pitch_range_semitones,elapsed_ms,bank_fingerprint\n";
 
         const auto treatments = ablationTreatments();
         const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
@@ -336,7 +336,7 @@ namespace
                 runSettings.deleteRecursively();
                 if (! runSettings.createDirectory())
                 {
-                    std::fprintf (stderr, "Could not create settings directory for %s\\n", treatment.name);
+                    std::fprintf (stderr, "Could not create settings directory for %s\n", treatment.name);
                     return 2;
                 }
                 MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
@@ -433,14 +433,14 @@ namespace
                     << tonalFraction << ',' << gridFraction << ',' << melodyGridFraction << ','
                     << ideas.size() << ',' << simpleLoops << ',' << balancedLoops << ',' << complexLoops << ','
                     << meanAttacks << ',' << meanPitches << ',' << meanRange << ','
-                    << elapsedMs << ',' << bankHash << '\\n';
+                    << elapsedMs << ',' << bankHash << '\n';
                 csv.flush();
                 runSettings.deleteRecursively();
             }
         }
 
         csv.close();
-        std::printf ("Ablation report: %s (%d seeds x %d conditions; %d data rows)\\n",
+        std::printf ("Ablation report: %s (%d seeds x %d conditions; %d data rows)\n",
                      outputFile.getFullPathName().toRawUTF8(),
                      seedCount, (int) treatments.size(), seedCount * (int) treatments.size());
         return 0;
