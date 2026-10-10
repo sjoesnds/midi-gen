@@ -1,4 +1,4 @@
-// MIDI Forge 0.106.1 release checks for the melody + chords + bass creator.
+// MIDI Forge 0.107.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 
 #include <algorithm>
@@ -202,7 +202,7 @@ namespace
 int main()
 {
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("midiforge_0_106_0_release_qa");
+        .getChildFile ("midiforge_0_107_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
 
@@ -314,6 +314,64 @@ int main()
     check ("MAGIC variation bank retains meaningful diversity",
           diverseBanks >= 10,
           juce::String (diverseBanks) + " of 12 banks have at least six distinct ideas");
+
+    // Mood should create a repeatable difference in melodic intent across seeds/archetypes,
+    // rather than being washed out by hidden Character variation.
+    {
+        double aggressiveSpace = 0.0, aggressiveDensity = 0.0, aggressiveLeap = 0.0;
+        double dreamySpace = 0.0, dreamyDensity = 0.0, dreamyLeap = 0.0;
+        double nostalgicMotif = 0.0, energeticMotif = 0.0;
+        int samples = 0;
+        for (int identity = 0; identity < 32; ++identity)
+        {
+            for (int archetype = 0; archetype < 8; ++archetype)
+            {
+                const auto seed = (uint32_t) (0x61C88647u * (uint32_t) (identity + 1)
+                                               ^ (uint32_t) archetype * 0x9E3779B9u);
+                const auto aggressive = midiforge::MelodyIntent::makePlan (
+                    4, 0, 4, 0.65f, 0.55f, seed, archetype);
+                const auto dreamy = midiforge::MelodyIntent::makePlan (
+                    4, 0, 5, 0.65f, 0.55f, seed, archetype);
+                const auto nostalgic = midiforge::MelodyIntent::makePlan (
+                    4, 0, 6, 0.65f, 0.55f, seed, archetype);
+                const auto energetic = midiforge::MelodyIntent::makePlan (
+                    4, 0, 8, 0.65f, 0.55f, seed, archetype);
+
+                aggressiveSpace += aggressive.dnaSpace;
+                aggressiveDensity += aggressive.dnaDensity;
+                aggressiveLeap += aggressive.dnaLeap;
+                dreamySpace += dreamy.dnaSpace;
+                dreamyDensity += dreamy.dnaDensity;
+                dreamyLeap += dreamy.dnaLeap;
+                nostalgicMotif += nostalgic.dnaMotif;
+                energeticMotif += energetic.dnaMotif;
+                ++samples;
+            }
+        }
+        const double aggressiveSpaceMean = aggressiveSpace / samples;
+        const double aggressiveDensityMean = aggressiveDensity / samples;
+        const double aggressiveLeapMean = aggressiveLeap / samples;
+        const double dreamySpaceMean = dreamySpace / samples;
+        const double dreamyDensityMean = dreamyDensity / samples;
+        const double dreamyLeapMean = dreamyLeap / samples;
+        const double nostalgicMotifMean = nostalgicMotif / samples;
+        const double energeticMotifMean = energeticMotif / samples;
+        const bool moodContrast =
+            dreamySpaceMean - aggressiveSpaceMean >= 0.36
+            && aggressiveDensityMean - dreamyDensityMean >= 0.32
+            && aggressiveLeapMean - dreamyLeapMean >= 0.45
+            && nostalgicMotifMean - energeticMotifMean >= 0.08;
+        check ("Mood intent reaches phrase spacing, density, leaps and motif",
+               moodContrast,
+               juce::String ("Dreamy−Aggressive space ")
+                   + juce::String (dreamySpaceMean - aggressiveSpaceMean, 2)
+                   + ", density "
+                   + juce::String (aggressiveDensityMean - dreamyDensityMean, 2)
+                   + ", leap "
+                   + juce::String (aggressiveLeapMean - dreamyLeapMean, 2)
+                   + ", Nostalgic−Energetic motif "
+                   + juce::String (nostalgicMotifMean - energeticMotifMean, 2));
+    }
 
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
     MidiForgeAudioProcessor locked;
