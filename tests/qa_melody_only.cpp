@@ -432,7 +432,9 @@ int main()
     transform.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, true);
     transform.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::BassEnabled, true);
     transform.setMagicParameterLockMask ((1u << MidiForgeAudioProcessor::kMagicLockCount) - 1u);
-    transform.magicRandomize();
+    // This is a transform invariant test, not a MAGIC test. Regenerate from the
+    // explicit seed above so a failure is reproducible instead of time-seeded.
+    transform.regenerate();
     transform.waitForGeneration();
     transform.mutateSelected (0.45f);
     auto mutated = inspectMelody (transform.getVisibleNotes(), transform.getVisibleBars(),
@@ -447,8 +449,23 @@ int main()
         && evolved.populated && evolved.supportedLayers && evolved.inLoop && evolved.onGrid
         && evolved.noCollisions && evolved.spacing && evolved.tonal
         && evolved.registerSafe && evolved.leapsSafe;
+    auto describeTransformChecks = [] (const MelodyChecks& c)
+    {
+        return juce::String ("pop=") + (c.populated ? "1" : "0")
+            + " lanes=" + (c.supportedLayers ? "1" : "0")
+            + " loop=" + (c.inLoop ? "1" : "0")
+            + " grid=" + (c.onGrid ? "1" : "0")
+            + " collisions=" + (c.noCollisions ? "1" : "0")
+            + " spacing=" + (c.spacing ? "1" : "0")
+            + " tonal=" + (c.tonal ? "1" : "0")
+            + " register=" + (c.registerSafe ? "1" : "0")
+            + " leaps=" + (c.leapsSafe ? "1" : "0");
+    };
+    const auto transformDetail =
+        "seed=105901; mutate{" + describeTransformChecks (mutated)
+        + "} evolve{" + describeTransformChecks (evolved) + "}";
     check ("MUTATE / EVOLVE preserve the melody contract",
-          transformsValid, "lane, key, range, loop bounds and grid remain valid");
+          transformsValid, transformDetail);
 
     // Export and drag-temporary files must contain real MIDI with only the supported layers.
     const auto outFile = settings.getChildFile ("release_export.mid");
