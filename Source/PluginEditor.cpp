@@ -587,10 +587,18 @@ void MidiForgeAudioProcessorEditor::syncMagicLockButton (
     auto& button = magicLockButtons[(size_t) parameter];
     const bool locked = processor.isMagicParameterLocked (parameter);
     button.setToggleState (locked, juce::dontSendNotification);
-    button.setButtonText (locked ? juce::String::fromUTF8 ("🔒") : juce::String::fromUTF8 ("🔓"));
-    button.setTooltip (locked
-        ? "LOCKED: MAGIC keeps this control's value. Click to unlock."
-        : "UNLOCKED: MAGIC may randomize this control. Click to lock.");
+
+    const auto buttonText = locked
+        ? juce::String::fromUTF8 ("🔒")
+        : juce::String::fromUTF8 ("🔓");
+    if (button.getButtonText() != buttonText)
+        button.setButtonText (buttonText);
+
+    const auto tooltip = locked
+        ? juce::String ("LOCKED: MAGIC keeps this control's value. Click to unlock.")
+        : juce::String ("UNLOCKED: MAGIC may randomize this control. Click to lock.");
+    if (button.getTooltip() != tooltip)
+        button.setTooltip (tooltip);
 }
 
 void MidiForgeAudioProcessorEditor::refreshMagicLockButtons()
