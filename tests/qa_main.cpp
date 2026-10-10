@@ -307,12 +307,29 @@ int main()
     }
 
 
-    // ------------------------------------------------------------------ MAGIC Scale Coverage
+    // ------------------------------------------------------------------ MAGIC preserves creator-selected constraints
     {
-        std::set<int> seenScales;
-        constexpr int scaleCount = 12;
+        bool preserved = true;
+        for (int pass = 0; pass < 180; ++pass)
+        {
+            const int root = (pass * 7 + 3) % 12;
+            const int scale = pass % 12;
+            const int bars = (pass % 3 == 0) ? 2 : (pass % 3 == 1) ? 4 : 8;
+            p.setRoot (root);
+            p.setScale (scale);
+            p.setBars (bars);
+            p.magicRandomize();
+            p.waitForGeneration();
+            preserved = preserved && p.getRoot() == root
+                && p.getScale() == scale && p.getVisibleBars() == bars;
+        }
 
-        // MAGIC should be able to reach every declared scale, not only the
+        report ("MAGIC preserves Key / Scale / Bars",
+                preserved, "180 deterministic creator-constraint checks");
+    }
+
+
+    // MAGIC should be able to reach every declared scale, not only the
         // original first seven choices.
         for (int pass = 0; pass < 180; ++pass)
         {
@@ -4157,6 +4174,7 @@ int main()
                     {
                         return n.step >= 0 && n.step < loopSteps
                             && n.length >= 1 && n.length <= 16
+                            && n.step + n.length <= loopSteps
                             && n.note >= 0 && n.note <= 127;
                     });
 
@@ -4194,7 +4212,7 @@ int main()
                 fmt ("%d melody attacks checked", checkedNotes));
         report ("0.105.1 rhythm: no same-step collisions or one-step gaps",
                 uniqueOnsets && spacingSafe,
-                "attacks are unique and at least two sixteenth-steps apart");
+                "attacks are unique, at least two sixteenth-steps apart, and note tails stay in-loop");
         report ("0.105.1 melody-only: every note stays inside loop and MIDI bounds",
                 inLoop && populated,
                 fmt ("%d populated loops checked", checkedLoops));
