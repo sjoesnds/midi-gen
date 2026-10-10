@@ -146,12 +146,13 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(tasteEnabled);
     if (i.getNumBytesRemaining() >= 1) readBoolSafe(humanizeEnabled);
 
-    // MIDI Forge 0.105.0 is melody-only. Read legacy fields to preserve the
-    // binary layout, then normalize obsolete layer flags and locks before generation.
+    // MIDI Forge 0.105.1 is melody-only. Read legacy fields to preserve the
+    // binary layout, then normalize retired layers, locks and SoundCloud behavior.
     chordsEnabled = bassEnabled = arpEnabled = drumsEnabled = false;
     melodyEnabled = true;
     chordExtensions = inversions = false;
     lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
+    leadStyleSoundCloud = false;
 
     std::vector<VisibleNote> savedNotes;
     bool hasSavedNotes = false;
