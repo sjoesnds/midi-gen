@@ -7845,41 +7845,35 @@ float MidiForgeAudioProcessor::similarity (const Section& a, const Section& b) c
 
 float MidiForgeAudioProcessor::behaviorDistance (const Candidate& a, const Candidate& b)
 {
-
-        const float d[] =
-        {
-            std::abs (a.density - b.density),
-            std::abs (a.space - b.space),
-            std::abs (a.rhythm - b.rhythm),
-            std::abs (a.motif - b.motif),
-            std::abs (a.leap - b.leap),
-            std::abs (a.reg - b.reg),
-            std::abs (a.surprise - b.surprise),
-            std::abs (a.context - b.context),
-            std::abs (a.loop - b.loop),
-            std::abs (a.groove - b.groove),
-            std::abs (a.memory - b.memory),
-            std::abs (a.phraseArc - b.phraseArc),
-            std::abs (a.tension - b.tension)
-        };
-
-        // Tension, surprise, rhythm and density carry slightly more weight:
-        // they are the dimensions most likely to make two otherwise similar
-        // loops feel like different musical behaviors.
-        const float w[] =
-        {
-            0.09f, 0.06f, 0.12f, 0.08f, 0.09f, 0.06f, 0.12f,
-            0.06f, 0.08f, 0.08f, 0.06f, 0.05f, 0.13f
-        };
-
-        float sum = 0.0f, weight = 0.0f;
-        for (size_t i = 0; i < sizeof (d) / sizeof (d[0]); ++i)
-        {
-            sum += d[i] * w[i];
-            weight += w[i];
-        }
-        return weight > 0.0f ? juce::jlimit (0.0f, 1.0f, sum / weight) : 0.0f;
-    
+    const float d[] =
+    {
+        std::abs (a.density - b.density),
+        std::abs (a.space - b.space),
+        std::abs (a.rhythm - b.rhythm),
+        std::abs (a.motif - b.motif),
+        std::abs (a.leap - b.leap),
+        std::abs (a.reg - b.reg),
+        std::abs (a.registerCenter - b.registerCenter),
+        std::abs (a.surprise - b.surprise),
+        std::abs (a.context - b.context),
+        std::abs (a.loop - b.loop),
+        std::abs (a.groove - b.groove),
+        std::abs (a.memory - b.memory),
+        std::abs (a.phraseArc - b.phraseArc),
+        std::abs (a.tension - b.tension)
+    };
+    const float w[] =
+    {
+        0.08f, 0.06f, 0.12f, 0.08f, 0.09f, 0.10f, 0.10f,
+        0.12f, 0.06f, 0.08f, 0.08f, 0.05f, 0.05f, 0.10f
+    };
+    float sum = 0.0f, weight = 0.0f;
+    for (size_t i = 0; i < sizeof (d) / sizeof (d[0]); ++i)
+    {
+        sum += d[i] * w[i];
+        weight += w[i];
+    }
+    return weight > 0.0f ? juce::jlimit (0.0f, 1.0f, sum / weight) : 0.0f;
 }
 
 MidiForgeAudioProcessor::Section MidiForgeAudioProcessor::flatten (const SongData& song, int candidateIndex, juce::Random& local, int mLo, int mHi) const
@@ -10425,6 +10419,59 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // shared musical-quality judge.
         quality += 0.15f * juce::jlimit (0.0f, 1.0f, archetypeFit);
 
+// Grade the finished melody against its complexity budget, after later phrase edits.
+{
+    const int barsForBudget = juce::jmax (1, flat.bars);
+    std::vector<int> attacksPerBar ((size_t) barsForBudget, 0);
+    std::array<bool, 128> seenPitches {};
+    int melodyAttackCount = 0, distinctPitchCount = 0, maxAttacksInBar = 0;
+    for (const auto& note : flat.notes)
+    {
+        if (note.channel != 3) continue;
+        const int bar = juce::jlimit (0, barsForBudget - 1, note.step / 16);
+        ++attacksPerBar[(size_t) bar];
+        ++melodyAttackCount;
+        const int pitch = juce::jlimit (0, 127, note.note);
+        if (! seenPitches[(size_t) pitch]) { seenPitches[(size_t) pitch] = true; ++distinctPitchCount; }
+    }
+    for (const int count : attacksPerBar) maxAttacksInBar = juce::jmax (maxAttacksInBar, count);
+    const float attacksPerBarMean = (float) melodyAttackCount / (float) barsForBudget;
+    auto axisFit = [] (float actual, float wanted, float tolerance)
+    {
+        return 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (actual - wanted) / juce::jmax (0.08f, tolerance));
+    };
+    float complexityBudgetFit = 0.5f;
+    if (flat.melodyComplexityClass == 0)
+    {
+        const float eventCapFit = maxAttacksInBar <= 4 ? 1.0f
+            : 1.0f - juce::jlimit (0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 3.0f);
+        complexityBudgetFit = 0.42f * eventCapFit
+            + 0.22f * axisFit (attacksPerBarMean, 3.1f, 2.2f)
+            + 0.20f * f.simplicity
+            + 0.16f * axisFit (f.repetition, 0.58f, 0.45f);
+        if (maxAttacksInBar > 4)
+            quality -= 0.22f * juce::jlimit (0.0f, 1.0f, (float) (maxAttacksInBar - 4) / 2.0f);
+    }
+    else if (flat.melodyComplexityClass == 2)
+    {
+        complexityBudgetFit = 0.24f * axisFit (attacksPerBarMean, 5.1f, 2.8f)
+            + 0.20f * axisFit ((float) distinctPitchCount, 7.0f, 4.0f)
+            + 0.20f * axisFit (f.variety, 0.64f, 0.36f)
+            + 0.16f * axisFit (f.leap, 0.48f, 0.42f)
+            + 0.12f * axisFit (f.surprise, 0.44f, 0.44f)
+            + 0.08f * axisFit (f.simplicity, 0.36f, 0.46f);
+    }
+    else
+    {
+        complexityBudgetFit = 0.28f * axisFit (attacksPerBarMean, 4.2f, 2.5f)
+            + 0.22f * axisFit (f.simplicity, 0.56f, 0.38f)
+            + 0.20f * axisFit (f.variety, 0.53f, 0.38f)
+            + 0.16f * axisFit (f.leap, 0.36f, 0.40f)
+            + 0.14f * axisFit (f.surprise, 0.30f, 0.42f);
+    }
+    quality += 0.22f * juce::jlimit (0.0f, 1.0f, complexityBudgetFit);
+}
+
         {
             const IdeaFingerprint idea = makeIdeaFingerprint (flat);
             // 0.85.6 Character Fit Judge: a character is only useful when the
@@ -10483,7 +10530,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                   f.density, f.space, f.rhythmIdentity, f.motifIdentity,
                                   f.leap, f.registerScore, f.surprise, f.context, f.loopQuality,
                                   grooveQuality, motifMemory, f.phraseArc, f.tensionArc, development,
-                                  characterFit, idea});
+                                  characterFit, idea, f.registerCenter});
 
             // Restore the pre-candidate state after the complete generation/judge
             // pipeline has finished. Each candidate therefore carries its own
@@ -10590,14 +10637,19 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         if (cls == 0)
         {
-            if (count == 0) return 0.085f;
-            if (count == 1) return 0.045f;
-            if (count >= 3) return -0.022f;
+            if (count == 0) return 0.100f;
+            if (count == 1) return 0.055f;
+            if (count >= 3) return -0.035f;
+        }
+        else if (cls == 2)
+        {
+            if (count == 0) return 0.075f;
+            if (count >= 3) return -0.030f;
         }
         else
         {
-            if (count == 0) return 0.028f;
-            if (count >= 4) return -0.012f;
+            if (count == 0) return 0.045f;
+            if (count >= 4) return -0.020f;
         }
 
         return 0.0f;
@@ -10632,10 +10684,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
             const float characterBonus = characterCollision > 0.5f ? -0.085f : 0.028f;
 
             const float score = candidates[i].quality
-                              - 0.62f * maxSim
-                              + 0.13f * diversity
-                              + 0.11f * ideaNovelty
-                              - 0.035f * familyCollision
+                              - 0.58f * maxSim
+                              + 0.17f * diversity
+                              + 0.14f * ideaNovelty
+                              - 0.045f * familyCollision
                               + characterBonus
                               + complexityCoverageBonus (candidates[i]);
             if (score > bestScore)
@@ -10671,11 +10723,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
                 const float gatePenalty = juce::jmax (0.0f, diversityFloor - diversity) * 1.8f;
                 const float score = candidates[i].quality
-                                  - 0.76f * maxSim
+                                  - 0.70f * maxSim
                                   - gatePenalty
-                                  + 0.08f * diversity
-                                  + 0.075f * ideaNovelty
-                                  - 0.025f * familyCollision
+                                  + 0.10f * diversity
+                                  + 0.10f * ideaNovelty
+                                  - 0.030f * familyCollision
                                   + characterBonus
                                   + complexityCoverageBonus (candidates[i]);
                 if (score > relaxedBest)
@@ -11145,19 +11197,7 @@ void MidiForgeAudioProcessor::mutateSelected(float amount)
             if (notes[i].channel == 5)
                 drumIdx.push_back (i);
 
-        if (mode == 1 && !drumIdx.empty())
-        {
-            const int delta = (base & 1u) ? 2 : -2;
-            const int selectedRow = (int) ((base >> 6) % (uint32_t) kDrumRows);
-            for (size_t k : drumIdx)
-            {
-                if (drumRowForNote (notes[k].note) != selectedRow) continue;
-                const int cell = notes[k].step / phraseSteps;
-                const int local = notes[k].step % phraseSteps;
-                if (cell == (int) ((base >> 12) % (uint32_t) juce::jmax (1, (totalSteps + phraseSteps - 1) / phraseSteps)))
-                    notes[k].step = juce::jlimit (0, totalSteps - 1, cell * phraseSteps + local + delta);
-            }
-        }
+        // Preserve drum onsets and kit pitches; MUTATE / EVOLVE only adjust accents.
 
         for (size_t k : drumIdx)
         {
@@ -11204,7 +11244,10 @@ int MidiForgeAudioProcessor::similarToSelected()
         std::vector<uint32_t> keys;
         keys.reserve (sec.notes.size());
         for (const auto& n : sec.notes)
-            keys.push_back (((uint32_t) n.step << 16) | ((uint32_t) n.note << 8) | (uint32_t) n.channel);
+            keys.push_back (((uint32_t) n.step << 18)
+                | ((uint32_t) juce::jlimit (0, 127, n.note) << 11)
+                | ((uint32_t) juce::jlimit (0, 127, n.length) << 4)
+                | (uint32_t) (n.channel & 0x0F));
         std::sort (keys.begin(), keys.end());
         return keys;
     };

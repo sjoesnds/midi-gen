@@ -2,7 +2,15 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.102.0**
+**Current version: 0.104.0**
+
+### 0.104.0 — MAGIC Melody Quality & Diversity
+- Scores the finished melody against its declared Simple / Medium / Complex intent, so Simple loops are rewarded for leaving space and Complex loops need genuine pitch and rhythmic vocabulary.
+- Adds register center to candidate-behavior distance, helping the eight-slot bank preserve distinct melodic placements instead of over-pruning them as near-clones.
+- Rebalances MAGIC selection toward musical novelty and minimum pairwise diversity while retaining the existing shared musical-quality judge.
+- Strengthens phrase-integrity scoring for unrecovered large leaps and makes the SIMILAR structural distance include note lengths.
+- Keeps drum onset patterns fixed during MUTATE / EVOLVE; transformations can still change accents without unexpectedly moving the groove.
+- This clean branch is based on the strict-grid line and intentionally excludes the extra final bass/chord harmony pass from PR #59.
 
 ### 0.102.0 — Strict Musical Grid
 - Adds one final timing contract across the restored chord, bass, melody, arpeggio and drum layers before variations are accepted.

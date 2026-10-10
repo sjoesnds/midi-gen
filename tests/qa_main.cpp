@@ -1898,12 +1898,23 @@ int main()
                     if (onKick) ++locked;
                 }
         report ("808 locks to the kick when drums are on", hits808 > 0 && locked == hits808, fmt ("%.0f of %.0f hits on a kick", locked, hits808));
-        // MUTATE / EVOLVE must not move the drum hits
+        // Mutations must preserve the drum pattern and still change musical material.
         p.setSoundTarget (0); p.magicRandomize();
         auto drumSteps = [&] { std::multiset<std::pair<int,int>> v; for (auto& n : p.getVisibleNotes()) if (n.channel == 5) v.insert ({ n.step, n.note }); return v; };
+        auto nonDrumState = [&]
+        {
+            std::multiset<std::array<int, 5>> v;
+            for (const auto& n : p.getVisibleNotes())
+                if (n.channel != 5) v.insert ({ n.step, n.note, n.length, n.velocity, n.channel });
+            return v;
+        };
         const auto before = drumSteps();
+        const auto nonDrumBefore = nonDrumState();
         p.mutateSelected (0.9f); p.evolveSelected();
+        const auto nonDrumAfter = nonDrumState();
         report ("MUTATE / EVOLVE keep the drum groove", drumSteps() == before && ! before.empty(), fmt ("%.0f drum hits", (double) before.size()));
+        report ("MUTATE / EVOLVE changes an unlocked musical part", nonDrumAfter != nonDrumBefore,
+                fmt ("%.0f non-drum notes before, %.0f after", (double) nonDrumBefore.size(), (double) nonDrumAfter.size()));
         p.setDrumsEnabled (false); p.setSoundTarget (0);
     }
 
@@ -2379,6 +2390,40 @@ int main()
         }
         report ("SIMILAR: every relative differs from the source", identical == 0, fmt ("%.0f identical", (double) identical));
         report ("SIMILAR: relatives keep the loop's size and drum pattern", tooFew == 0 && tooFar == 0, fmt ("%.0f thin, %.0f drum drift", (double) tooFew, (double) tooFar));
+
+        auto structuralKeys = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            std::vector<std::uint32_t> keys;
+            keys.reserve (notes.size());
+            for (const auto& n : notes)
+                keys.push_back (((std::uint32_t) n.step << 18)
+                    | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                    | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                    | (std::uint32_t) (n.channel & 0x0F));
+            std::sort (keys.begin(), keys.end());
+            return keys;
+        };
+        const auto sourceKeys = structuralKeys (ref);
+        auto structuralDistance = [&] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            const auto keys = structuralKeys (notes);
+            std::vector<std::uint32_t> common;
+            std::set_intersection (sourceKeys.begin(), sourceKeys.end(), keys.begin(), keys.end(), std::back_inserter (common));
+            const float denom = (float) std::max<size_t> (1, std::max (sourceKeys.size(), keys.size()));
+            return 1.0f - (float) common.size() / denom;
+        };
+        bool distanceOrder = true;
+        float previousDistance = -1.0f, lastDistance = 0.0f;
+        for (int k = 1; k < 8; ++k)
+        {
+            a.chooseVariation (k);
+            const float distance = structuralDistance (a.getVisibleNotes());
+            if (previousDistance >= 0.0f && distance + 0.001f < previousDistance) distanceOrder = false;
+            previousDistance = distance;
+            lastDistance = distance;
+        }
+        report ("SIMILAR: relatives are ordered from close to bold", distanceOrder,
+                fmt ("last relative structural distance %.3f", (double) lastDistance));
         // the seven relatives must not be clones of each other or of the source (compared note by note)
         {
             float worst = 1.0f;
@@ -2393,7 +2438,10 @@ int main()
                 {
                     b.chooseVariation (k);
                     std::vector<std::uint32_t> kk;
-                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 16) | ((std::uint32_t) n.note << 8) | (std::uint32_t) n.channel);
+                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 18)
+                        | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                        | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                        | (std::uint32_t) (n.channel & 0x0F));
                     std::sort (kk.begin(), kk.end());
                     keys.push_back (std::move (kk));
                 }
