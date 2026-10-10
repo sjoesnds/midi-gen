@@ -11511,7 +11511,10 @@ int MidiForgeAudioProcessor::similarToSelected()
         std::vector<uint32_t> keys;
         keys.reserve (sec.notes.size());
         for (const auto& n : sec.notes)
-            keys.push_back (((uint32_t) n.step << 16) | ((uint32_t) n.note << 8) | (uint32_t) n.channel);
+            keys.push_back (((uint32_t) n.step << 18)
+                | ((uint32_t) juce::jlimit (0, 127, n.note) << 11)
+                | ((uint32_t) juce::jlimit (0, 127, n.length) << 4)
+                | (uint32_t) (n.channel & 0x0F));
         std::sort (keys.begin(), keys.end());
         return keys;
     };

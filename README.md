@@ -12,6 +12,7 @@
 - Keeps deterministic register and character decisions stable across finalization passes; a subset of non-chord tones on beats 2/4 can remain as intentional color instead of being automatically repaired.
 - Tunes the existing MelodyDecision evaluator so Complex budgets fit realistic generated examples and unrecovered large leaps receive a clearer penalty.
 - Keeps MUTATE/EVOLVE changes away from drum onset/pitch patterns and adds QA that verifies both drum-groove preservation and a real change to another unlocked part.
+- SIMILAR's structural distance also includes note lengths, so close-to-bold ordering can distinguish phrase/articulation changes even when onset and pitch skeletons match.
 - Reuses the existing generator, character system and phrase grammar; no new parallel melody engine is introduced.
 
 ### 0.103.0 — Musical Foundation

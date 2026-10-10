@@ -2394,6 +2394,48 @@ int main()
         }
         report ("SIMILAR: every relative differs from the source", identical == 0, fmt ("%.0f identical", (double) identical));
         report ("SIMILAR: relatives keep the loop's size and drum pattern", tooFew == 0 && tooFar == 0, fmt ("%.0f thin, %.0f drum drift", (double) tooFew, (double) tooFar));
+
+        // Relative order is intentional: slot 2 should be closest to the source,
+        // and slot 8 should be the boldest surviving mutation. Include note length
+        // in structural distance so articulation-only variants aren't called clones.
+        auto structuralKeys = [] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            std::vector<std::uint32_t> keys;
+            keys.reserve (notes.size());
+            for (const auto& n : notes)
+                keys.push_back (((std::uint32_t) n.step << 18)
+                    | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                    | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                    | (std::uint32_t) (n.channel & 0x0F));
+            std::sort (keys.begin(), keys.end());
+            return keys;
+        };
+        const auto sourceKeys = structuralKeys (ref);
+        auto structuralDistance = [&] (const std::vector<MidiForgeAudioProcessor::VisibleNote>& notes)
+        {
+            const auto keys = structuralKeys (notes);
+            std::vector<std::uint32_t> common;
+            std::set_intersection (sourceKeys.begin(), sourceKeys.end(),
+                                   keys.begin(), keys.end(), std::back_inserter (common));
+            const float denom = (float) std::max<size_t> (1, std::max (sourceKeys.size(), keys.size()));
+            return 1.0f - (float) common.size() / denom;
+        };
+        bool distanceOrder = true;
+        float previousDistance = -1.0f;
+        float lastDistance = 0.0f;
+        for (int k = 1; k < 8; ++k)
+        {
+            a.chooseVariation (k);
+            const float distance = structuralDistance (a.getVisibleNotes());
+            if (previousDistance >= 0.0f && distance + 0.001f < previousDistance)
+                distanceOrder = false;
+            previousDistance = distance;
+            lastDistance = distance;
+        }
+        report ("SIMILAR: relatives are ordered from close to bold",
+                distanceOrder && lastDistance >= previousDistance,
+                fmt ("last relative structural distance %.3f", (double) lastDistance));
+
         // the seven relatives must not be clones of each other or of the source (compared note by note)
         {
             float worst = 1.0f;
@@ -2408,7 +2450,10 @@ int main()
                 {
                     b.chooseVariation (k);
                     std::vector<std::uint32_t> kk;
-                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 16) | ((std::uint32_t) n.note << 8) | (std::uint32_t) n.channel);
+                    for (const auto& n : b.getVisibleNotes()) kk.push_back (((std::uint32_t) n.step << 18)
+                        | ((std::uint32_t) std::clamp (n.note, 0, 127) << 11)
+                        | ((std::uint32_t) std::clamp (n.length, 0, 127) << 4)
+                        | (std::uint32_t) (n.channel & 0x0F));
                     std::sort (kk.begin(), kk.end());
                     keys.push_back (std::move (kk));
                 }
