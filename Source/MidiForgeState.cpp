@@ -29,7 +29,7 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
     o.writeBool(tasteEnabled); o.writeBool(humanizeEnabled);
     o.writeInt ((int) magicParameterLockMask);
 
-    // State v3: persist the editable Piano Roll MIDI so a saved project restores
+    // State v3+: persist editable Piano Roll MIDI so a saved project restores
     // the exact edited variation instead of regenerating over user edits.
     std::vector<VisibleNote> savedNotes;
     {
@@ -156,7 +156,9 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     // States saved by 0.105.x were forcibly normalized to melody-only. Restore
     // both accompaniment layers when upgrading that specific legacy state, but
     // retain an intentionally disabled single layer from older arrangements.
-    if (stateVersion == 3 && ! chordsEnabled && ! bassEnabled)
+    const bool migratedLegacyAccompaniment =
+        stateVersion == 3 && ! chordsEnabled && ! bassEnabled;
+    if (migratedLegacyAccompaniment)
         chordsEnabled = bassEnabled = true;
     arpEnabled = false;
     drumsEnabled = false;
@@ -206,6 +208,27 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     {
         savedNotes.erase (std::remove_if (savedNotes.begin(), savedNotes.end(),
             [] (const VisibleNote& note) { return note.channel < 1 || note.channel > 3; }), savedNotes.end());
+
+        // Older 0.105.x states store the user-edited melody but have no chord
+        // or bass notes. Keep that exact melody and join the newly restored
+        // accompaniment from the regenerated bank, unless the user had cleared
+        // the saved loop completely.
+        if (migratedLegacyAccompaniment && ! savedNotes.empty())
+        {
+            const auto generatedNotes = getVisibleNotes();
+            for (const auto& note : generatedNotes)
+                if (note.channel == 1 || note.channel == 2)
+                    savedNotes.push_back (note);
+
+            std::stable_sort (savedNotes.begin(), savedNotes.end(),
+                [] (const VisibleNote& a, const VisibleNote& b)
+                {
+                    if (a.step != b.step) return a.step < b.step;
+                    if (a.channel != b.channel) return a.channel < b.channel;
+                    return a.note < b.note;
+                });
+        }
+
         replaceVisibleNotes (savedNotes);
     }
 }
