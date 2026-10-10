@@ -2,7 +2,14 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The goal is not to spray random notes, but to generate coherent loops with rhythm, motif, harmony, phrasing, register, dynamics, variation and editable MIDI.
 
-**Current version: 0.104.0**
+**Current version: 0.105.0**
+
+### 0.105.0 — Melody-Only Core
+- Makes new generation produce a single editable melody lane; MAGIC keeps chord, bass, arpeggio and drum output disabled.
+- Removes the chord-driven final repair pass from the generation line. Scale, register, rhythm and phrase quality are judged from the melody itself.
+- Preserves compatibility with older project-state formats, then normalizes deprecated accompaniment flags/locks off and imports only saved MIDI channel 3 notes.
+- Hides chord/bass, arpeggio/drum, accompaniment density, and separate-layer controls from the creator UI while keeping MIDI export, piano roll editing, MAGIC, SIMILAR, MUTATE and EVOLVE.
+- This branch follows the clean strict-grid branch plus the independent .104 melody-quality work; it deliberately does not include PR #59's unwanted harmony layer.
 
 ### 0.104.0 — MAGIC Melody Quality & Diversity
 - Scores the finished melody against its declared Simple / Medium / Complex intent, so Simple loops are rewarded for leaving space and Complex loops need genuine pitch and rhythmic vocabulary.
@@ -10,15 +17,12 @@
 - Rebalances MAGIC selection toward musical novelty and minimum pairwise diversity while retaining the existing shared musical-quality judge.
 - Strengthens phrase-integrity scoring for unrecovered large leaps and makes the SIMILAR structural distance include note lengths.
 - Keeps drum onset patterns fixed during MUTATE / EVOLVE; transformations can still change accents without unexpectedly moving the groove.
-- This clean branch is based on the strict-grid line and intentionally excludes the extra final bass/chord harmony pass from PR #59.
+- Retains internal tonal guidance while keeping user-facing output focused on a single melodic lane.
 
 ### 0.102.0 — Strict Musical Grid
-- Adds one final timing contract across the restored chord, bass, melody, arpeggio and drum layers before variations are accepted.
-- Keeps melody and bass on an eighth-note lattice, chord attacks on quarter-note beats, and arpeggio attacks aligned to the selected rate.
-- Tightens kick/clap and main backbeat positions while preserving intentionally authored hat patterns, ghost snares and 16th-note fills.
-- Applies the same grid contract to the generation fallback path, not just normally accepted variations.
-- Keeps Swing and optional Humanize separate from generated note positions, so timing feel remains a deliberate performance control.
-- Expands headless checks across arp rates 1/2/4/8, every layer, melody spacing, drum anchors and loop boundaries.
+- Enforces a predictable note-onset lattice and loop boundaries; the melody-only path keeps melody attacks on eighth-note subdivisions.
+- Keeps Swing and optional Humanize separate from authored note positions, so timing feel remains a deliberate performance choice.
+- Low-level compatibility tests still exercise legacy layer builders, but MAGIC excludes those separate layers from new generated loops.
 
 ### 0.101.0 — MIDI Workflow Reliability
 - Unifies dialog export and drag-and-drop behind one MIDI renderer so both paths preserve the same tempo, 4/4 time signature, note tracks and articulation.
