@@ -160,9 +160,12 @@ namespace
         return key;
     }
 
-    bool parseSupportedMidi (const juce::File& file, int& noteOns)
+    bool parseSupportedMidi (const juce::File& file, int& noteOns,
+                             int& chordNoteOns, int& bassNoteOns)
     {
         noteOns = 0;
+        chordNoteOns = 0;
+        bassNoteOns = 0;
         juce::FileInputStream input (file);
         juce::MidiFile midi;
         if (! input.openedOk() || ! midi.readFrom (input))
@@ -186,9 +189,12 @@ namespace
                 const int channel = message.getChannel();
                 supportedChannels = supportedChannels && channel >= 1 && channel <= 3;
                 melodyPresent = melodyPresent || channel == 3;
+                if (channel == 1) ++chordNoteOns;
+                else if (channel == 2) ++bassNoteOns;
             }
         }
-        return noteOns > 0 && supportedChannels && melodyPresent && tempo && timeSignature;
+        return noteOns > 0 && supportedChannels && melodyPresent
+            && chordNoteOns > 0 && bassNoteOns > 0 && tempo && timeSignature;
     }
 }
 
@@ -387,18 +393,23 @@ int main()
 
     // Export and drag-temporary files must contain real MIDI with only the supported layers.
     const auto outFile = settings.getChildFile ("release_export.mid");
-    int exportedNotes = 0;
+    int exportedNotes = 0, exportedChords = 0, exportedBass = 0;
     const bool exportWritten = transform.exportMidiFileTo (outFile);
-    const bool exportParsed = exportWritten && parseSupportedMidi (outFile, exportedNotes);
+    const bool exportParsed = exportWritten
+        && parseSupportedMidi (outFile, exportedNotes, exportedChords, exportedBass);
     check ("MIDI export contains valid melody + chord/bass tracks and tempo metadata",
-          exportParsed, juce::String (exportedNotes) + " note-ons");
+          exportParsed, juce::String (exportedNotes) + " notes ("
+              + juce::String (exportedChords) + " chord, "
+              + juce::String (exportedBass) + " bass)");
 
     juce::File dragFile = transform.writeTemporaryMidiFile();
-    int draggedNotes = 0;
+    int draggedNotes = 0, draggedChords = 0, draggedBass = 0;
     const bool dragOk = dragFile.existsAsFile() && dragFile.getSize() > 0
-        && parseSupportedMidi (dragFile, draggedNotes);
+        && parseSupportedMidi (dragFile, draggedNotes, draggedChords, draggedBass);
     check ("FL drag payload preserves melody + supported layers",
-          dragOk, juce::String (draggedNotes) + " note-ons");
+          dragOk, juce::String (draggedNotes) + " notes ("
+              + juce::String (draggedChords) + " chord, "
+              + juce::String (draggedBass) + " bass)");
     if (dragFile.existsAsFile()) dragFile.deleteFile();
 
     // State v4 must preserve the restored layers and all individual MAGIC locks.
