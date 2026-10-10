@@ -146,7 +146,7 @@ setSize(1120, 850);
 setResizable(true, true);
 setResizeLimits(1060, 800, 1440, 1080);
 title.setText("MIDI FORGE",juce::dontSendNotification);
-versionLabel.setText("v0.105.2", juce::dontSendNotification);
+versionLabel.setText("v0.106.0", juce::dontSendNotification);
 versionLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.55f));
 versionLabel.setFont(juce::Font(11.0f));
 addAndMakeVisible(versionLabel);
@@ -219,7 +219,7 @@ generate.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kAccent).b
 generate.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
 generate.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 generate.setButtonText ("MAGIC");
-generate.setTooltip ("Explore hidden musical ideas and generate eight melody variations.");
+generate.setTooltip ("Explore new ideas across the melody, chord and bass layers; locked controls stay fixed.");
 newSeed.setTooltip ("Keep the current musical direction but reroll the seed.");
 applyVariation.setTooltip ("Commit the selected variation as the active loop.");
 similarButton.setTooltip ("Generate close relatives of the selected loop.");
