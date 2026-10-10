@@ -704,12 +704,15 @@ void MidiForgeAudioProcessorEditor::paint(juce::Graphics& g)
     drawFieldLabel (g, bars, "Bars");
     if (advancedControlsVisible)
     {
+        drawFieldLabel (g, progression, "Progression");
         drawFieldLabel (g, rhythm, "Rhythm");
         drawFieldLabel (g, moodBox, "Mood");
         drawFieldLabel (g, melodyTypeBox, "Melody type");
         drawFieldLabel (g, soundBox, "Sound target");
         drawFieldLabel (g, articBox, "Articulation");
         drawFieldLabel (g, octave, "Register");
+        drawSliderLabel (g, chordDensity, "Chord density");
+        drawSliderLabel (g, bassDensity, "Bass density");
         drawSliderLabel (g, melodyDensity, "Note density");
         drawSliderLabel (g, complexity, "Complexity");
         drawSliderLabel (g, motifStrength, "Motif strength");
@@ -738,44 +741,64 @@ void MidiForgeAudioProcessorEditor::resized()
     versionLabel.setBounds (W - 215, 20, 70, 22);
     tempoLabel.setBounds (W - 140, 20, 122, 22);
 
-    // Only a few explicit constraints remain visible. Everything else is
-    // generated from the internal creative DNA when MAGIC is pressed.
+    // Key / Scale / Bars stay fixed by MAGIC. Chords and Bass are the two
+    // additional layer switches kept in the compact row, each with its own lock.
     const int layoutShift = advancedControlsVisible ? 166 : 0;
     root.setBounds (margin + 12, 108, 92, 26);
     scale.setBounds (margin + 114, 108, 150, 26);
     bars.setBounds (margin + 274, 108, 62, 26);
-    advancedButton.setBounds (margin + 350, 108, 94, 26);
-    hookModeButton.setBounds (margin + 454, 108, 76, 26);
-    soundCloudButton.setBounds (margin + 538, 108, 110, 26);
+    advancedButton.setBounds (margin + 350, 108, 96, 26);
+    placeLockedControl (chords, MidiForgeAudioProcessor::MagicLock::ChordsEnabled,
+                        margin + 460, 108, 120, 26);
+    placeLockedControl (bass, MidiForgeAudioProcessor::MagicLock::BassEnabled,
+                        margin + 590, 108, 120, 26);
 
     if (advancedControlsVisible)
     {
-        rhythm.setBounds (margin + 12, 149, 128, 24);
-        moodBox.setBounds (margin + 148, 149, 138, 24);
-        melodyTypeBox.setBounds (margin + 294, 149, 152, 24);
-        soundBox.setBounds (margin + 454, 149, 188, 24);
-
-        articBox.setBounds (margin + 12, 184, 155, 24);
-        octave.setBounds (margin + 175, 184, 92, 24);
-
         const int advancedX = margin + 12;
         const int advancedGap = 10;
+        const int fieldWidth = (innerW - 24 - 3 * advancedGap) / 4;
+        placeLockedControl (rhythm, MidiForgeAudioProcessor::MagicLock::Rhythm,
+                            advancedX, 149, fieldWidth, 24);
+        placeLockedControl (moodBox, MidiForgeAudioProcessor::MagicLock::Mood,
+                            advancedX + fieldWidth + advancedGap, 149, fieldWidth, 24);
+        placeLockedControl (melodyTypeBox, MidiForgeAudioProcessor::MagicLock::MelodyType,
+                            advancedX + 2 * (fieldWidth + advancedGap), 149, fieldWidth, 24);
+        soundBox.setBounds (advancedX + 3 * (fieldWidth + advancedGap), 149, fieldWidth, 24);
+
+        const int optionGap = 10;
+        const int optionWidth = (innerW - 24 - 4 * optionGap) / 5;
+        placeLockedControl (progression, MidiForgeAudioProcessor::MagicLock::Progression,
+                            advancedX, 184, optionWidth, 24);
+        placeLockedControl (octave, MidiForgeAudioProcessor::MagicLock::Octave,
+                            advancedX + optionWidth + optionGap, 184, optionWidth, 24);
+        articBox.setBounds (advancedX + 2 * (optionWidth + optionGap), 184, optionWidth, 24);
+        placeLockedControl (extensions, MidiForgeAudioProcessor::MagicLock::ChordExtensions,
+                            advancedX + 3 * (optionWidth + optionGap), 184, optionWidth, 24);
+        placeLockedControl (inversions, MidiForgeAudioProcessor::MagicLock::Inversions,
+                            advancedX + 4 * (optionWidth + optionGap), 184, optionWidth, 24);
+
         const int advancedWidth = (innerW - 24 - 4 * advancedGap) / 5;
-        auto placeAdvancedSlider = [&] (juce::Slider& slider, int column, int row)
+        auto placeAdvancedSlider = [&] (juce::Slider& slider,
+                                        MidiForgeAudioProcessor::MagicLock parameter,
+                                        int column, int row)
         {
-            slider.setBounds (advancedX + column * (advancedWidth + advancedGap),
-                              220 + row * 38, advancedWidth, 24);
+            placeLockedControl (slider, parameter,
+                advancedX + column * (advancedWidth + advancedGap),
+                220 + row * 38, advancedWidth, 24);
         };
-        placeAdvancedSlider (melodyDensity, 0, 0);
-        placeAdvancedSlider (complexity, 1, 0);
-        placeAdvancedSlider (motifStrength, 2, 0);
-        placeAdvancedSlider (variationAmount, 3, 0);
-        placeAdvancedSlider (fillAmount, 4, 0);
-        placeAdvancedSlider (energy, 0, 1);
-        placeAdvancedSlider (melodyLength, 1, 1);
-        placeAdvancedSlider (pauseChance, 2, 1);
-        placeAdvancedSlider (leapChance, 3, 1);
-        placeAdvancedSlider (ghostChance, 4, 1);
+        placeAdvancedSlider (chordDensity, MidiForgeAudioProcessor::MagicLock::ChordDensity, 0, 0);
+        placeAdvancedSlider (bassDensity, MidiForgeAudioProcessor::MagicLock::BassDensity, 1, 0);
+        placeAdvancedSlider (melodyDensity, MidiForgeAudioProcessor::MagicLock::MelodyDensity, 2, 0);
+        placeAdvancedSlider (complexity, MidiForgeAudioProcessor::MagicLock::Complexity, 3, 0);
+        placeAdvancedSlider (motifStrength, MidiForgeAudioProcessor::MagicLock::MotifStrength, 4, 0);
+        placeAdvancedSlider (variationAmount, MidiForgeAudioProcessor::MagicLock::VariationAmount, 0, 1);
+        placeAdvancedSlider (fillAmount, MidiForgeAudioProcessor::MagicLock::FillAmount, 1, 1);
+        placeAdvancedSlider (energy, MidiForgeAudioProcessor::MagicLock::Energy, 2, 1);
+        placeAdvancedSlider (melodyLength, MidiForgeAudioProcessor::MagicLock::MelodyLength, 3, 1);
+        placeAdvancedSlider (pauseChance, MidiForgeAudioProcessor::MagicLock::PauseChance, 4, 1);
+        placeAdvancedSlider (leapChance, MidiForgeAudioProcessor::MagicLock::LeapChance, 0, 2);
+        placeAdvancedSlider (ghostChance, MidiForgeAudioProcessor::MagicLock::GhostChance, 1, 2);
     }
 
     variationBox.setBounds (margin + 12, 178 + layoutShift, 78, 28);
@@ -934,6 +957,7 @@ if (hookModeButton.getToggleState() != processor.getHookMode()) hookModeButton.s
 if (soundCloudButton.getToggleState() != processor.getLeadStyleSoundCloud()) soundCloudButton.setToggleState(processor.getLeadStyleSoundCloud(), juce::dontSendNotification);
 
 if (drums.getToggleState() != processor.isDrumsEnabled()) drums.setToggleState(processor.isDrumsEnabled(), juce::dontSendNotification);
+refreshMagicLockButtons();
 if (humanizeModeButton.getToggleState() != processor.isHumanizeEnabled()) humanizeModeButton.setToggleState(processor.isHumanizeEnabled(), juce::dontSendNotification);
 refreshTaste();
 pianoRoll.updateHistoryButtons();
