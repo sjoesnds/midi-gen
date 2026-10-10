@@ -16,7 +16,7 @@
 #include <mutex>
 #include <thread>
 #ifndef MIDIFORGE_ENGINE_VERSION
-#define MIDIFORGE_ENGINE_VERSION "0.104.0"
+#define MIDIFORGE_ENGINE_VERSION "0.105.0"
 #endif
 inline constexpr const char* kMidiForgeEngineVersion = MIDIFORGE_ENGINE_VERSION;
 
@@ -403,7 +403,7 @@ float voicingWidth = 0.45f;
 float motifStrength = 0.78f, variationAmount = 0.40f, fillAmount = 0.18f, energy = 0.65f;
 int arpRate = 4;
 bool chordExtensions = true, inversions = true;
-bool chordsEnabled = true, bassEnabled = true, melodyEnabled = true, arpEnabled = false;
+bool chordsEnabled = false, bassEnabled = false, melodyEnabled = true, arpEnabled = false;
 bool hookMode = true;
 // "SoundCloud"-лид: реже, разреженнее, меньше украшений, больше "чант"-повторов
 // одной-двух нот — характерный меланхоличный pluck-стиль вместо занятого хука.
