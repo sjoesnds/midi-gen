@@ -445,7 +445,7 @@ int main()
         const std::string peerBank = midiBankFingerprint (peer);
         check ("MAGIC repeats the same complete MIDI bank for identical initial state",
                firstBank == peerBank,
-               juce::String ("seed=") + fixedSeed + " fingerprint=" + firstBank);
+               juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + firstBank);
         std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
                      fixedSeed, firstBank.c_str());
 
@@ -644,7 +644,7 @@ int main()
               + juce::String (draggedBass) + " bass)");
     if (dragFile.existsAsFile()) dragFile.deleteFile();
 
-    // State v4 must preserve the restored layers and all individual MAGIC locks.
+    // State v5 must preserve the restored layers, MAGIC locks and sequence state.
     juce::MemoryBlock state;
     transform.getStateInformation (state);
     MidiForgeAudioProcessor restored;
