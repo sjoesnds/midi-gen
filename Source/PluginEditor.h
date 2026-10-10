@@ -21,6 +21,11 @@ void timerCallback() override;
 void refreshTaste();
 void scheduleRegeneration (bool preserveSelection);
 void setAdvancedControlsVisible (bool visible);
+void setupMagicLockButton (MidiForgeAudioProcessor::MagicLock parameter, const juce::String& name);
+void syncMagicLockButton (MidiForgeAudioProcessor::MagicLock parameter);
+void refreshMagicLockButtons();
+void placeLockedControl (juce::Component& control, MidiForgeAudioProcessor::MagicLock parameter,
+                         int x, int y, int width, int height = 24);
 juce::String lastTasteText;
 MidiForgeAudioProcessor& processor;
 // 0.78: MAGIC runs on a worker thread; this overlay blocks input while it works (the generator reads the live controls).
@@ -70,6 +75,7 @@ bool advancedControlsVisible = false;
  juce::Slider melodyLength,pauseChance,leapChance,ghostChance;
  juce::ToggleButton chords,bass,melody,arp,drums,extensions,inversions,hookModeButton,soundCloudButton,humanizeModeButton;
  juce::ToggleButton lockChordsBtn{"Lock Chords"}, lockBassBtn{"Lock Bass"}, lockMelodyBtn{"Lock Melody"}, lockArpBtn{"Lock Arp"};
+std::array<juce::TextButton, MidiForgeAudioProcessor::kMagicLockCount> magicLockButtons;
  juce::TextButton generate,newSeed,applyVariation,exportMidi,revertBtn;
 juce::TextButton advancedButton { "ADVANCED" };
  juce::ComboBox pianoGridBox;
