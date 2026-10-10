@@ -443,9 +443,15 @@ int main()
 
         const std::string firstBank = midiBankFingerprint (first);
         const std::string peerBank = midiBankFingerprint (peer);
+        constexpr const char* expectedFirstBank = "32f2a094f35d8174";
+        constexpr const char* expectedNextBankGolden = "f9b3b2e6969582dd";
         check ("MAGIC repeats the same complete MIDI bank for identical initial state",
                firstBank == peerBank,
                juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + juce::String (firstBank.c_str()));
+        check ("MAGIC first press matches frozen MIDI golden",
+               firstBank == expectedFirstBank,
+               juce::String ("expected=") + expectedFirstBank
+                   + " actual=" + juce::String (firstBank.c_str()));
         std::printf ("MAGIC_GOLDEN_FIRST seed=%d fingerprint=%s\n",
                      fixedSeed, firstBank.c_str());
 
@@ -454,6 +460,10 @@ int main()
         first.magicRandomize();
         first.waitForGeneration();
         const std::string expectedNextBank = midiBankFingerprint (first);
+        check ("MAGIC second press matches frozen MIDI golden",
+               expectedNextBank == expectedNextBankGolden,
+               juce::String ("expected=") + expectedNextBankGolden
+                   + " actual=" + juce::String (expectedNextBank.c_str()));
         std::printf ("MAGIC_GOLDEN_NEXT seed=%d fingerprint=%s\n",
                      fixedSeed, expectedNextBank.c_str());
 
