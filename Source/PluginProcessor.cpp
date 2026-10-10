@@ -378,6 +378,12 @@ static void snapSectionOnsetsToMusicalGrid (std::vector<T>& v, int bars, int arp
         // every supported grid size (1, 2, 4 or 8 sixteenth steps).
         const int snappedLocal = ((localStep + grid / 2) / grid) * grid;
         note.step = barStart + juce::jmin (16 - grid, snappedLocal);
+
+        // Chord comping and bass punctuation may have sustain tails that run
+        // past the loop seam (especially on the final offbeat). Keep every
+        // exported layer inside the actual loop, not just the melody line.
+        note.length = juce::jlimit (1, juce::jmax (1, maxStep - note.step + 1),
+                                    juce::jmax (1, note.length));
     }
 
     snapMelodyOnsetsToGrid (v, bars);
