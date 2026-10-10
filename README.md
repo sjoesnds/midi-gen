@@ -9,7 +9,8 @@
 - Enforces the melody's eighth-note onset grid after both generation and MUTATE / EVOLVE; when a crowded bar has no open grid position, excess attacks are dropped instead of being pushed into the next bar.
 - MAGIC preserves the creator's explicit Swing / Humanize performance settings instead of randomizing them as part of melody generation.
 - MAGIC no longer randomly enables the retired SoundCloud-specific melody behavior, which belongs to the separate Shakalizer project.
-- Adds melody-only QA across every scale and all eight MAGIC slots for lane isolation, in-loop note bounds, scale membership, safe register, leap size, unique attacks and the strict rhythmic grid.
+- Adds a focused melody-only release suite across every scale and all eight MAGIC slots for lane isolation, in-loop note bounds, scale membership, safe register, leap size, unique attacks and the strict rhythmic grid. CI also verifies variation diversity, MUTATE / EVOLVE, Swing / Humanize isolation, MIDI export/drag payloads and state round-trip.
+- Retains the predecessor's broad all-layer suite in `tests/qa_main.cpp` for historical reference; current CI runs `tests/qa_melody_only.cpp` so intentionally removed chord/bass/drum features are not treated as release regressions.
 - Legacy project-state bytes are still read in their original order, then obsolete layer/lock flags and the retired SoundCloud mode are normalized off.
 
 ### 0.105.0 — Melody-Only Core
