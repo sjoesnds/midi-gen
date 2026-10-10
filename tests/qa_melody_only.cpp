@@ -391,13 +391,13 @@ int main()
     juce::MemoryBlock stateV4;
     legacySource.getStateInformation (stateV4);
     constexpr size_t legacyMaskOffset = 170;
-    constexpr size_t v4MaskEnd = legacyMaskOffset + sizeof (int32_t);
+    constexpr size_t v4MaskEnd = legacyMaskOffset + sizeof (std::int32_t);
     juce::MemoryBlock stateV3;
     bool builtLegacyState = stateV4.getSize() >= v4MaskEnd + sizeof (int32_t);
     if (builtLegacyState)
     {
         juce::MemoryOutputStream legacyStream (stateV3, false);
-        const auto* bytes = static_cast<const uint8_t*> (stateV4.getData());
+        const auto* bytes = static_cast<const std::uint8_t*> (stateV4.getData());
         legacyStream.write (bytes, 4);        // state magic
         legacyStream.writeInt (3);            // legacy state version
         legacyStream.write (bytes + 8, legacyMaskOffset - 8);
