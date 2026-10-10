@@ -73,14 +73,16 @@ MelodyIntent MelodyIntent::makePlan (int bars,
 
     switch (safeMood)
     {
-        case 1: intent.moodSpace=.08f; intent.moodLeap=.10f; intent.moodDensity=-.04f; intent.moodTension=.24f; break;
-        case 2: intent.moodSpace=.16f; intent.moodLeap=-.05f; intent.moodDensity=-.08f; intent.moodTension=.18f; break;
-        case 3: intent.moodSpace=-.10f; intent.moodLeap=.10f; intent.moodDensity=.10f; intent.moodTension=-.08f; break;
-        case 4: intent.moodSpace=-.08f; intent.moodLeap=.24f; intent.moodDensity=.14f; intent.moodTension=.12f; break;
-        case 5: intent.moodSpace=.24f; intent.moodLeap=-.10f; intent.moodDensity=-.12f; intent.moodTension=.04f; break;
-        case 6: intent.moodSpace=.08f; intent.moodLeap=-.02f; intent.moodDensity=-.02f; intent.moodTension=.10f; break;
-        case 7: intent.moodSpace=.18f; intent.moodLeap=.12f; intent.moodDensity=-.06f; intent.moodTension=.22f; break;
-        case 8: intent.moodSpace=-.14f; intent.moodLeap=.16f; intent.moodDensity=.18f; intent.moodTension=-.02f; break;
+        // A mood should change phrase behavior, not only tint the judge.
+        // The chosen identity/character still supplies variation around this clear intent.
+        case 1: intent.moodSpace=.12f; intent.moodLeap=.12f; intent.moodDensity=-.10f; intent.moodTension=.30f; break; // Dark
+        case 2: intent.moodSpace=.24f; intent.moodLeap=-.12f; intent.moodDensity=-.16f; intent.moodTension=.20f; break; // Melancholic
+        case 3: intent.moodSpace=-.14f; intent.moodLeap=.16f; intent.moodDensity=.14f; intent.moodTension=-.08f; break; // Euphoric
+        case 4: intent.moodSpace=-.18f; intent.moodLeap=.30f; intent.moodDensity=.22f; intent.moodTension=.20f; break; // Aggressive
+        case 5: intent.moodSpace=.32f; intent.moodLeap=-.16f; intent.moodDensity=-.22f; intent.moodTension=.02f; break; // Dreamy
+        case 6: intent.moodSpace=.16f; intent.moodLeap=-.08f; intent.moodDensity=-.08f; intent.moodTension=.12f; break; // Nostalgic
+        case 7: intent.moodSpace=.26f; intent.moodLeap=.18f; intent.moodDensity=-.10f; intent.moodTension=.30f; break; // Mysterious
+        case 8: intent.moodSpace=-.24f; intent.moodLeap=.22f; intent.moodDensity=.24f; intent.moodTension=.04f; break; // Energetic
         default: break;
     }
 
@@ -133,9 +135,14 @@ MelodyIntent MelodyIntent::makePlan (int bars,
     intent.characterIndex = (intent.nativeArchetype + characterRotation) % characterCount;
     intent.character = characterAt (intent.characterIndex);
 
-    intent.dnaSpace = std::clamp (intent.dnaSpace + intent.character.spaceBias, 0.0f, 1.0f);
-    intent.dnaDensity = std::clamp (intent.dnaDensity + intent.character.densityBias, 0.0f, 1.0f);
-    intent.dnaLeap = std::clamp (intent.dnaLeap + intent.character.leapBias, 0.0f, 1.0f);
+    // Character variation remains, but should not cancel a user-selected mood.
+    constexpr float kMoodSensitiveCharacterWeight = 0.72f;
+    intent.dnaSpace = std::clamp (
+        intent.dnaSpace + kMoodSensitiveCharacterWeight * intent.character.spaceBias, 0.0f, 1.0f);
+    intent.dnaDensity = std::clamp (
+        intent.dnaDensity + kMoodSensitiveCharacterWeight * intent.character.densityBias, 0.0f, 1.0f);
+    intent.dnaLeap = std::clamp (
+        intent.dnaLeap + kMoodSensitiveCharacterWeight * intent.character.leapBias, 0.0f, 1.0f);
     intent.dnaSync = std::clamp (intent.dnaSync + intent.character.syncBias, 0.0f, 1.0f);
     intent.dnaMotif = std::clamp (intent.dnaMotif + intent.character.motifBias, 0.0f, 1.0f);
     intent.dnaRegister = std::clamp (intent.dnaRegister + intent.character.registerBias, 0.0f, 1.0f);
