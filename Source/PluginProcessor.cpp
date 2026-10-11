@@ -10171,6 +10171,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         const juce::ScopedLock sl(variationsLock);
         variations=std::move(result);
+#ifdef MIDIFORGE_HEADLESS
+        qaSelectedQuality.fill (-1.0f);
+        for (size_t i = 0; i < selected.size() && i < qaSelectedQuality.size(); ++i)
+            qaSelectedQuality[i] = selected[i].quality;
+#endif
     }
 
 #ifdef MIDIFORGE_HEADLESS
@@ -10217,6 +10222,91 @@ int MidiForgeAudioProcessor::getVariationMelodyComplexityClass (int index) const
         return -1;
     return variations[(size_t) index].melodyComplexityClass;
 }
+
+#ifdef MIDIFORGE_HEADLESS
+float MidiForgeAudioProcessor::getBankIdeaSimilarityForQA (int firstSlot, int secondSlot) const
+{
+    const juce::ScopedLock sl (variationsLock);
+    if (firstSlot < 0 || secondSlot < 0
+        || firstSlot >= (int) variations.size()
+        || secondSlot >= (int) variations.size()
+        || firstSlot == secondSlot)
+        return -1.0f;
+
+    const auto first = makeIdeaFingerprint (variations[(size_t) firstSlot]);
+    const auto second = makeIdeaFingerprint (variations[(size_t) secondSlot]);
+    return ideaSimilarity (first, second);
+}
+
+float MidiForgeAudioProcessor::getBankQualityForQA (int slot) const
+{
+    const juce::ScopedLock sl (variationsLock);
+    if (slot < 0 || slot >= (int) qaSelectedQuality.size()
+        || slot >= (int) variations.size())
+        return -1.0f;
+    return qaSelectedQuality[(size_t) slot];
+}
+
+void MidiForgeAudioProcessor::getBankHalfMetricsForQA (int slot,
+                                                       float& motifSimilarity,
+                                                       float& attackDensityDelta,
+                                                       float& pitchRangeDelta) const
+{
+    motifSimilarity = -1.0f;
+    attackDensityDelta = 0.0f;
+    pitchRangeDelta = 0.0f;
+
+    const juce::ScopedLock sl (variationsLock);
+    if (slot < 0 || slot >= (int) variations.size())
+        return;
+
+    const auto& original = variations[(size_t) slot];
+    const int totalSteps = juce::jmax (1, original.bars * 16);
+    const int splitStep = totalSteps / 2;
+    if (splitStep <= 0 || splitStep >= totalSteps)
+        return;
+
+    Section firstHalf, secondHalf;
+    firstHalf.bars = juce::jmax (1, (splitStep + 15) / 16);
+    secondHalf.bars = juce::jmax (1, (totalSteps - splitStep + 15) / 16);
+
+    int firstCount = 0, secondCount = 0;
+    int firstLo = 128, firstHi = -1, secondLo = 128, secondHi = -1;
+    for (const auto& n : original.notes)
+    {
+        if (n.channel != 3 || n.step < 0 || n.step >= totalSteps)
+            continue;
+        if (n.step < splitStep)
+        {
+            firstHalf.notes.push_back (n);
+            ++firstCount;
+            firstLo = juce::jmin (firstLo, n.note);
+            firstHi = juce::jmax (firstHi, n.note);
+        }
+        else
+        {
+            auto normalized = n;
+            normalized.step -= splitStep;
+            secondHalf.notes.push_back (normalized);
+            ++secondCount;
+            secondLo = juce::jmin (secondLo, n.note);
+            secondHi = juce::jmax (secondHi, n.note);
+        }
+    }
+
+    attackDensityDelta = (float) secondCount / (float) secondHalf.bars
+                       - (float) firstCount / (float) firstHalf.bars;
+    const int firstRange = firstCount > 0 ? firstHi - firstLo : 0;
+    const int secondRange = secondCount > 0 ? secondHi - secondLo : 0;
+    pitchRangeDelta = (float) (secondRange - firstRange);
+
+    if (firstCount < 2 || secondCount < 2)
+        return;
+
+    motifSimilarity = ideaSimilarity (makeIdeaFingerprint (firstHalf),
+                                      makeIdeaFingerprint (secondHalf));
+}
+#endif
 
 void MidiForgeAudioProcessor::magicRandomize()
 {

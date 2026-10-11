@@ -56,6 +56,15 @@ jobs:
           rows=$(wc -l < ablation-pilot.csv)
           test "$rows" -eq 61
 
+      - name: Smoke-test bank diagnostics (2 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --bank-diagnostics 2 bank-diagnostics-smoke
+          test "$(wc -l < bank-diagnostics-smoke/bank-summary.csv)" -eq 3
+          test "$(wc -l < bank-diagnostics-smoke/pairwise-ideas.csv)" -eq 57
+          test "$(wc -l < bank-diagnostics-smoke/slot-diagnostics.csv)" -eq 17
+
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
         run: |
           set -euo pipefail

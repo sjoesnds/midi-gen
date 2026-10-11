@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iomanip>
+#include <numeric>
 #include <set>
 #include <sstream>
 #include <string>
@@ -447,6 +448,172 @@ namespace
         return 0;
     }
 
+    int runBankDiagnostics (int seedCount, const juce::File& outputDirectory)
+    {
+        seedCount = juce::jlimit (1, 4096, seedCount);
+        if (outputDirectory.exists() && ! outputDirectory.deleteRecursively())
+        {
+            std::fprintf (stderr, "Could not clear diagnostics output directory\\n");
+            return 2;
+        }
+        if (! outputDirectory.createDirectory())
+        {
+            std::fprintf (stderr, "Could not create diagnostics directory: %s\\n",
+                          outputDirectory.getFullPathName().toRawUTF8());
+            return 2;
+        }
+
+        std::ofstream summary (outputDirectory.getChildFile ("bank-summary.csv")
+                                   .getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
+        std::ofstream pairs (outputDirectory.getChildFile ("pairwise-ideas.csv")
+                                 .getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
+        std::ofstream slots (outputDirectory.getChildFile ("slot-diagnostics.csv")
+                                 .getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
+        if (! summary.is_open() || ! pairs.is_open() || ! slots.is_open())
+        {
+            std::fprintf (stderr, "Could not create diagnostics CSV files\\n");
+            return 2;
+        }
+
+        summary << "seed,variation_count,unique_melodies,min_idea_distance,q1_idea_distance,median_idea_distance,"
+                   "mean_idea_distance,max_idea_similarity,quality_min,quality_q1,quality_median,quality_mean,"
+                   "quality_max,valid_half_slots,mean_half_idea_similarity,min_half_idea_similarity,"
+                   "mean_second_half_attack_delta_per_bar,mean_second_half_pitch_range_delta_semitones\\n";
+        pairs << "seed,slot_a,slot_b,idea_similarity,idea_distance\\n";
+        slots << "seed,slot,quality,half_idea_similarity,second_half_attack_delta_per_bar,"
+                 "second_half_pitch_range_delta_semitones,melody_note_count,unique_pitches\\n";
+
+        const auto tempRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("midiforge_bank_diagnostics");
+        tempRoot.deleteRecursively();
+        if (! tempRoot.createDirectory())
+            return 2;
+
+        for (int seedIndex = 0; seedIndex < seedCount; ++seedIndex)
+        {
+            const int fixedSeed = 108000 + seedIndex;
+            const auto runSettings = tempRoot.getChildFile ("seed_" + juce::String (fixedSeed));
+            runSettings.deleteRecursively();
+            if (! runSettings.createDirectory())
+            {
+                std::fprintf (stderr, "Could not create settings directory for seed %d\\n", fixedSeed);
+                return 2;
+            }
+            MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
+
+            std::vector<float> distances;
+            std::vector<float> qualities;
+            std::vector<float> halfSimilarities;
+            double attackDeltaSum = 0.0, rangeDeltaSum = 0.0;
+            int validHalfSlots = 0;
+            std::set<std::string> uniqueIdeas;
+            int variationCount = 0;
+            {
+                MidiForgeAudioProcessor processor;
+                processor.setFeedbackLogFile (juce::File());
+                processor.setTasteEnabled (true);
+                processor.setSeed (fixedSeed);
+                processor.waitForGeneration();
+
+                // Match the deterministic synthetic taste context used by the ablation baseline.
+                processor.trainTaste (0, 1.0f, 1.0f);
+                processor.trainTaste (7, 0.0f, 1.0f);
+                midiforge::qa::setActiveAblation ("");
+                processor.magicRandomize();
+                processor.waitForGeneration();
+                variationCount = processor.getVariationCount();
+
+                for (int slot = 0; slot < variationCount; ++slot)
+                {
+                    processor.chooseVariation (slot);
+                    const auto noteList = processor.getVisibleNotes();
+                    std::vector<Note> melody;
+                    std::set<int> pitches;
+                    for (const auto& note : noteList)
+                    {
+                        if (note.channel != 3) continue;
+                        melody.push_back (note);
+                        pitches.insert (note.note);
+                    }
+                    uniqueIdeas.insert (fingerprint (melody));
+
+                    const float quality = processor.getBankQualityForQA (slot);
+                    qualities.push_back (quality);
+                    float halfSimilarity = -1.0f, attackDelta = 0.0f, rangeDelta = 0.0f;
+                    processor.getBankHalfMetricsForQA (slot, halfSimilarity, attackDelta, rangeDelta);
+                    if (halfSimilarity >= 0.0f)
+                    {
+                        halfSimilarities.push_back (halfSimilarity);
+                        attackDeltaSum += attackDelta;
+                        rangeDeltaSum += rangeDelta;
+                        ++validHalfSlots;
+                    }
+                    slots << fixedSeed << ',' << (slot + 1) << ','
+                          << std::fixed << std::setprecision (5) << quality << ','
+                          << halfSimilarity << ',' << attackDelta << ',' << rangeDelta << ','
+                          << melody.size() << ',' << pitches.size() << '\\n';
+                }
+
+                for (int a = 0; a < variationCount; ++a)
+                    for (int b = a + 1; b < variationCount; ++b)
+                    {
+                        const float similarity = processor.getBankIdeaSimilarityForQA (a, b);
+                        const float distance = similarity >= 0.0f ? 1.0f - similarity : -1.0f;
+                        if (distance >= 0.0f)
+                            distances.push_back (distance);
+                        pairs << fixedSeed << ',' << (a + 1) << ',' << (b + 1) << ','
+                              << std::fixed << std::setprecision (5) << similarity << ',' << distance << '\\n';
+                    }
+            }
+
+            midiforge::qa::setActiveAblation ("");
+            runSettings.deleteRecursively();
+
+            std::sort (distances.begin(), distances.end());
+            std::sort (qualities.begin(), qualities.end());
+            const auto quantile = [] (const std::vector<float>& data, double q) -> double
+            {
+                if (data.empty()) return -1.0;
+                const double position = q * (double) (data.size() - 1);
+                const size_t lo = (size_t) std::floor (position);
+                const size_t hi = (size_t) juce::jmin ((int) data.size() - 1, (int) lo + 1);
+                const double fraction = position - (double) lo;
+                return data[lo] * (1.0 - fraction) + data[hi] * fraction;
+            };
+            const double qualityMean = qualities.empty() ? -1.0
+                : std::accumulate (qualities.begin(), qualities.end(), 0.0) / (double) qualities.size();
+            const double distanceMean = distances.empty() ? -1.0
+                : std::accumulate (distances.begin(), distances.end(), 0.0) / (double) distances.size();
+            const double halfMean = halfSimilarities.empty() ? -1.0
+                : std::accumulate (halfSimilarities.begin(), halfSimilarities.end(), 0.0) / (double) halfSimilarities.size();
+            const double attackDeltaMean = validHalfSlots > 0 ? attackDeltaSum / validHalfSlots : 0.0;
+            const double rangeDeltaMean = validHalfSlots > 0 ? rangeDeltaSum / validHalfSlots : 0.0;
+            const double maxSimilarity = distances.empty() ? -1.0 : 1.0 - distances.front();
+
+            summary << fixedSeed << ',' << variationCount << ',' << uniqueIdeas.size() << ','
+                    << std::fixed << std::setprecision (5)
+                    << quantile (distances, 0.0) << ',' << quantile (distances, 0.25) << ','
+                    << quantile (distances, 0.50) << ',' << distanceMean << ',' << maxSimilarity << ','
+                    << quantile (qualities, 0.0) << ',' << quantile (qualities, 0.25) << ','
+                    << quantile (qualities, 0.50) << ',' << qualityMean << ','
+                    << quantile (qualities, 1.0) << ',' << validHalfSlots << ',' << halfMean << ','
+                    << quantile (halfSimilarities, 0.0) << ',' << attackDeltaMean << ','
+                    << rangeDeltaMean << '\\n';
+            summary.flush();
+            pairs.flush();
+            slots.flush();
+        }
+
+        summary.close();
+        pairs.close();
+        slots.close();
+        tempRoot.deleteRecursively();
+        std::printf ("Bank diagnostics: %s (%d seeds, %d slot rows, %d pair rows)\\n",
+                     outputDirectory.getFullPathName().toRawUTF8(), seedCount,
+                     seedCount * 8, seedCount * 28);
+        return 0;
+    }
+
     bool exportCalibrationClip (int fixedSeed,
                                 const AblationTreatment& treatment,
                                 const juce::File& outputFile,
@@ -759,6 +926,14 @@ namespace
 
 int main (int argc, char** argv)
 {
+    if (argc >= 2 && std::string (argv[1]) == "--bank-diagnostics")
+    {
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 256;
+        const auto output = argc >= 4 ? juce::File (argv[3])
+            : juce::File::getCurrentWorkingDirectory().getChildFile ("bank-diagnostics");
+        return runBankDiagnostics (seedCount, output);
+    }
+
     if (argc >= 2 && std::string (argv[1]) == "--calibration-pack")
     {
         const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 8;
