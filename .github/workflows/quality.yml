@@ -56,6 +56,23 @@ jobs:
           rows=$(wc -l < ablation-pilot.csv)
           test "$rows" -eq 61
 
+      - name: Smoke-test memorability probe (2 fixed seeds)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --memorability-report 2 memorability-smoke.csv
+          test -s memorability-smoke.csv
+          rows=$(wc -l < memorability-smoke.csv)
+          test "$rows" -eq 17
+          grep -q "hook_present,hook_count" memorability-smoke.csv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-smoke
+          path: memorability-smoke.csv
+          if-no-files-found: ignore
+
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
         run: |
           set -euo pipefail

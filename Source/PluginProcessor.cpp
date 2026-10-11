@@ -8845,6 +8845,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // the candidate has been fully scored and stored.
         const int archetype = c % 8;
         Section flat=flatten(song,c,local,mLo,mHi);
+#ifdef MIDIFORGE_HEADLESS
+        flat.qaMood = mood;
+#endif
         traceMelodyStage (0, flat);
 
         applyRhythmGrammar (flat, identity);
@@ -10116,6 +10119,14 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // independently discovered phrase that can be auditioned, edited and kept.
     std::vector<Section> result;
     result.reserve (selected.size());
+#ifdef MIDIFORGE_HEADLESS
+    std::array<float, 8> qaQuality;
+    std::array<int, 8> qaArchetypes;
+    std::array<int, 8> qaMoods;
+    qaQuality.fill (-1.0f);
+    qaArchetypes.fill (-1);
+    qaMoods.fill (-1);
+#endif
 
     for (size_t slot = 0; slot < selected.size(); ++slot)
     {
@@ -10157,6 +10168,14 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // Grid is a hard timing invariant, including after layer locks.
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         result.push_back (std::move (flat));
+#ifdef MIDIFORGE_HEADLESS
+        if (slot < qaQuality.size())
+        {
+            qaQuality[slot] = candidate.quality;
+            qaArchetypes[slot] = candidate.archetype;
+            qaMoods[slot] = candidate.section.qaMood;
+        }
+#endif
     }
 
     // Defensive fallback: the bank should never become empty.
@@ -10175,6 +10194,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
     {
         const juce::ScopedLock sl(variationsLock);
         variations=std::move(result);
+#ifdef MIDIFORGE_HEADLESS
+        qaSelectedQuality = qaQuality;
+        qaSelectedArchetype = qaArchetypes;
+        qaSelectedMood = qaMoods;
+#endif
     }
 
 #ifdef MIDIFORGE_HEADLESS
@@ -10221,6 +10245,24 @@ int MidiForgeAudioProcessor::getVariationMelodyComplexityClass (int index) const
         return -1;
     return variations[(size_t) index].melodyComplexityClass;
 }
+
+#ifdef MIDIFORGE_HEADLESS
+void MidiForgeAudioProcessor::getVariationQASelectionMetadata (int index,
+                                                               float& quality,
+                                                               int& archetype,
+                                                               int& selectedMood) const
+{
+    quality = -1.0f;
+    archetype = -1;
+    selectedMood = -1;
+    const juce::ScopedLock sl (variationsLock);
+    if (index < 0 || index >= (int) variations.size() || index >= (int) qaSelectedQuality.size())
+        return;
+    quality = qaSelectedQuality[(size_t) index];
+    archetype = qaSelectedArchetype[(size_t) index];
+    selectedMood = qaSelectedMood[(size_t) index];
+}
+#endif
 
 void MidiForgeAudioProcessor::magicRandomize()
 {

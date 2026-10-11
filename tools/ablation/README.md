@@ -40,3 +40,16 @@ The local script defaults to eight fixed seeds (108000-108007), creating up to 7
 Keep answer-key.csv closed until ratings-template.csv is complete. For each pair, import A and B into the same FL Studio project and use the same instrument, preset, mixer chain and volume. Rate musical quality, not loudness. The answer key indicates the baseline and ablated score only after listening.
 
 This is subjective calibration, not an automatic weight-tuning mechanism. No production score weights or shipped generation behaviour are changed by this tool.
+
+
+## Memorability probe (read-only, MIDI Forge 0.109.0)
+
+The probe is compiled only into the MIDIFORGE_HEADLESS QA target. Run a 2-seed smoke report with:
+
+\`\`\`powershell
+.\build-qa\MidiForgeQA_artefacts\Release\MidiForgeQA --memorability-report 2 memorability-smoke.csv
+\`\`\`
+
+The full baseline uses fixed seeds 108000–108255 and writes one row per selected variation (2,048 data rows). The varied-return threshold is the median positive edit distance on the same baseline; exact copies are recorded separately. Contrast-present is a descriptive flag requiring both density spread and register spread to exceed their respective baseline medians. These thresholds are diagnostic cut points, not generator targets.
+
+The baseline command and summary are wired into the dedicated headless workflow. The same measurement produces a structured counterexample index and a 12-file MIDI listening pack with only free-form prompts; no user rating table is required. Structural metrics are proxies, not proof that a motif is memorable to listeners.

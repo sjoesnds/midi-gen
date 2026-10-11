@@ -1,6 +1,7 @@
 // MIDI Forge 0.108.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 #include "MidiForgeAblation.h"
+#include "MemorabilityProbe.h"
 
 #include <algorithm>
 #include <array>
@@ -757,8 +758,24 @@ namespace
             && std::abs (judgeBaseline - judgeAblated) > 0.00001f;
     }
 
+int runMemorabilityReport (int seedCount, const juce::File& outputFile);
+int runMemorabilityPack (const juce::File& csvFile, const juce::File& outputDirectory);
+bool validateMemorabilityProbe();
+
 int main (int argc, char** argv)
 {
+    if (argc >= 2 && std::string (argv[1]) == "--memorability-report")
+    {
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 256;
+        const auto output = argc >= 4 ? juce::File (argv[3])
+            : juce::File::getCurrentWorkingDirectory().getChildFile ("baseline/memorability-baseline-256.csv");
+        return runMemorabilityReport (seedCount, output);
+    }
+    if (argc >= 2 && std::string (argv[1]) == "--memorability-pack")
+    {
+        if (argc < 4) return 2;
+        return runMemorabilityPack (juce::File (argv[2]), juce::File (argv[3]));
+    }
     if (argc >= 2 && std::string (argv[1]) == "--calibration-pack")
     {
         const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 8;
@@ -779,6 +796,9 @@ int main (int argc, char** argv)
         .getChildFile ("midiforge_0_109_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
+
+    check ("Memorability probe unit checks", validateMemorabilityProbe(),
+           "known repeated hook, no-repeat melody, exact returns and unsafe loop ending");
 
     check ("Headless-only ablation switches are isolated", validateAblationSwitches(),
            "default scores unchanged; selected score and Composer Judge group can be excluded");

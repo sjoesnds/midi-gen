@@ -203,6 +203,9 @@ bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
 int getVariationMelodyCharacter (int index) const;
 int getVariationMelodyComplexityClass (int index) const;
+#ifdef MIDIFORGE_HEADLESS
+void getVariationQASelectionMetadata (int index, float& quality, int& archetype, int& mood) const;
+#endif
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
@@ -258,6 +261,9 @@ struct Section {
     float densityMultiplier = 1.0f;
     int transpose = 0;
     int sourceArchetype = -1;   // 0.79: MAGIC archetype the loop came from (for the feedback log)
+#ifdef MIDIFORGE_HEADLESS
+    int qaMood = -1;          // Diagnostic metadata only; absent from the VST3 build.
+#endif
     int transformMode = -1;     // 0.79: final transformation slot (ORIGINAL, TIGHT, ...)
     int melodyCharacter = -1;   // 0.85.5: latent melodic behavior family; not exposed as a UI label
     int melodyComplexityClass = -1; // 0.86: 0=simple, 1=medium, 2=complex; one intent for the whole loop
@@ -378,6 +384,11 @@ void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int ch
 mutable juce::CriticalSection variationsLock;
 mutable juce::CriticalSection activeNotesLock;
 std::vector<Section> variations;
+#ifdef MIDIFORGE_HEADLESS
+std::array<float, 8> qaSelectedQuality {};
+std::array<int, 8> qaSelectedArchetype {};
+std::array<int, 8> qaSelectedMood {};
+#endif
 int selectedVariation = 0;
 std::vector<NoteEvent> activeNotes;
 void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);
