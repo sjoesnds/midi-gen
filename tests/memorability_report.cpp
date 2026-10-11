@@ -218,7 +218,8 @@ int runMemorabilityPack (const juce::File& csvFile, const juce::File& outputDire
     juce::FileInputStream input (csvFile);
     if (! input.openedOk()) return 2;
     std::string line;
-    if (! std::getline (input, line)) return 2;
+    if (input.isExhausted()) return 2;
+    line = input.readNextLine().toStdString();
     const auto header = splitCsvLine (line);
     const int seedCol = columnIndex (header, "seed");
     const int variationCol = columnIndex (header, "variation");
@@ -242,7 +243,9 @@ int runMemorabilityPack (const juce::File& csvFile, const juce::File& outputDire
     const auto tempRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getChildFile ("midiforge_memorability_pack");
     tempRoot.createDirectory();
-    while (std::getline (input, line))
+    while (! input.isExhausted())
+    {
+        line = input.readNextLine().toStdString();
     {
         if (line.empty()) continue;
         const auto fields = splitCsvLine (line);
