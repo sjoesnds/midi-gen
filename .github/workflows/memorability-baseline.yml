@@ -56,6 +56,20 @@ jobs:
           rows=$(wc -l < memorability-smoke.csv)
           test "$rows" -eq 17
 
+      - name: Validate baseline analyzer against smoke output
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/memorability/analyze_baseline.py
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-smoke.csv \
+            --output-dir memorability-smoke-analysis \
+            --expected-seeds 2 \
+            --expected-slots 8 \
+            --listening-items 12
+          test -s memorability-smoke-analysis/summary.md
+          test -s memorability-smoke-analysis/counterexamples.csv
+          test -s memorability-smoke-analysis/listening-selection.csv
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
