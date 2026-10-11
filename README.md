@@ -1,6 +1,6 @@
 # MIDI Forge
 
-**Current version: 0.108.0**
+**Current version: 0.109.0**
 
 MIDI Forge is a JUCE 8 / C++17 VST3 plugin for generating editable MIDI loops in FL Studio. Current output supports a melody with optional chords and bass. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
@@ -20,7 +20,7 @@ The plugin writes local telemetry to `feedback.csv` next to `taste.json`, in the
 2. Restore the FL Studio project/plugin state from the time of the rating. The saved state and selected MIDI are the practical replay checkpoint; keep an exported MIDI too when an exact artifact matters.
 3. Use `generation_seed`, `dna_seed`, `slot` and `verdict` to locate and audit the corresponding feedback event.
 
-**Limitation:** a `feedback.csv` row alone is not a complete replay recipe in 0.108.0. It does not store every generation input (including the root key and MAGIC lock mask/press history), so the two seeds alone cannot guarantee exact reconstruction. A saved project/plugin state or exported MIDI is required for an exact reference.
+**Limitation:** a `feedback.csv` row alone is not a complete replay recipe for the current engine. It does not store every generation input (including the root key and MAGIC lock mask/press history), so the two seeds alone cannot guarantee exact reconstruction. A saved project/plugin state or exported MIDI is required for an exact reference.
 
 ## Build
 

@@ -6,6 +6,12 @@ All previous README release notes and historical feature notes are preserved in 
 
 ## Release notes
 
+### 0.109.0 — Sparse Phrase Development [MIDI + QA/Tools]
+
+- Keeps phrase development active when one of the later bars in a four-bar cell is intentionally empty. A'/B/A'' bars with notes can still develop from a valid opening motif.
+- Empty bars remain empty: this change does not invent fill notes, alter score weights, add a judge, or add user-facing controls.
+- Preserves the existing final melody/grid/tonal safety pipeline; the existing 12-scale headless regression matrix remains the release gate.
+
 ### 0.108.0 — Reproducible MAGIC & Generation Pipeline Cleanup [MIDI + Workflow + QA/Tools]
 - Makes MAGIC generation deterministic from the generation seed and persisted press counter, independent of wall-clock timing. Project state v5 preserves the sequence; older v3/v4 states start a safe fresh sequence.
 - Removes two obsolete phrase-rewriting passes that were changing candidates before the main post-transform pipeline finished. Loop closure now runs after the candidate's main rhythm, pitch and phrase processing.
