@@ -343,9 +343,9 @@ struct PhraseMotif
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
 
-void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+
 void applyPhraseArchitecture (Section& section, uint32_t identity) const;
-void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
+
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
 float localMelodyQualityScore (const Section& section, uint32_t identity) const;
@@ -418,6 +418,7 @@ uint32_t generationSeed = 0;
 float dnaMelody = 0.50f, dnaRhythm = 0.50f, dnaHarmony = 0.50f, dnaMotif = 0.50f;
 float dnaRegister = 0.50f, dnaGroove = 0.50f, dnaEnergy = 0.50f, dnaSurprise = 0.35f;
 uint32_t magicDnaSeed = 0xC0FFEEu;
+uint32_t magicPressCounter = 0; // Persisted sequence index for reproducible MAGIC presses.
 int sectionMode = Loop;
 float chordDensity = 0.9f, bassDensity = 0.8f, melodyDensity = 0.62f, arpDensity = 0.25f;
 float swing = 0.0f, humanize = 0.15f, complexity = 0.55f;

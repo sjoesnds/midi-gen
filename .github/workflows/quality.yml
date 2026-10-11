@@ -47,11 +47,50 @@ jobs:
           echo "Running $QA with melody pipeline trace"
           "$QA" | tee qa-report.txt
 
+      - name: Run ablation pilot (2 fixed seeds; headless target only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --ablation-report 2 ablation-pilot.csv
+          test -s ablation-pilot.csv
+          rows=$(wc -l < ablation-pilot.csv)
+          test "$rows" -eq 61
+
+      - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --calibration-pack 8 calibration-midi-pilot
+          test -s calibration-midi-pilot/ratings-template.csv
+          test -s calibration-midi-pilot/answer-key.csv
+          audit_rows=$(wc -l < calibration-midi-pilot/comparison-audit.csv)
+          test "$audit_rows" -eq 73
+          rows=$(wc -l < calibration-midi-pilot/ratings-template.csv)
+          test "$rows" -ge 2
+          key_rows=$(wc -l < calibration-midi-pilot/answer-key.csv)
+          test "$key_rows" -eq "$rows"
+          clips=$(find calibration-midi-pilot/midi -type f -name '*.mid' | wc -l)
+          expected_clips=$(( (rows - 1) * 2 ))
+          test "$clips" -eq "$expected_clips"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: calibration-midi-pilot
+          path: calibration-midi-pilot/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: quality-report
           path: qa-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ablation-pilot
+          path: ablation-pilot.csv
 
   sanitizers:
     runs-on: ubuntu-latest

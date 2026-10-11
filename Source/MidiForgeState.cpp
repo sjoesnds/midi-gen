@@ -47,6 +47,10 @@ void MidiForgeAudioProcessor::getStateInformation(juce::MemoryBlock& dest)
         o.writeInt (n.velocity);
         o.writeInt (n.channel);
     }
+
+    // State v5: append the MAGIC press counter after the existing note payload,
+    // preserving the v3/v4 offsets used by older project-state migrations.
+    o.writeInt (static_cast<int> (magicPressCounter));
 }
 
 void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
@@ -82,6 +86,7 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
     lockChordsLayer = lockBassLayer = lockMelodyLayer = lockArpLayer = false;
     tasteEnabled = true; humanizeEnabled = false;
     int savedSelection = 0;
+    magicPressCounter = 0; // v3/v4 and legacy states start a fresh deterministic MAGIC sequence.
 
     auto readIntRaw = [&] (int& out) -> bool { if (i.getNumBytesRemaining() < 4) return false; out = i.readInt(); return true; };
     auto readIntClamped = [&] (int& out, int lo, int hi) -> bool
@@ -199,6 +204,15 @@ void MidiForgeAudioProcessor::setStateInformation(const void* data, int size)
                 });
             }
         }
+    }
+
+    // State v5 appends the counter after the saved-note payload. Older project
+    // states have no counter and safely continue from zero.
+    if (stateVersion >= 5 && i.getNumBytesRemaining() >= 4)
+    {
+        int rawMagicPressCounter = 0;
+        if (readIntRaw (rawMagicPressCounter))
+            magicPressCounter = static_cast<uint32_t> (rawMagicPressCounter);
     }
 
     realtimeSwing.store(swing); realtimeHumanize.store(humanize);

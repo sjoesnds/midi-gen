@@ -18,6 +18,7 @@
 #include <limits>
 
 #include "MidiForgeShared.h"
+#include "MidiForgeAblation.h"
 
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
@@ -4568,316 +4569,9 @@ if(arpEnabled && !solo)
 addArp(section,bar,deg,targetEnergy,r);
 }
 
-// 0.64: develop each complete four-bar phrase after all layers are known.
-for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
-{
-    applyMotifDevelopment (section, phraseStart, variationSalt);
-    applyMotifSemantics (section, phraseStart, variationSalt);
-}
-
-    applyLoopClosure (section, hash32 (generationSeed ^ (uint32_t) (variationSalt + 1) * 0x6A09E667u));
-}
-
-void MidiForgeAudioProcessor::applyMotifSemantics (Section& section,
-                                                   int phraseStartBar,
-                                                   int variationSalt) const
-{
-    if (! melodyEnabled || soundProfileFor (soundTarget).soloLine
-        || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
-        return;
-
-    const uint32_t identity = hash32 (
-        generationSeed
-        ^ (uint32_t) (phraseStartBar + 1) * 0x9e3779b9u
-        ^ (uint32_t) (variationSalt + 1) * 0x85ebca6bu
-        ^ 0x73A11CE5u);
-
-    const auto plan = section.hasMelodyIntent
-        ? section.melodyIntent.motif
-        : midiforge::MotifSemantics::makePlan (
-            melodyType, mood, energy, complexity, identity);
-
-    const bool simpleIntent = section.melodyComplexityClass == 0;
-
-    auto collectBar = [&] (int bar)
-    {
-        std::vector<size_t> out;
-        for (size_t i = 0; i < section.notes.size(); ++i)
-        {
-            const auto& n = section.notes[i];
-            if (n.channel == 3 && n.step / 16 == bar)
-                out.push_back (i);
-        }
-
-        std::stable_sort (out.begin(), out.end(),
-            [&] (size_t a, size_t b)
-            {
-                if (section.notes[a].step != section.notes[b].step)
-                    return section.notes[a].step < section.notes[b].step;
-                return section.notes[a].note < section.notes[b].note;
-            });
-        return out;
-    };
-
-    const auto baseIndices = collectBar (phraseStartBar);
-    if (baseIndices.size() < 2)
-        return;
-
-    std::vector<NoteEvent> base;
-    base.reserve (baseIndices.size());
-    for (const auto index : baseIndices)
-        base.push_back (section.notes[index]);
-
-    const int baseStart = phraseStartBar * 16;
-    const int anchorPitch = base.front().note;
-
-    int melodyLo = 40, melodyHi = 96, contractLeap = 9;
-    melodyRegisterContract (melodyLo, melodyHi, contractLeap);
-
-    auto safePitch = [&] (int pitch)
-    {
-        return juce::jlimit (melodyLo, melodyHi, snapToScale (pitch));
-    };
-
-    auto baseForNote = [&] (size_t i)
-    {
-        if (base.size() <= 1)
-            return (size_t) 0;
-        const float t = (float) i / (float) juce::jmax (1, (int) baseIndices.size() - 1);
-        return (size_t) juce::jlimit (
-            0, (int) base.size() - 1,
-            juce::roundToInt (t * (float) (base.size() - 1)));
-    };
-
-    const auto rhythmPreserve = [&](int role)
-    {
-        const float roleBase = role == 1 ? 0.78f : role == 2 ? 0.34f : 0.84f;
-        const float coreBias = 0.05f * (float) (plan.rhythmicCore % 4);
-        return juce::jlimit (0.18f, 0.94f, roleBase + coreBias);
-    };
-
-    auto applyAxis = [&] (std::vector<size_t>& current, int axis, float amount, int role)
-    {
-        if (current.empty())
-            return;
-
-        const auto mappedBase = [&] (size_t i) -> const NoteEvent&
-        {
-            return base[baseForNote (i)];
-        };
-
-        switch (axis)
-        {
-            case 0: // Rhythmic Core
-            {
-                if (current.size() >= 2)
-                {
-                    size_t chosen = (size_t) juce::jlimit (
-                        0, (int) current.size() - 1,
-                        role == 2 ? (int) current.size() - 2 : (int) current.size() / 2);
-                    auto& n = section.notes[current[chosen]];
-                    const int dir = ((plan.rhythmicCore + role) & 1) ? 1 : -1;
-                    n.step = juce::jlimit (0, section.bars * 16 - 1, n.step + dir);
-                    n.length = juce::jlimit (
-                        1, 8,
-                        n.length + (((plan.rhythmicCore + (int) chosen) & 1) ? 1 : -1));
-                }
-                break;
-            }
-
-            case 1: // Interval Core
-            {
-                // current contains indices into section.notes, so its midpoint must be an
-                // index into current itself. current.back() is a section.notes index and
-                // becomes invalid when reused as current[chosen] for sparse bars.
-                const size_t chosen = current.size() / 2;
-                auto& n = section.notes[current[chosen]];
-                const int intervalShape = plan.intervalCore % 4;
-                const int delta = intervalShape == 0 ? 2
-                                : intervalShape == 1 ? 3
-                                : intervalShape == 2 ? 5
-                                : -4;
-                n.note = safePitch (n.note + ((chosen & 1u) ? -delta : delta));
-                break;
-            }
-
-            case 2: // Starting Anchor
-            {
-                auto& n = section.notes[current.front()];
-                static constexpr int anchorShifts[7] = { 0, 2, 4, -2, 7, -5, 9 };
-                n.note = safePitch (anchorPitch + anchorShifts[plan.startingAnchor]);
-                break;
-            }
-
-            case 3: // Peak Gesture
-            {
-                size_t peak = 0;
-                for (size_t i = 1; i < current.size(); ++i)
-                    if (section.notes[current[i]].note > section.notes[current[peak]].note)
-                        peak = i;
-
-                auto& n = section.notes[current[peak]];
-                const int peakShift = 1 + (plan.peakGesture % 3) * 2;
-                n.note = safePitch (n.note + ((plan.peakGesture & 1) ? -peakShift : peakShift));
-                if (plan.peakGesture >= 4)
-                    n.length = juce::jmin (6, n.length + 1);
-                break;
-            }
-
-            case 4: // Ending Gesture
-            {
-                auto& n = section.notes[current.back()];
-                const int bar = phraseStartBar + role;
-                const auto prog = progressionDegrees();
-                int target = n.note;
-
-                if (!prog.empty())
-                {
-                    const int degree = prog[(size_t) (bar % (int) prog.size())];
-                    const int root = degreeToPitch (degree, octave);
-                    const int third = degreeToPitch (degree + 2, octave);
-
-                    switch (plan.endingGesture)
-                    {
-                        case 0: target = root; break;
-                        case 1: target = third; break;
-                        case 2: target = juce::jmin (root, third) - 2; break;
-                        case 3: target = anchorPitch + (anchorPitch - n.note); break;
-                        case 4: target = n.note; n.length = juce::jmin (7, n.length + 2); break;
-                        case 5: target = third + 2; break;
-                        default: target = root + 2; break;
-                    }
-                }
-
-                const float blend = role == 3 ? juce::jlimit (0.45f, 0.95f, amount)
-                                              : juce::jlimit (0.20f, 0.70f, amount);
-                n.note = safePitch (juce::roundToInt ((float) n.note * (1.0f - blend)
-                                                    + (float) target * blend));
-                break;
-            }
-
-            case 5: // Signature Leap
-            {
-                if (current.size() < 2)
-                    break;
-
-                const size_t chosen = current.size() / 2;
-                const int prev = section.notes[current[chosen > 0 ? chosen - 1 : chosen]].note;
-                const int next = section.notes[current[juce::jmin (chosen + 1, current.size() - 1)]].note;
-                const int jump = 4 + (plan.signatureLeap % 3) * 2;
-                const int direction = ((plan.signatureLeap + role) & 1) ? -1 : 1;
-                const int target = ((prev + next) / 2) + direction * jump;
-                section.notes[current[chosen]].note = safePitch (target);
-                break;
-            }
-
-            default: // Answer Cell
-            {
-                if (current.size() < 2)
-                    break;
-
-                const size_t a = current.size() - 2;
-                const size_t b = current.size() - 1;
-                auto& first = section.notes[current[a]];
-                auto& last = section.notes[current[b]];
-                const int delta = last.note - first.note;
-
-                switch (plan.answerCell)
-                {
-                    case 0: last.note = safePitch (first.note - delta); break;
-                    case 1: last.note = safePitch (first.note + std::abs (delta)); break;
-                    case 2: last.length = juce::jmax (1, last.length - 1); break;
-                    case 3: last.length = juce::jmin (7, last.length + 1); break;
-                    case 4: last.note = safePitch (last.note - 3); break;
-                    case 5: last.note = safePitch (last.note + 3); break;
-                    default:
-                        last.note = safePitch (first.note + ((plan.answerCell & 1) ? 4 : -4));
-                        break;
-                }
-                break;
-            }
-        }
-
-        juce::ignoreUnused (mappedBase);
-    };
-
-    for (int role = 1; role <= 3; ++role)
-    {
-        auto current = collectBar (phraseStartBar + role);
-        if (current.size() < 2)
-            continue;
-
-        const float preserve = rhythmPreserve (role);
-
-        for (size_t i = 0; i < current.size(); ++i)
-        {
-            auto& n = section.notes[current[i]];
-            const auto& src = base[baseForNote (i)];
-
-            int targetPitch = anchorPitch + (src.note - anchorPitch);
-
-            // B is the deliberate contrast cell: preserve the rhythm skeleton
-            // less strongly and reverse part of the interval contour.
-            if (role == 2)
-            {
-                targetPitch = anchorPitch - (src.note - anchorPitch);
-                if ((i & 1u) != 0u)
-                    targetPitch += (plan.answerCell & 1) ? 2 : -2;
-            }
-
-            const float pitchBlend = simpleIntent
-                ? (role == 1 ? 0.44f : role == 2 ? 0.18f : 0.52f)
-                : (role == 1 ? 0.74f : role == 2 ? 0.36f : 0.86f);
-
-            n.note = safePitch (juce::roundToInt (
-                (float) n.note * (1.0f - pitchBlend)
-                + (float) targetPitch * pitchBlend));
-
-            const int targetStep = baseStart + role * 16 + src.step - baseStart;
-            n.step = juce::jlimit (
-                role * 16 + baseStart,
-                role * 16 + baseStart + 15,
-                juce::roundToInt (
-                    (float) n.step * (1.0f - preserve)
-                    + (float) targetStep * preserve));
-
-            if (role != 2 && ((plan.rhythmicCore + (int) i) & 3) == 0)
-                n.length = juce::jlimit (
-                    1, 8,
-                    juce::roundToInt ((float) n.length * 0.78f + (float) src.length * 0.22f));
-        }
-
-        if (role == 1)
-        {
-            // A' changes one semantic component while leaving the motif core
-            // recognisable.
-            applyAxis (current, plan.primaryMutation, plan.mutationStrength, role);
-        }
-        else if (role == 2)
-        {
-            // B deliberately mutates a second semantic component and increases
-            // contrast without abandoning the original idea.
-            applyAxis (current, plan.primaryMutation,
-                       juce::jlimit (0.24f, 0.62f,
-                           plan.contrastStrength * (simpleIntent ? 0.50f : 1.0f)), role);
-            if (! simpleIntent)
-                applyAxis (current, plan.secondaryMutation,
-                           juce::jlimit (0.22f, 0.62f, plan.contrastStrength * 0.72f), role);
-        }
-        else
-        {
-            // A'' restores the semantic core and gives the loop a fresh ending
-            // gesture instead of cloning A literally.
-            applyAxis (current, 4,
-                       simpleIntent ? juce::jmin (0.52f, plan.returnStrength * 0.62f)
-                                     : plan.returnStrength, role);
-            if (plan.primaryMutation == 0 && ! simpleIntent)
-                applyAxis (current, 0, 0.34f, role);
-        }
-    }
-
-    cleanMelodyLine (section.notes);
-    removeDuplicateNotes (section.notes);
+// Phrase authorship and loop closure run once in the post-transform
+// candidate pipeline. Doing this here let later timing/pitch passes overwrite
+// the phrase structure and closure we had just authored.
 }
 
 float MidiForgeAudioProcessor::motifSemanticsScore (const Section& section,
@@ -6268,469 +5962,6 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
                     + (float) openingTarget * returnBlend));
                 tail.length = juce::jmin (6, juce::jmax (2, tail.length));
             }
-        }
-    }
-
-    cleanMelodyLine (section.notes);
-    removeDuplicateNotes (section.notes);
-}
-
-void MidiForgeAudioProcessor::applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const
-{
-    // 0.64 Motif Development Engine:
-    // Turn the four-bar identity into a controlled A -> A' -> B -> A'' arc.
-    // This is a structural pass, not a new random generator: rhythm/pitch
-    // fingerprints remain anchored to the first bar while each later role gets
-    // a deliberate development grammar.
-    if (!melodyEnabled || soundProfileFor(soundTarget).soloLine
-        || phraseStartBar < 0 || phraseStartBar + 3 >= section.bars)
-        return;
-
-    const PhraseMotif motif = extractPhraseMotif (section, phraseStartBar);
-    if (motif.relativePitches.size() < 2)
-        return;
-
-    auto mix32 = [] (uint32_t x)
-    {
-        x ^= x >> 16;
-        x *= 0x7feb352du;
-        x ^= x >> 15;
-        x *= 0x846ca68bu;
-        x ^= x >> 16;
-        return x;
-    };
-
-    enum DevelopmentStrategy
-    {
-        RepeatAlter = 0,
-        RhythmicReduction,
-        RhythmicExpansion,
-        IntervalExpansion,
-        Inversion,
-        Fragmentation,
-        CallResponse,
-        Return
-    };
-
-    const uint32_t h = mix32 (generationSeed
-                              ^ (uint32_t) (variationSalt + 1) * 0x9e3779b9u
-                              ^ (uint32_t) (phraseStartBar + 1) * 0x85ebca6bu);
-
-    // 0.84 Contextual Phrase Intelligence: score the ACTUAL four-bar cell,
-    // not the whole section. A short loop may be coherent while one phrase is
-    // over-dense, too flat, too repetitive, or missing a real return. The
-    // development grammar should react to that local state.
-    auto collectBar = [&] (int bar)
-    {
-        std::vector<size_t> out;
-        for (size_t i = 0; i < section.notes.size(); ++i)
-        {
-            const auto& n = section.notes[i];
-            if (n.channel == 3 && n.step / 16 == bar)
-                out.push_back (i);
-        }
-
-        std::stable_sort (out.begin(), out.end(),
-            [&] (size_t a, size_t b)
-            {
-                if (section.notes[a].step != section.notes[b].step)
-                    return section.notes[a].step < section.notes[b].step;
-                return section.notes[a].note < section.notes[b].note;
-            });
-        return out;
-    };
-
-    std::array<std::vector<size_t>, 4> phraseBars;
-    for (int role = 0; role < 4; ++role)
-        phraseBars[(size_t) role] = collectBar (phraseStartBar + role);
-
-    MelodyFeatures phraseState;
-    int totalNotes = 0;
-    int intervalCount = 0;
-    float intervalSum = 0.0f;
-    int turns = 0;
-    std::array<int, 16> intervalBuckets {};
-
-    for (const auto& bar : phraseBars)
-    {
-        totalNotes += (int) bar.size();
-        for (size_t i = 1; i < bar.size(); ++i)
-        {
-            const int d = section.notes[bar[i]].note - section.notes[bar[i - 1]].note;
-            const int ad = juce::jmin (15, std::abs (d));
-            intervalSum += (float) ad;
-            ++intervalCount;
-            ++intervalBuckets[(size_t) ad];
-            if (i > 1)
-            {
-                const int prev = section.notes[bar[i - 1]].note - section.notes[bar[i - 2]].note;
-                if (prev != 0 && d != 0 && ((prev > 0) != (d > 0)))
-                    ++turns;
-            }
-        }
-    }
-
-    phraseState.density = juce::jlimit (0.0f, 1.0f, (float) totalNotes / 24.0f);
-    phraseState.space = 1.0f - phraseState.density;
-    phraseState.leap = juce::jlimit (0.0f, 1.0f,
-        intervalCount > 0 ? (intervalSum / (float) intervalCount) / 9.0f : 0.18f);
-    phraseState.contour = juce::jlimit (0.0f, 1.0f,
-        intervalCount > 1 ? (float) turns / (float) juce::jmax (1, intervalCount - 1) * 1.45f : 0.35f);
-
-    int distinctIntervals = 0;
-    for (const int count : intervalBuckets)
-        if (count > 0) ++distinctIntervals;
-    phraseState.variety = juce::jlimit (0.0f, 1.0f, (float) distinctIntervals / 6.0f);
-    phraseState.surprise = juce::jlimit (0.0f, 1.0f, (float) distinctIntervals / 6.0f);
-
-    auto barContourSimilarity = [&] (const std::vector<size_t>& a,
-                                     const std::vector<size_t>& b)
-    {
-        if (a.size() < 2 || b.size() < 2)
-            return 0.0f;
-
-        const size_t pairs = juce::jmin (a.size(), b.size());
-        int matches = 0;
-        for (size_t i = 1; i < pairs; ++i)
-        {
-            const int da = section.notes[a[i]].note - section.notes[a[i - 1]].note;
-            const int db = section.notes[b[i]].note - section.notes[b[i - 1]].note;
-            if ((da == 0 && db == 0) || (da > 0 && db > 0) || (da < 0 && db < 0))
-                ++matches;
-        }
-        return (float) matches / (float) juce::jmax<size_t> (1, pairs - 1);
-    };
-
-    auto barRhythmSimilarity = [&] (const std::vector<size_t>& a,
-                                    const std::vector<size_t>& b)
-    {
-        if (a.empty() || b.empty())
-            return 0.0f;
-
-        const size_t pairs = juce::jmin (a.size(), b.size());
-        int matches = 0;
-        for (size_t i = 0; i < pairs; ++i)
-            if (std::abs ((section.notes[a[i]].step % 16)
-                        - (section.notes[b[i]].step % 16)) <= 1)
-                ++matches;
-
-        const float hitFit = (float) matches / (float) juce::jmax (a.size(), b.size());
-        const float countFit = 1.0f - juce::jlimit (0.0f, 1.0f,
-            (float) std::abs ((int) a.size() - (int) b.size()) / 4.0f);
-        return juce::jlimit (0.0f, 1.0f, 0.72f * hitFit + 0.28f * countFit);
-    };
-
-    auto averageBarPitch = [&] (const std::vector<size_t>& bar, float fallback)
-    {
-        if (bar.empty()) return fallback;
-        float sum = 0.0f;
-        for (const auto index : bar) sum += (float) section.notes[index].note;
-        return sum / (float) bar.size();
-    };
-
-    const float bar0Avg = averageBarPitch (phraseBars[0], 0.0f);
-    const float bar1Avg = averageBarPitch (phraseBars[1], bar0Avg);
-    const float bar2Avg = averageBarPitch (phraseBars[2], bar1Avg);
-    const float bar3Avg = averageBarPitch (phraseBars[3], bar2Avg);
-
-    const float aPrimeContour = barContourSimilarity (phraseBars[0], phraseBars[1]);
-    const float returnContour = barContourSimilarity (phraseBars[0], phraseBars[3]);
-    const float aPrimeRhythm = barRhythmSimilarity (phraseBars[0], phraseBars[1]);
-    const float returnRhythm = barRhythmSimilarity (phraseBars[0], phraseBars[3]);
-
-    phraseState.motifIdentity = juce::jlimit (0.0f, 1.0f,
-        0.48f * aPrimeContour + 0.52f * returnContour);
-    phraseState.phraseMemory = juce::jlimit (0.0f, 1.0f,
-        0.25f * aPrimeContour + 0.25f * returnContour
-        + 0.25f * aPrimeRhythm + 0.25f * returnRhythm);
-
-    const float peakLift = bar2Avg - bar0Avg;
-    const float releaseLift = bar2Avg - bar3Avg;
-    phraseState.phraseArc = juce::jlimit (0.0f, 1.0f, 0.50f + peakLift / 10.0f);
-    phraseState.tensionArc = juce::jlimit (0.0f, 1.0f, 0.50f + releaseLift / 10.0f);
-
-    float seamDistance = 12.0f;
-    if (! phraseBars[0].empty() && ! phraseBars[3].empty())
-        seamDistance = (float) std::abs (section.notes[phraseBars[3].back()].note
-                                        - section.notes[phraseBars[0].front()].note);
-    phraseState.seam = 1.0f - juce::jlimit (0.0f, 1.0f, seamDistance / 12.0f);
-    phraseState.loopQuality = phraseState.seam;
-
-    const float copyPressure = juce::jmax (aPrimeContour, returnContour);
-    const float identityDeficit = 1.0f - phraseState.motifIdentity;
-    const bool phraseAlreadyCoherent =
-        phraseState.motifIdentity > 0.66f
-        && phraseState.phraseMemory > 0.62f
-        && phraseState.phraseArc > 0.45f
-        && phraseState.tensionArc > 0.40f
-        && phraseState.loopQuality > 0.72f
-        && phraseState.density > 0.20f && phraseState.density < 0.74f;
-
-    // Context should choose the repair/development need, not merely bias a
-    // roulette wheel. Each strategy starts near zero; only a measured deficit
-    // earns weight. Randomness is reserved for genuinely close alternatives.
-    std::array<float, 8> strategyWeight {};
-    strategyWeight[RepeatAlter] = 0.035f
-        + 1.55f * identityDeficit
-        + 0.62f * (1.0f - phraseState.phraseMemory);
-    strategyWeight[RhythmicReduction] = 0.018f
-        + 2.55f * juce::jmax (0.0f, phraseState.density - 0.62f)
-        + 0.70f * juce::jmax (0.0f, 0.42f - phraseState.space);
-    strategyWeight[RhythmicExpansion] = 0.018f
-        + 2.45f * juce::jmax (0.0f, 0.38f - phraseState.density)
-        + 0.70f * juce::jmax (0.0f, phraseState.space - 0.68f);
-    strategyWeight[IntervalExpansion] = 0.018f
-        + 2.15f * juce::jmax (0.0f, 0.22f - phraseState.leap)
-        + 0.65f * juce::jmax (0.0f, 0.30f - phraseState.surprise);
-    strategyWeight[Inversion] = 0.018f
-        + 1.45f * juce::jmax (0.0f, 0.34f - phraseState.contour)
-        + 0.42f * juce::jmax (0.0f, 0.34f - phraseState.variety);
-    strategyWeight[Fragmentation] = 0.018f
-        + 1.75f * juce::jmax (0.0f, copyPressure - 0.78f)
-        + 0.90f * juce::jmax (0.0f, phraseState.density - 0.56f);
-    strategyWeight[CallResponse] = 0.018f
-        + 1.85f * juce::jmax (0.0f, 0.54f - phraseState.phraseArc)
-        + 1.10f * juce::jmax (0.0f, 0.46f - phraseState.tensionArc);
-    strategyWeight[Return] = 0.018f
-        + 1.65f * juce::jmax (0.0f, 0.50f - phraseState.loopQuality)
-        + 1.00f * juce::jmax (0.0f, 0.44f - phraseState.tensionArc);
-
-    int selectedStrategy = RepeatAlter;
-
-    if (phraseAlreadyCoherent)
-    {
-        selectedStrategy = RepeatAlter;
-    }
-    else
-    {
-        std::array<int, 8> ranking { 0, 1, 2, 3, 4, 5, 6, 7 };
-        std::stable_sort (ranking.begin(), ranking.end(),
-            [&] (int a, int b)
-            {
-                if (strategyWeight[(size_t) a] != strategyWeight[(size_t) b])
-                    return strategyWeight[(size_t) a] > strategyWeight[(size_t) b];
-                return a < b;
-            });
-
-        const int primary = ranking[0];
-        const int secondary = ranking[1];
-        selectedStrategy = primary;
-
-        // Only near-ties get randomness. A clearly diagnosed phrase deficit is
-        // handled by the corresponding strategy every time.
-        const float primaryWeight = strategyWeight[(size_t) primary];
-        const float secondaryWeight = strategyWeight[(size_t) secondary];
-        const bool nearTie = secondaryWeight > primaryWeight * 0.86f;
-        if (nearTie)
-        {
-            const float roll = (float) (mix32 (h ^ 0xC84A31D5u) % 10000u) / 10000.0f;
-            if (roll < 0.22f)
-                selectedStrategy = secondary;
-        }
-    }
-
-    const auto strategy = (DevelopmentStrategy) selectedStrategy;
-
-    // Harmonic Intelligence 2.0: development targets are blended toward the
-    // actual chord voicing of the destination bar. It is a soft pull, so B can
-    // still create tension instead of becoming a chord-arpeggio rewrite.
-    auto nearestChordTone = [&] (int bar, int pitch) -> int
-    {
-        int best = pitch;
-        int bestDistance = 1000;
-        for (const auto& n : section.notes)
-        {
-            if (n.channel != 1 || n.step / 16 != bar)
-                continue;
-            for (int oct = -3; oct <= 3; ++oct)
-            {
-                const int candidate = n.note + 12 * oct;
-                if (candidate < 30 || candidate > 108)
-                    continue;
-                const int distance = std::abs (candidate - pitch);
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = candidate;
-                }
-            }
-        }
-        return best;
-    };
-
-    // Structural rhythm development: reduce or fragment B first. Then the pitch
-    // pass below operates on the final note list, keeping every transformation
-    // internally coherent.
-    if (strategy == RhythmicReduction || strategy == Fragmentation)
-    {
-        for (int role = 1; role <= 2; ++role)
-        {
-            const int bar = phraseStartBar + role;
-            auto notes = collectBar (bar);
-            if (notes.size() <= 3)
-                continue;
-
-            const size_t originalCount = notes.size();
-            std::vector<size_t> toErase;
-            for (size_t k = 0; k < originalCount; ++k)
-            {
-                const bool reduce = strategy == RhythmicReduction && (k % 3u) == 1u;
-                const bool fragment = strategy == Fragmentation
-                                   && k >= ((originalCount + 1u) / 2u);
-                const size_t minimum = strategy == Fragmentation ? 2u : 3u;
-
-                if ((reduce || fragment)
-                    && originalCount - toErase.size() > minimum)
-                    toErase.push_back (notes[k]);
-            }
-
-            for (size_t k = toErase.size(); k-- > 0; )
-                section.notes.erase (section.notes.begin() + (long long) toErase[k]);
-        }
-    }
-
-    // Rhythmic expansion adds at most one connective note to A' and B.
-    if (strategy == RhythmicExpansion)
-    {
-        for (int role = 1; role <= 2; ++role)
-        {
-            const int bar = phraseStartBar + role;
-            const auto notes = collectBar (bar);
-            if (notes.size() < 2)
-                continue;
-
-            for (size_t k = 0; k + 1 < notes.size(); ++k)
-            {
-                const auto& a = section.notes[notes[k]];
-                const auto& b = section.notes[notes[k + 1]];
-                if (b.step - a.step < 3)
-                    continue;
-
-                const int step = a.step + (b.step - a.step) / 2;
-                const int rawPitch = juce::roundToInt (0.5f * ((float) a.note + (float) b.note));
-                const int note = juce::jlimit (30, 108, snapToScale (rawPitch));
-                const int velocity = juce::jlimit (44, 112, (a.velocity + b.velocity) / 2 - 3);
-                section.notes.push_back ({ step, 1, note, velocity, 3, false });
-                break;
-            }
-        }
-    }
-
-    for (int role = 1; role <= 3; ++role)
-    {
-        auto notes = collectBar (phraseStartBar + role);
-        if (notes.empty())
-            continue;
-
-        const int firstNote = section.notes[notes.front()].note;
-
-        // Motif Development is a development layer, not the phrase writer.
-        // Keep addMelody()'s contour authoritative and only bend it enough to
-        // establish a readable A -> A' -> B -> A'' relationship.
-        const bool simpleIntent = section.melodyComplexityClass == 0;
-        const float roleBlend =
-            simpleIntent
-                ? (role == 1 ? 0.28f : role == 2 ? 0.42f : 0.34f)
-                : (role == 1 ? 0.38f : role == 2 ? 0.52f : 0.42f);
-
-        for (size_t i = 0; i < notes.size(); ++i)
-        {
-            auto& cur = section.notes[notes[i]];
-            const size_t src = i % motif.relativePitches.size();
-            const int refRel = motif.relativePitches[src];
-            const int rawCurrent = cur.note;
-
-            float rel = (float) refRel;
-            switch (strategy)
-            {
-                case RepeatAlter:
-                    break;
-
-                case RhythmicReduction:
-                    rel *= (role == 2 ? 0.92f : 1.0f);
-                    break;
-
-                case RhythmicExpansion:
-                    rel *= (role == 2 ? 1.08f : 1.0f);
-                    break;
-
-                case IntervalExpansion:
-                    rel *= (role == 1 ? 1.22f : role == 2 ? 1.48f : 1.10f);
-                    break;
-
-                case Inversion:
-                    rel = -rel;
-                    if (role == 2)
-                        rel += ((i & 1u) == 0u ? 2.0f : -2.0f);
-                    break;
-
-                case Fragmentation:
-                    rel *= (role == 2 ? 0.82f : 1.0f);
-                    break;
-
-                case CallResponse:
-                    if (role == 2)
-                        rel += 4.0f;
-                    else if (role == 3)
-                        rel *= 0.94f;
-                    break;
-
-                case Return:
-                    rel *= (role == 1 ? 0.96f : role == 2 ? 0.76f : 1.0f);
-                    break;
-            }
-
-            int desired = firstNote + juce::roundToInt (rel);
-
-            if (strategy == CallResponse && role == 1 && i + 1 == notes.size())
-                desired -= 3;
-            if (strategy == CallResponse && role == 2 && i + 1 == notes.size())
-                desired += 5;
-            if (strategy == RepeatAlter && role == 1 && i == notes.size() / 2)
-                desired += ((h & 1u) != 0u ? 2 : -2);
-            if (strategy == Return && role == 2 && i == 0)
-                desired += ((h & 2u) != 0u ? 3 : -3);
-            if (strategy == Fragmentation && role == 3 && i == notes.size() / 2)
-                desired += 2;
-
-            const int activeBar = phraseStartBar + role;
-            const int chordNear = nearestChordTone (activeBar, desired);
-            const float harmonyBlend = simpleIntent
-                ? (role == 3 ? 0.24f : role == 2 ? 0.08f : 0.14f)
-                : (role == 3 ? 0.30f : role == 2 ? 0.10f : 0.18f);
-            desired = juce::roundToInt (
-                (float) desired * (1.0f - harmonyBlend)
-                + (float) chordNear * harmonyBlend);
-
-            // Cadence-aware release: the last note of A'' points toward the
-            // loop-start harmony, but keeps enough of its developed contour to
-            // avoid a hard "always land on root" formula.
-            if (role == 3 && i + 1 == notes.size())
-            {
-                const int loopTarget = nearestChordTone (activeBar, rootAtBar (phraseStartBar));
-                desired = juce::roundToInt (
-                    (simpleIntent ? 0.24f : 0.34f) * (float) desired
-                    + (simpleIntent ? 0.76f : 0.66f) * (float) loopTarget);
-            }
-
-            desired = juce::jlimit (30, 108, snapToScale (desired));
-            const int blended = juce::roundToInt (
-                (float) rawCurrent * (1.0f - roleBlend)
-                + (float) desired * roleBlend);
-            cur.note = juce::jlimit (30, 108, snapToScale (blended));
-        }
-
-        // Phrase roles also get a small articulation arc: question bar tightens,
-        // B has room to breathe, and A'' restores the release.
-        for (size_t i = 0; i < notes.size(); ++i)
-        {
-            auto& cur = section.notes[notes[i]];
-            if (role == 1 && (i & 1u) != 0u)
-                cur.length = juce::jmax (1, cur.length - 1);
-            else if (role == 2 && cur.length < 3 && i + 1 == notes.size())
-                cur.length = juce::jmin (4, cur.length + 1);
-            else if (role == 3 && i + 1 == notes.size())
-                cur.length = juce::jmin (4, juce::jmax (2, cur.length + 1));
         }
     }
 
@@ -8851,20 +8082,21 @@ float MidiForgeAudioProcessor::loopForgeScore (const Section& sec) const
 {
 
         if (sec.notes.empty()) return -1.0f;
+        if (midiforge::qa::isAblated ("loopForgeScore")) return 0.0f;
 
         const auto f = melodyFeatures (sec, generationSeed);
-        const float motif = motifMemoryScore (sec);
-        const float groove = grooveQualityScore (sec);
-        const float rhythmGrammar = rhythmGrammarScore (sec);
-        const float melodyExpression = melodyExpressionScore (sec);
-        const float harmonicIntelligence = harmonicIntelligenceScore (sec);
-        const float phraseMemory4 = phraseMemory4Score (sec);
-        const float composerGrammar = composerGrammarScore (sec);
-        const float melodicProsody = melodicProsodyScore (sec);
-        const float creativeRange = creativeRangeScore (sec, generationSeed);
-        const float contextualPhrase = contextualPhraseQualityScore (sec);
-        const float motifSemantics = motifSemanticsScore (sec, generationSeed);
-        const float loopClosure = loopClosureScore (sec, generationSeed);
+        const float motif = midiforge::qa::scoreOrZero ("motifMemoryScore", motifMemoryScore (sec));
+        const float groove = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (sec));
+        const float rhythmGrammar = midiforge::qa::scoreOrZero ("rhythmGrammarScore", rhythmGrammarScore (sec));
+        const float melodyExpression = midiforge::qa::scoreOrZero ("melodyExpressionScore", melodyExpressionScore (sec));
+        const float harmonicIntelligence = midiforge::qa::scoreOrZero ("harmonicIntelligenceScore", harmonicIntelligenceScore (sec));
+        const float phraseMemory4 = midiforge::qa::scoreOrZero ("phraseMemory4Score", phraseMemory4Score (sec));
+        const float composerGrammar = midiforge::qa::scoreOrZero ("composerGrammarScore", composerGrammarScore (sec));
+        const float melodicProsody = midiforge::qa::scoreOrZero ("melodicProsodyScore", melodicProsodyScore (sec));
+        const float creativeRange = midiforge::qa::scoreOrZero ("creativeRangeScore", creativeRangeScore (sec, generationSeed));
+        const float contextualPhrase = midiforge::qa::scoreOrZero ("contextualPhraseQualityScore", contextualPhraseQualityScore (sec));
+        const float motifSemantics = midiforge::qa::scoreOrZero ("motifSemanticsScore", motifSemanticsScore (sec, generationSeed));
+        const float loopClosure = midiforge::qa::scoreOrZero ("loopClosureScore", loopClosureScore (sec, generationSeed));
         int melodyCount = 0;
         int chordCount = 0;
         int bassCount = 0;
@@ -9625,6 +8857,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         applyMelodyFoundation (flat, identity);
         applyPhraseArchitecture (flat, identity);
+        applyLoopClosure (flat, hash32 (generationSeed ^ (uint32_t) (c + 2) * 0x6A09E667u));
         enforceFinalMelodyContract (flat, identity);
         // Phrase shaping can introduce new adjacent leap reversals. Repair the
         // final composed line, rather than an intermediate version that is
@@ -9633,15 +8866,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
-        const float grooveQuality = grooveQualityScore (flat);
-        const float motifMemory = motifMemoryScore(flat);
-        const float rhythmGrammarQuality = rhythmGrammarScore (flat);
-        const float melodyExpressionQuality = melodyExpressionScore (flat);
-        const float harmonicIntelligenceQuality = harmonicIntelligenceScore (flat);
-        const float phraseMemory4Quality = phraseMemory4Score (flat);
-        const float composerGrammarQuality = composerGrammarScore (flat);
-        const float melodicProsodyQuality = melodicProsodyScore (flat);
-        const float creativeRangeQuality = creativeRangeScore (flat, identity);
+        const float grooveQuality = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (flat));
+        const float motifMemory = midiforge::qa::scoreOrZero ("motifMemoryScore", motifMemoryScore (flat));
+        const float rhythmGrammarQuality = midiforge::qa::scoreOrZero ("rhythmGrammarScore", rhythmGrammarScore (flat));
+        const float melodyExpressionQuality = midiforge::qa::scoreOrZero ("melodyExpressionScore", melodyExpressionScore (flat));
+        const float harmonicIntelligenceQuality = midiforge::qa::scoreOrZero ("harmonicIntelligenceScore", harmonicIntelligenceScore (flat));
+        const float phraseMemory4Quality = midiforge::qa::scoreOrZero ("phraseMemory4Score", phraseMemory4Score (flat));
+        const float composerGrammarQuality = midiforge::qa::scoreOrZero ("composerGrammarScore", composerGrammarScore (flat));
+        const float melodicProsodyQuality = midiforge::qa::scoreOrZero ("melodicProsodyScore", melodicProsodyScore (flat));
+        const float creativeRangeQuality = midiforge::qa::scoreOrZero ("creativeRangeScore", creativeRangeScore (flat, identity));
 
         // 0.64 Development Judge: reward a phrase that develops an identity
         // instead of either copying bar 1 or abandoning it completely.
@@ -10378,12 +9611,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // 0.75 Composer Judge 2.0: one top-level coherence score over the
         // already-generated candidate. It evaluates the composition as a whole
         // and never rewrites the MIDI.
-        const float motifSemantics = motifSemanticsScore (flat, identity);
-        const float phraseContrast = phraseContrastScore (flat, identity);
-        const float loopClosure = loopClosureScore (flat, identity);
-        const float closureJudge = closureJudgeScore (flat, identity);
-        const float localMelodyQuality = localMelodyQualityScore (flat, identity);
-        const float localMelodyRhythm = localMelodyRhythmScore (flat, identity);
+        const float motifSemantics = midiforge::qa::scoreOrZero ("motifSemanticsScore", motifSemanticsScore (flat, identity));
+        const float phraseContrast = midiforge::qa::scoreOrZero ("phraseContrastScore", phraseContrastScore (flat, identity));
+        const float loopClosure = midiforge::qa::scoreOrZero ("loopClosureScore", loopClosureScore (flat, identity));
+        const float closureJudge = midiforge::qa::scoreOrZero ("closureJudgeScore", closureJudgeScore (flat, identity));
+        const float localMelodyQuality = midiforge::qa::scoreOrZero ("localMelodyQualityScore", localMelodyQualityScore (flat, identity));
+        const float localMelodyRhythm = midiforge::qa::scoreOrZero ("localMelodyRhythmScore", localMelodyRhythmScore (flat, identity));
         const ComposerJudgeInputs composerJudgeInputs
         {
             f,
@@ -10398,22 +9631,27 @@ void MidiForgeAudioProcessor::buildVariationBank()
             loopClosure,
             development
         };
-        const float composerJudge = composerJudgeScore (flat, identity, composerJudgeInputs);
+        const float composerJudge = midiforge::qa::scoreOrZero (
+            "composerJudgeScore", composerJudgeScore (flat, identity, composerJudgeInputs));
         quality += 0.15f * composerJudge;
         quality += 0.10f * phraseContrast;
         quality += 0.10f * closureJudge;
-        // 0.85.2 Local Melody Quality 2.0: do not let a strong global score
-        // hide one or two ugly micro-transitions.
-        quality += 0.16f * localMelodyQuality;
-        if (localMelodyQuality < 0.42f)
-            quality -= 0.24f * (0.42f - localMelodyQuality);
-        // 0.85.4 Micro-Rhythm Quality: reject locally mechanical timing even
-        // when the pitch contour itself is strong.
-        quality += 0.11f * localMelodyRhythm;
-        if (localMelodyRhythm < 0.40f)
-            quality -= 0.14f * (0.40f - localMelodyRhythm);
-        if (localMelodyQuality < 0.30f)
-            quality -= 0.10f * (0.30f - localMelodyQuality);
+        // Ablation removes a score's reward/penalty from ranking only. The
+        // generation and final note-repair passes are deliberately unchanged.
+        if (! midiforge::qa::isAblated ("localMelodyQualityScore"))
+        {
+            quality += 0.16f * localMelodyQuality;
+            if (localMelodyQuality < 0.42f)
+                quality -= 0.24f * (0.42f - localMelodyQuality);
+            if (localMelodyQuality < 0.30f)
+                quality -= 0.10f * (0.30f - localMelodyQuality);
+        }
+        if (! midiforge::qa::isAblated ("localMelodyRhythmScore"))
+        {
+            quality += 0.11f * localMelodyRhythm;
+            if (localMelodyRhythm < 0.40f)
+                quality -= 0.14f * (0.40f - localMelodyRhythm);
+        }
         // 0.97 Unified Melody Decision: evaluate the finished phrase against
         // one composition budget. Existing local/global judges remain authoritative;
         // this layer only decides whether the candidate actually matches the intent
@@ -10480,13 +9718,17 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 quality -= 0.08f * (0.34f - decision.score);
         }
 
-        const float pleasantness = melodyPleasantnessScore (flat);
+        const float pleasantness = midiforge::qa::scoreOrZero (
+            "melodyPleasantnessScore", melodyPleasantnessScore (flat));
         // 0.86.x: pleasantness is now a soft safety preference, not a dominant
         // musical preference. Otherwise stepwise / polite candidates can beat
         // more memorable but slightly rougher ideas.
-        quality += 0.17f * pleasantness;
-        if (pleasantness < 0.48f)
-            quality -= 0.08f * (0.48f - pleasantness);
+        if (! midiforge::qa::isAblated ("melodyPleasantnessScore"))
+        {
+            quality += 0.17f * pleasantness;
+            if (pleasantness < 0.48f)
+                quality -= 0.08f * (0.48f - pleasantness);
+        }
 
         // Explicit memorability gate. This is intentionally orthogonal to
         // pleasantness: a strong idea should survive even when it is not bland.
@@ -10988,8 +10230,12 @@ void MidiForgeAudioProcessor::magicRandomize()
         x *= 0x846ca68bu; x ^= x >> 16; return x;
     };
 
-    const uint32_t timeSeed = (uint32_t) juce::Time::currentTimeMillis();
-    magicDnaSeed = magicHash32(generationSeed ^ timeSeed ^ 0x51A7D00Du);
+    // MAGIC's creative search must be reproducible from the project seed and
+    // persisted press index. NEW SEED remains the explicit way to request a
+    // fresh random starting point; wall-clock time must not leak into MAGIC.
+    const uint32_t pressIndex = ++magicPressCounter;
+    const uint32_t pressHash = magicHash32 (pressIndex ^ 0x4D414749u);
+    magicDnaSeed = magicHash32 (generationSeed ^ pressHash ^ 0x51A7D00Du);
     juce::Random r((juce::int64) magicDnaSeed);
     auto pick = [&](int maxExclusive) { return r.nextInt(maxExclusive); };
     auto rf = [&](float lo, float hi) { return lo + r.nextFloat() * (hi - lo); };
