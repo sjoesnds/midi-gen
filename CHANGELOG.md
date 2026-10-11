@@ -12,19 +12,19 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds fixed-seed MIDI-bank fingerprints and save/load continuation checks, plus optional headless score-ablation and first-pick diagnostic reports. These tools do not automatically tune production weights and require no user calibration.
 - Keeps the creator focused on Key / Scale / Bars with no new genre/era controls. Existing grid, tonal/register safety, variation diversity, state migration, MIDI export/drag, sanitizer and Windows VST3 checks remain release gates.
 
-### 0.107.0 — Stronger Mood Intent [MIDI + Workflow + QA/Tools]
+### 0.107.0 — Stronger Mood Intent [MIDI + QA/Tools]
 - Mood now has clearer signatures in phrase spacing, note density, interval movement, repetition and tension. Aggressive and Energetic encourage activity; Dreamy and Melancholic favor space and smoother motion; Nostalgic favors a returning motif; Dark and Mysterious retain more tension.
 - Hidden Character variation remains, but is less likely to cancel the selected mood.
 - Aligns candidate-judge targets with generation mood direction. No genre/era controls or new architecture layers are added.
 - Adds deterministic coverage across all eight MAGIC archetypes for contrasting mood profiles, alongside the arrangement, lock, state-migration and transform-safety gates.
 
-### 0.106.2 — MUTATE / EVOLVE Safety Repair [MIDI + Workflow + QA/Tools]
+### 0.106.2 — MUTATE / EVOLVE Safety Repair [MIDI + QA/Tools]
 - Mutations now re-check every note's pitch, velocity, onset and loop-tail bounds after rhythmic edits, including bass notes whose lengths were extended.
 - Melody mutations receive a final in-scale pitch repair inside the grounded 48–90 register and a maximum 12-semitone step-to-step leap.
 - The transform QA uses a fixed source seed and reports each failed invariant separately, making sanitizer failures reproducible.
 - No new generator layer or user-facing controls.
 
-### 0.106.1 — Lock & Legacy-State Regression Coverage [MIDI + Workflow + QA/Tools]
+### 0.106.1 — Lock & Legacy-State Regression Coverage [Workflow + QA/Tools]
 - Extends release QA to prove that individually locked CHORDS and BASS switches remain OFF through repeated MAGIC presses, not only that locked ON states survive.
 - Adds a legacy v3 state fixture matching 0.105.x projects: the previously edited melody must be retained while chord and bass lanes are restored.
 - Keeps the 0.106.0 behavior unchanged; this patch strengthens the release gate before merge.
@@ -50,14 +50,14 @@ All previous README release notes and historical feature notes are preserved in 
 - Added the original melody-focused release suite across every scale and all eight MAGIC slots for tonal safety, grounded register, variation diversity and the strict rhythmic grid.
 - The 0.105.x state loader normalized chord/bass flags off. Version 0.106.0 upgrades states saved by that release and restores both layers by default while retaining MIDI/project-state compatibility.
 
-### 0.105.0 — Melody-Only Core [MIDI + Workflow]
+### 0.105.0 — Melody-Only Core [MIDI + Workflow + QA/Tools]
 - Makes new generation produce a single editable melody lane; MAGIC keeps chord, bass, arpeggio and drum output disabled.
 - Removes the chord-driven final repair pass from the generation line. Scale, register, rhythm and phrase quality are judged from the melody itself.
 - Preserves compatibility with older project-state formats, then normalizes deprecated accompaniment flags/locks off and imports only saved MIDI channel 3 notes.
 - Hides chord/bass, arpeggio/drum, accompaniment density, and separate-layer controls from the creator UI while keeping MIDI export, piano roll editing, MAGIC, SIMILAR, MUTATE and EVOLVE.
 - This branch follows the clean strict-grid branch plus the independent .104 melody-quality work; it deliberately does not include PR #59's unwanted harmony layer.
 
-### 0.104.0 — MAGIC Melody Quality & Diversity [MIDI + Workflow + QA/Tools]
+### 0.104.0 — MAGIC Melody Quality & Diversity [MIDI + QA/Tools]
 - Scores the finished melody against its declared Simple / Medium / Complex intent, so Simple loops are rewarded for leaving space and Complex loops need genuine pitch and rhythmic vocabulary.
 - Adds register center to candidate-behavior distance, helping the eight-slot bank preserve distinct melodic placements instead of over-pruning them as near-clones.
 - Rebalances MAGIC selection toward musical novelty and minimum pairwise diversity while retaining the existing shared musical-quality judge.
@@ -65,7 +65,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Keeps drum onset patterns fixed during MUTATE / EVOLVE; transformations can still change accents without unexpectedly moving the groove.
 - Retains internal tonal guidance while keeping user-facing output focused on a single melodic lane.
 
-### 0.102.0 — Strict Musical Grid [MIDI + Workflow + QA/Tools]
+### 0.102.0 — Strict Musical Grid [MIDI + QA/Tools]
 - Enforces a predictable note-onset lattice and loop boundaries; the melody-only path keeps melody attacks on eighth-note subdivisions.
 - Keeps Swing and optional Humanize separate from authored note positions, so timing feel remains a deliberate performance choice.
 - Low-level compatibility tests still exercise legacy layer builders, but MAGIC excludes those separate layers from new generated loops.
@@ -78,14 +78,14 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless checks for tempo/time-signature metadata, per-part MIDI channel isolation, and the absence of fake drag files for empty layers.
 - A successful CI build still does not replace FL Studio validation of OLE Drag-and-Drop and long-session behavior.
 
-### 0.100.1 — Feature Restoration & Advanced Controls [MIDI + Workflow + QA/Tools]
+### 0.100.1 — Feature Restoration & Advanced Controls [Workflow + QA/Tools]
 - Adds an **ADVANCED / HIDE ADVANCED** drawer so progression, rhythm, mood, melody type, sound target, articulation, chord style, octave, arp rate and per-part musical controls remain user-accessible without crowding the compact default screen.
 - Restores visible access to NEW SEED, chord extensions, inversions, HOOK, SOUNDCLOUD, TASTE ML and Taste reset; the core chord, bass, melody, arp and drums layer switches remain on the main surface.
 - Expands the editor only while Advanced is open and reflows the Piano Roll, performance controls and export workflow so controls do not overlap.
 - Adds state round-trip regression coverage for layer switches, layer locks, SoundCloud mode, Humanize, Swing and per-layer density settings.
 - Keeps all restored functions in the existing generator; this release focuses on access and preservation, not adding another generation engine.
 
-### 0.100.0 — Musical Expression Core [MIDI + Workflow + QA/Tools]
+### 0.100.0 — Musical Expression Core [MIDI + QA/Tools]
 - Tightens the existing Rhythm Grammar so low-complexity material is authored with a smaller event budget instead of being filled by ornament density.
 - Simple phrase openings can choose a grounded straight pocket, a restrained repetition, or a breathing-space shape rather than always defaulting to the same repeated rhythm.
 - Existing Melodic Prosody now makes statement/peak/release articulation more legible: downbeats speak, B-bar peaks receive a stronger accent, and phrase tails get a clearer release.
@@ -101,18 +101,18 @@ All previous README release notes and historical feature notes are preserved in 
 - Phrase architecture is applied before candidate scoring, so the eight selected ideas are scored as the material that will actually be shown.
 - Keeps the hard melody 1/8 onset grid and the creator-first **Key / Scale / Bars** boundary.
 
-### 0.98.0 — Per-Candidate Creative Discovery [MIDI + Workflow + QA/Tools]
+### 0.98.0 — Per-Candidate Creative Discovery [MIDI + QA/Tools]
 - Each MAGIC candidate now receives its own hidden Mood / Melody Type / Rhythm / Progression / register strategy while Key, Scale and Bars remain fixed creator constraints.
 - The candidate-specific strategy stays active through generation, harmonic/prosodic processing and judging instead of being restored before the downstream pipeline.
 - One MAGIC press therefore explores a genuinely broader set of musical thoughts rather than eight variants of one hidden personality.
 - The UI still exposes no Genre, Era, Mood, Melody Type, Sound Target or algorithmic strategy knobs.
-### 0.97.1 — Creator-First Controls & Open Creativity [MIDI + Workflow + QA/Tools]
+### 0.97.1 — Creator-First Controls & Open Creativity [MIDI + Workflow]
 - The user-facing generation surface is intentionally reduced to **Key, Scale and Bars** plus workflow/edit controls.
 - Removed visible Mood, Melody Type, Sound Target, Progression, Rhythm, Octave, density, complexity, motif, variation and other strategy knobs from the creative surface.
 - MAGIC now keeps the creator-selected Key, Scale and Bars fixed while freely exploring hidden musical DNA inside those constraints.
 - Hidden strategy axes remain randomized internally so the generator can still discover distinct musical ideas without turning them into genre/style presets.
 
-### 0.97.0 — Creator-First Melody Discovery [MIDI + Workflow + QA/Tools]
+### 0.97.0 — Creator-First Melody Discovery [MIDI + QA/Tools]
 - Adds a single melody decision/evaluation layer above the existing Melody Intent and Judge stack.
 - Complexity is evaluated as a real budget: Simple / Medium / Complex now receive different density, repetition, rhythm and interval expectations instead of only changing note counts.
 - Strong structural positions are scored separately from weak positions, with stronger harmonic anchoring where the phrase naturally carries weight.
@@ -121,7 +121,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Locked layers still behave as before; generation-time foundation/repair and the full judge stack remain upstream. No second stylistic rewrite is applied after candidate selection.
 - Headless QA covers deterministic classification, complexity-budget separation and structural scoring.
 
-### 0.96.0 — Architecture Cleanup & Reliability [MIDI + Workflow + QA/Tools]
+### 0.96.0 — Architecture Cleanup & Reliability [Workflow + QA/Tools]
 - Extracted MIDI-file construction/export and drag-temp creation into `MidiForgeMidiIO.cpp`.
 - Extracted project state persistence into `MidiForgeState.cpp`.
 - Extracted Taste learning, preference persistence and feedback telemetry into `MidiForgeTaste.cpp`.
@@ -138,7 +138,7 @@ All previous README release notes and historical feature notes are preserved in 
 - QA includes BPM coverage, 1024-seed release preflight, editor bounds, MIDI export parsing, edited-MIDI state round-trip, Taste isolation and a 256-cycle structural stress batch.
 - Public versioning is now 0.95.0; final FL Studio long-session validation is still required before a 1.0 release.
 
-### 0.86.2 — Unified Melody Intent [MIDI + Workflow + QA/Tools]
+### 0.86.2 — Unified Melody Intent [MIDI + QA/Tools]
 - Removes Era as a user-facing musical parameter; legacy project state remains load/save compatible while the internal context is fixed to the modern 20s profile.
 - Adds a single deterministic `MelodyIntent` plan that owns creative language, phrase grammar, latent melodic character and Simple / Medium / Complex probabilities before note generation.
 - The main melody generator no longer independently rolls CreativeRange, ComposerGrammar and Character state; those modules now feed the single intent plan.
@@ -150,7 +150,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Candidate ranking now gives explicit weight to memorability instead of letting pleasantness dominate.
 - The work remains part of the 0.86.x development cycle; the public version is now 0.86.2 for this development stage.
 
-### 0.86.0 — Unified Melody Intent [MIDI + Workflow + QA/Tools]
+### 0.86.0 — Unified Melody Intent [MIDI + QA/Tools]
 - Simple / Medium / Complex is now a single loop-level composition intent stored on the generated Section as melodyComplexityClass.
 - The class is chosen once per loop using a bar-stable seed and is no longer independently re-rolled by Foundation or Pleasantness.
 - Foundation and Pleasantness now interpret the same intent instead of making separate random simple/conservative decisions.
@@ -159,13 +159,13 @@ All previous README release notes and historical feature notes are preserved in 
 - QA now checks valid classes, multiple complexity languages in the bank, deterministic assignment, and reachability of all three classes.
 - No new UI control was added. The existing Complexity control still influences the probability of Simple / Medium / Complex candidates.
 
-### 0.85.7 — Character Integrity [MIDI + Workflow + QA/Tools]
+### 0.85.7 — Character Integrity [MIDI + QA/Tools]
 - Fixed a real Character propagation bug in candidate flattening: the latent melodic character assigned during generation is now preserved when the candidate Section is created.
 - Character Fit Judge now receives the character the candidate was actually generated with instead of silently falling back to the neutral 0.5 score.
 - Tightened Character QA: every final variation must retain a valid latent character, and the 8-slot bank must preserve all 8 distinct character families produced by the current archetype/rotation design.
 - No changes to the Foundation, Judge weights, MAGIC controls, UI behavior, tonal safety, realtime path or humanization in this stage.
 
-### 0.85.1 — Musical Quality & Phrase Intelligence [MIDI + Workflow + QA/Tools]
+### 0.85.1 — Musical Quality & Phrase Intelligence [MIDI + QA/Tools]
 - Judge calibration now separates **register width** from **register position**. A melody that spans a healthy range but sits unnecessarily high is penalised directly, with sound-profile-aware register targets.
 - Added a **local weak-spot** judge that penalises unrecovered large jumps, pathological same-note runs and small zig-zag transitions instead of relying only on whole-loop averages.
 - Simple / Medium / Complex selection now responds materially to the **Complexity** control. The default search includes a larger simple-phrase population while still preserving a minority of complex and weird ideas.
@@ -194,20 +194,20 @@ All previous README release notes and historical feature notes are preserved in 
 - Accepts a repair only when local transition quality improves without materially reducing overall melody pleasantness.
 
 
-### 0.85.4 — Micro-Rhythm Quality 1.0 [MIDI + Workflow + QA/Tools]
+### 0.85.4 — Micro-Rhythm Quality 1.0 [MIDI + QA/Tools]
 - Adds a local melodic rhythm judge alongside the pitch-quality judge.
 - Detects excessive one-step note chains, duplicate onsets, repetitive gap runs and accidental long holes.
 - Evaluates note-length fit against the next onset gap and keeps offbeat density profile-aware.
 - Adds the timing score to candidate ranking without creating new controls or a second generator.
 
 
-### 0.85.6 — Character Fit Judge [MIDI + Workflow]
+### 0.85.6 — Character Fit Judge [MIDI + QA/Tools]
 - Adds a **character-fit judge** after generation so the hidden melodic behavior profile is evaluated from the finished candidate, not only from its generation settings.
 - Scores multiple musical axes together — density, space, rhythmic identity, motif identity, leap language, repetition, surprise and phrase arc — with broad targets for each latent character.
 - Candidates that drift back toward the same generic melody shape lose some rank, while genuinely character-consistent candidates gain rank.
 - Keeps the character system hidden and UI-free; no playlist-style labels or new controls are introduced.
 
-### 0.85.5 — Latent Melody Character Engine [MIDI + Workflow]
+### 0.85.5 — Latent Melody Character Engine [MIDI + QA/Tools]
 - Adds twelve hidden melodic behavior profiles selected per candidate; these are not UI categories.
 - Each profile changes multiple axes together: density, space, interval size, syncopation, motif strength, sustain, repetition, register journey, contrast and tension.
 - The same harmonic setting and mood can therefore produce materially different melodic behaviors instead of only surface-level note changes.
@@ -221,7 +221,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Hardened project-state loading with safe defaults, integer range validation and finite floating-point checks while preserving legacy-state compatibility.
 - Updated headless QA for explicit-feedback-only Taste behavior and fixed the stale numeric formatter in the QA output.
 
-### Historical release notes [MIDI + Workflow + QA/Tools]
+### Historical release notes
 - **Melodies are more varied in pitch.** The melody foundation clamped every note into a tonic-relative lane that sat below the lane the composer plans in, so notes above the ceiling all collapsed onto the single highest scale tone. Measured over many loops, seeds, genres and keys: 33-47% of all melody notes sat on one pitch, that pitch was also the highest note in 70-80% of loops, and 24-42% of consecutive notes were repeats. The whole line is now first moved by whole octaves into the lane, so the planned contour survives, and only a genuinely too-wide line is clamped. Result: the most-used pitch drops to ~29%, the ceiling pitch is the favourite in ~17% of loops and repeats fall to ~14%. Rhythm and the rest of the pipeline are unchanged.
 - QA: new "melody variety" checks (no dominant pitch, ceiling pitch not the favourite, moderate repeats).
 - QA: the long-form "keeps a recognizable contour" check no longer counts two flat steps as matching shape. That metric rewarded the collapsed melodies (44% flat steps before the fix, 16% after) and made the old result look better than it was; on moving steps only, contour retention was 56% before and 82% after. Threshold is now 75% on the stricter metric.
@@ -245,7 +245,7 @@ All previous README release notes and historical feature notes are preserved in 
 - **Implicit taste signal wired up.** Dragging or exporting a loop to the DAW now trains Taste ML as a weak positive sample (weight 0.5), as the Taste ML header always described but the code never did. Counted once per loop, skipped for loops you already rated explicitly, and only while Taste learning is on.
 - QA: new checks for the implicit signal (weight, once per loop, explicit rating wins, fresh bank, Taste off).
 
-### Feedback Log — 0.79.0 [MIDI + Workflow + QA/Tools]
+### Feedback Log — 0.79.0 [Workflow + QA/Tools]
 - Every LIKE, DISLIKE, EXPORT and DRAG appends one row to `feedback.csv` (Windows: `%APPDATA%\MidiForge\feedback.csv`, next to `taste.json`). Local file, nothing is sent anywhere.
 - Each row records engine version, verdict, variation slot, **transform**, **source archetype**, mood, melody type, sound, era, scale, progression, bars, BPM, complexity, energy, melody density, note counts and the generation / DNA seeds.
 - `python tools/analyze_feedback.py` prints the like-rate per archetype, transform, sound, mood, melody type, scale, bars and engine version with 95% confidence intervals, so judge weights and archetypes can be tuned on real ratings instead of intuition. Below ~200 ratings the intervals are too wide to act on.
@@ -253,7 +253,7 @@ All previous README release notes and historical feature notes are preserved in 
 - QA: new checks for the log format, verdict/slot recording and archetype/transform names.
 - No new UI controls.
 
-### Background MAGIC — 0.78.0 [MIDI + Workflow + QA/Tools]
+### Background MAGIC — 0.78.0 [Workflow + QA/Tools]
 - MAGIC / NEW SEED / control changes no longer freeze FL Studio: the ~1.5 s candidate search now runs on a worker thread.
 - While it runs, the editor shows a "GENERATING..." overlay and blocks input (the generator reads the live controls).
 - Requests that arrive during a job are coalesced into a single follow-up run; a MAGIC press while busy is ignored.
@@ -261,12 +261,12 @@ All previous README release notes and historical feature notes are preserved in 
 - Project load and plugin creation stay synchronous so a full bank always exists. The headless QA build stays synchronous too, with a switch to test the async path.
 - QA: new checks for async completion, coalescing, state-save waiting and safe destruction.
 
-### Project State Fix — 0.77.1 [MIDI + Workflow + QA/Tools]
+### Project State Fix — 0.77.1 [Workflow + QA/Tools]
 - Fixes project reload: Sound target, Articulation, Auto-Next, Chord style, Drums, drum mute/pitch mode, Mood, Melody type and Era were reset to defaults on every load.
 - The legacy-defaults reset now runs before the optional fields are read instead of after.
 - QA: the "older project" case now truncates by the correct size (28 + 7 trailing flag bytes) and a new check ensures legacy loads do not inherit a previous processor state.
 
-### Crash Fix — 0.76.2 [MIDI + Workflow]
+### Crash Fix — 0.76.2 [Workflow + QA/Tools]
 - Fixes a concrete out-of-bounds index in Motif Semantics when a sparse melody bar contained one or two notes.
 - The code previously used `current.back()` (an index into `section.notes`) as if it were a local position inside `current`, which could dereference invalid memory during MAGIC.
 - Sparse candidate bars now always use a valid midpoint index into the local index list.
@@ -282,13 +282,13 @@ All previous README release notes and historical feature notes are preserved in 
 - The MINIMAL archetype is now a true simple-phrase language rather than just a low-density transformation.
 - The foundation runs both during candidate judging and after final variation transformations.
 
-### Runtime Safety Fix — 0.76.1 [MIDI + Workflow]
+### Runtime Safety Fix — 0.76.1 [Workflow + QA/Tools]
 - Fixes a real-time race between the MAGIC candidate search and FL Studio's audio thread.
 - Realtime output now reads atomic snapshots for Swing, Humanize and drum muting instead of fields that MAGIC temporarily mutates while searching.
 - This isolates the audio path from search-time parameter changes and removes a crash vector during live generation.
 - No intentional musical behavior change beyond the race fix.
 
-### Variation Intelligence — 0.76.0 [MIDI + Workflow + QA/Tools]
+### Variation Intelligence — 0.76.0 [MIDI + QA/Tools]
 - Adds a dedicated portfolio-aware variation assignment layer after the existing MAGIC, Judge and Diversity systems.
 - Each selected idea now carries a compact behavioral fingerprint covering density, space, rhythm, motif, register, surprise, groove, memory, phrase arc, tension and development.
 - The eight final transformation modes (**ORIGINAL, TIGHT, SPARSE, DARK, BIGGER, WEIRD, TIGHT+WEIRD, SPARSE+DARK**) are matched to the source ideas where their musical character is most compatible instead of following arbitrary slot order.
@@ -296,7 +296,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Variation Intelligence does not generate new MIDI and does not replace the existing musical judges; it improves how already-good ideas are turned into a useful variation bank.
 - No new UI controls and no non-MIDI features.
 
-### Composer Judge 2.0 — 0.75.0 [MIDI + Workflow + QA/Tools]
+### Composer Judge 2.0 — 0.75.0 [MIDI + QA/Tools]
 - Adds a top-level coherence judge over the already-generated musical candidate instead of another note generator.
 - Checks phrase-arc shape, Composer Grammar role consistency, motif development, expression/prosody agreement, harmonic coherence, density/space, rhythm, register, loop closure, novelty balance and groove.
 - Adds a low-weight cross-system agreement check so contradictory local decisions are less likely to dominate a candidate ranking.
@@ -305,7 +305,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Project version is now 0.75.0.
 - No non-MIDI features were added.
 
-### Cadence & Loop Closure 2.0 — 0.74.0 [MIDI + Workflow + QA/Tools]
+### Cadence & Loop Closure 2.0 — 0.74.0 [MIDI + QA/Tools]
 - Adds a dedicated boundary planner for the transition **end of loop → start of loop**.
 - The closure can choose between direct return, answer, pickup, sustain/release, unresolved and deceptive seam behavior.
 - Final notes can target the opening note, answer its opening interval, continue the opening gesture, or land on a context-aware harmonic tone.
@@ -315,7 +315,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless QA for deterministic closure planning, seam quality, return gesture and ending diversity.
 - No new UI controls and no non-MIDI features.
 
-### Motif Semantics 2.0 — 0.73.0 [MIDI + Workflow + QA/Tools]
+### Motif Semantics 2.0 — 0.73.0 [MIDI + QA/Tools]
 - Adds a semantic motif planner that treats a four-bar idea as **Rhythmic Core, Interval Core, Starting Anchor, Peak Gesture, Ending Gesture, Signature Leap** and **Answer Cell** instead of treating the motif as one undivided fingerprint.
 - \`A'\` preserves the core while deliberately mutating one semantic component.
 - \`B\` mutates a second component and raises contrast instead of simply inverting or copying the whole phrase.
@@ -325,7 +325,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless QA for deterministic semantic planning, language diversity and actual four-bar A/A'/B/A'' behavior.
 - No new UI controls and no non-MIDI features.
 
-### Creative Range Engine — 0.72.0 [MIDI + Workflow + QA/Tools]
+### Creative Range Engine — 0.72.0 [MIDI]
 - Adds a dedicated pre-generation creative-language planner instead of relying on independent random melody mutations.
 - Each identity chooses a coherent combination of **contour**, **interval vocabulary**, **rhythm family**, **repetition style**, **register journey**, **harmonic personality** and **duration language**.
 - Expands contour grammar from 12 to 18 shapes and interval vocabulary from 10 to 12 controlled motion languages.
@@ -337,7 +337,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless QA proving deterministic planning and a broad distribution of creative language combinations.
 - No new UI controls and no non-MIDI features.
 
-### Melodic Range Expansion — 0.71.1 [MIDI + Workflow + QA/Tools]
+### Melodic Range Expansion — 0.71.1 [MIDI]
 - Expands the practical melody lane from the old compact ~2-octave window to a much wider register before profile caps.
 - Piano can now explore roughly C3–E7 at the default octave setting, with sound-target biases for pluck, lead, bell, pad, brass and guitar.
 - Wider profiles can use the additional register without forcing every generated phrase to span the full range; existing Composer/Prosody rules still control phrase shape and register movement.
@@ -346,7 +346,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless QA that checks the expanded range on actual generated Piano MIDI.
 - No new UI controls and no non-MIDI features.
 
-### Melodic Prosody — 0.71.0 [MIDI + Workflow]
+### Melodic Prosody — 0.71.0 [MIDI]
 - Adds note-level melodic intent: **Anchor**, **Pickup**, **Approach**, **Connect**, **Accent**, **Peak** and **Release**.
 - Large intervals are treated as destinations: approach notes move toward the following target instead of remaining as arbitrary leaps.
 - Peak notes receive a small controlled register lift and stronger accent; pickup notes become lighter/shorter; release notes settle and breathe.
@@ -355,7 +355,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds a Prosody Judge for approach direction, peak placement, release behavior and accent hierarchy.
 - No new UI controls and no non-MIDI features.
 
-### Composer Grammar — 0.70.0 [MIDI + Workflow + QA/Tools]
+### Composer Grammar — 0.70.0 [MIDI + QA/Tools]
 - Adds a dedicated macro-level composition planner instead of another independent post-processing layer.
 - Four-bar cells receive explicit roles such as **Statement**, **Develop**, **Build**, **Contrast/Peak**, **Release** and **Return** according to loop length, energy and complexity.
 - The plan supplies soft targets for tension, density, register movement, sustain, velocity and cadence; the existing melody, rhythm, phrase-memory and harmony engines interpret those targets.
@@ -364,7 +364,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds headless QA for deterministic role planning and identity-driven micro-variation.
 - No new UI controls and no non-MIDI features.
 
-### Phrase Memory 4.0 — 0.69.0 [MIDI + Workflow + QA/Tools]
+### Phrase Memory 4.0 — 0.69.0 [MIDI + QA/Tools]
 - Adds long-form memory across complete four-bar phrase cells instead of only inside one A/A'/B/A'' phrase.
 - The opening four-bar idea becomes a persistent macro fingerprint reused by later phrase cells.
 - Later cells can re-state, invert, fragment/lift or return to the remembered contour with deterministic variation.
@@ -373,7 +373,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds 12-bar Piano-only QA so long-form memory is tested directly on MIDI.
 - Keeps 808/Sub Lead outside the memory pass and adds no new UI controls.
 
-### Harmonic Intelligence 2.0 — 0.68.0 [MIDI + Workflow + QA/Tools]
+### Harmonic Intelligence 2.0 — 0.68.0 [MIDI + QA/Tools]
 - Adds a post-expression harmony pass that uses the actual chord voicings as destinations instead of only the scale.
 - Strong and sustained melody notes are grounded toward active chord tones, while weak notes retain passing/color-tone freedom.
 - Late-bar notes can anticipate the next chord and phrase seams use soft voice-leading gravity.
@@ -390,7 +390,7 @@ All previous README release notes and historical feature notes are preserved in 
 - Adds an expression judge signal covering interval variety, useful leaps, contour turns, velocity range and phrase shape.
 - Keeps the 808/sub-lead path excluded and adds QA coverage using Piano-only MIDI.
 
-### Musical Quality & Phrase Intelligence — 0.66.0 [MIDI + Workflow + QA/Tools]
+### Musical Quality & Phrase Intelligence — 0.66.0 [MIDI + QA/Tools]
 - **Contextual Development** chooses Repeat/Alter, reduction, expansion, inversion, fragmentation, call/response or return from the phrase's actual density, motif identity, contour, tension, groove and loop state.
 - **Chord-aware development** softly steers developed notes toward the real voicing of their destination bar instead of blindly snapping transformed pitches to the scale.
 - **Cadence-aware closure** lets A'' resolve toward the loop-start harmony while preserving part of the developed contour, with a longer final release.
@@ -400,7 +400,7 @@ All previous README release notes and historical feature notes are preserved in 
 - **Legacy state hygiene** resets newly added optional fields before reading them, so old presets cannot inherit stale UI state from a previous processor instance.
 
 
-### Motif Development Engine — 0.64.0 [MIDI + Workflow]
+### Motif Development Engine — 0.64.0 [MIDI]
 
 The phrase engine now develops a motif as a deliberate four-bar statement instead of relying only on recurrence or diversity pressure. Each four-bar phrase keeps the first bar as its identity anchor and assigns one development grammar to A' / B / A'':
 - Repeat + Alter
@@ -416,7 +416,7 @@ The development pass is scale-safe and preserves the generator's existing harmon
 
 The MAGIC judge now includes a **Development Coherence** signal that evaluates A↔A' similarity, A↔B contrast, A↔A'' return, and the ordering between contrast and return. The score is deliberately soft so unconventional but strong phrases are not rejected.
 
-### Melodic Memory 3.0 — 0.63.0 [MIDI + Workflow + QA/Tools]
+### Melodic Memory 3.0 — 0.63.0 [MIDI + QA/Tools]
 - Adds a transposition-safe idea fingerprint for every MAGIC candidate using onset rhythm, relative pitch contour and interval shape.
 - The final variation bank now keeps an explicit memory of already selected musical ideas, not only note-level similarity and broad behavioral features.
 - Near-clone motifs receive less selection pressure even when they come from different archetypes or are transposed/rephrased.
@@ -431,7 +431,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - Realtime output and exported MIDI both respect the mode, while Swing remains an independent feel control.
 - Existing presets remain backward-compatible and load with Humanize OFF unless the new flag is present.
 
-### Tempo Feel Engine — 0.61.0 [MIDI + Workflow]
+### Tempo Feel Engine — 0.61.0 [MIDI]
 - Makes BPM a temporal context rather than a density penalty.
 - Keeps musical density comparatively stable as tempo rises instead of heavily thinning melodies above 120-160 BPM.
 - Increases the use of 1/16/offbeat positions at faster tempos so 170-220 BPM can produce genuinely fast-feeling melodies.
@@ -439,14 +439,14 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - The Musical Judge now evaluates note-rate, 1/16 usage and offbeat activity in addition to density/space, preventing MAGIC from re-ranking fast patterns back into slow-feeling loops.
 - The system remains loop-centric and adds no new UI controls.
 
-### Loop Forge — 0.60.0 [MIDI + Workflow]
+### Loop Forge — 0.60.0 [MIDI]
 - Adds a final integration pass after MAGIC, Musical Judge, Taste ML, Diversity Gate and Loop Transformations.
 - Every transformed loop is re-checked after transformation and Smart Locks are restored.
 - The Forge score combines Loop Quality, Context, Phrase Tension, Phrase Arc, Motif Memory, Groove, density health, rhythmic intent and layer presence.
 - A deterministic cleanup keeps melody notes scale-safe, removes duplicates and normalizes final MIDI ranges.
 - When final cleanup materially reduces the coherence score, the pre-cleanup loop is retained.
 - Loop-centric only; no song/arrangement system is introduced.
-### Judge Diversity Gate — 0.59.1 [MIDI]
+### Judge Diversity Gate — 0.59.1 [MIDI + QA/Tools]
 - The final eight variations now pass through a behavioral diversity gate after the Musical Judge.
 - Diversity compares density, space, rhythm, motif behavior, leaps, register, surprise, context, loop quality, groove, memory, phrase arc and tension.
 - Note-level similarity still matters, so two loops must differ in both their surface pattern and musical behavior to comfortably occupy separate slots.
@@ -454,7 +454,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - Musical quality remains the primary ranking signal; the gate prevents near-clone variations without turning the bank into a collection of random outliers.
 - Loop-centric only; no song/arrangement system is added.
 
-### Phrase Tension Engine — 0.58.4 [MIDI + Workflow + QA/Tools]
+### Phrase Tension Engine — 0.58.4 [MIDI + QA/Tools]
 - Gives each four-bar loop an explicit A → A' → B → A'' tension target instead of relying only on contour and cadence side effects.
 - Peak bars can favor delayed/offbeat entries, wider pitch destinations, non-chord tension tones and shorter fragments.
 - The return bar eases toward grounded accents and longer sustain so the loop can breathe before restarting.
@@ -462,7 +462,7 @@ The MAGIC judge now includes a **Development Coherence** signal that evaluates A
 - Mood, Surprise and the existing tension profile modify the curve without forcing every loop into the same cadence.
 - Loop-centric only: no song/arrangement system is added.
 
-### Context-Aware Generation — 0.58.3 [MIDI + Workflow + QA/Tools]
+### Context-Aware Generation — 0.58.3 [MIDI + QA/Tools]
 - Melody generation now reads the musical material already present in the current bar before selecting its own onsets.
 - Chords, bass, drums and existing arps contribute a soft occupancy map, so the melody preferentially fills genuine gaps instead of stacking on every layer.
 - Hook/Vocal-like roles retain more intentional anchor alignment, while Sparse Lead and ambient contexts favor open space.
@@ -693,7 +693,7 @@ Older saved states remain backward-compatible.
 
 This shorter index overlapped with the detailed notes above; it is retained here so the former README's historical information is not discarded.
 
-### 0.75.0 [MIDI]
+### 0.75.0 [MIDI + QA/Tools]
 - Composer Judge 2.0 adds a whole-composition coherence pass over existing MAGIC candidates.
 
 
@@ -716,13 +716,13 @@ The repository previously contained many small README files created for individu
 ### 0.71.1 [MIDI]
 - Melodic Range Expansion
 
-### 0.47 [MIDI + QA/Tools]
+### 0.47 [MIDI]
 - Human Phrase Engine
 - Four-bar motif fingerprint
 - A/A'/B/A'' phrase grammar
 - Contrast/peak and scale-safe cadence
 
-### 0.46 [MIDI + Workflow]
+### 0.46 [Workflow + QA/Tools]
 - Generation debounce
 - Variation-selection preservation
 - State persistence improvements
@@ -744,7 +744,7 @@ The repository previously contained many small README files created for individu
 - Musical-quality and harmony improvements
 - Chord comping and richer musical arrangement controls
 
-### 0.39–0.41 [MIDI]
+### 0.39–0.41 [MIDI + Workflow]
 - Sound Profiles
 - Taste ML improvements
 - Fill Amount
