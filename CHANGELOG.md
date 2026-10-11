@@ -496,7 +496,7 @@ The generator:
 
 The current search uses a large candidate pool and deterministic seeds so generation remains reproducible.
 
-### MAGIC 3 — 0.51
+### MAGIC 3 — 0.51 [MIDI + Workflow]
 - MAGIC now searches through eight explicit archetypes instead of one generic candidate pool.
 - **HOOK** favors memorable repeated cells and strong phrase identity.
 - **GROOVE** emphasizes pocket, offbeats, accents and sustain.
@@ -508,7 +508,7 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - **WILDCARD** deliberately mixes lighter mutations to escape the main archetypes.
 - The final variation bank contains one winner from each archetype, then applies the existing diversity, Taste ML and Smart Lock systems.
 
-### MAGIC 4 — Adaptive Search — 0.55
+### MAGIC 4 — Adaptive Search — 0.55 [MIDI]
 - Keeps the existing 1000-candidate budget, but splits the search into two phases instead of treating every candidate as equally blind exploration.
 - The first 600 candidates explore the current musical space broadly.
 - The best 48 first-pass candidates are rank-weighted to build an adaptive profile of density, space, rhythm, motif, leap, register, surprise, loop quality, groove and motif memory.
@@ -517,7 +517,7 @@ The current search uses a large candidate pool and deterministic seeds so genera
 - Local deterministic jitter keeps the adaptive phase exploratory instead of collapsing all candidates into clones.
 - The final eight-variation bank and one-winner-per-archetype behavior remain unchanged.
 
-### Loop Transformation — 0.56
+### Loop Transformation — 0.56 [MIDI]
 
 MAGIC 4 now feeds its strongest discovered loop into a dedicated transformation stage. The generator remains loop-centric: there is no song/arrangement layer.
 
@@ -535,7 +535,7 @@ Each generation produces eight standalone variants derived from the same musical
 The source loop is transformed deterministically from its generation identity, so reruns remain reproducible while the variants stay recognizably related.
 
 
-### Taste ML 2.0 — 0.57
+### Taste ML 2.0 — 0.57 [MIDI + Workflow]
 
 The Taste ML layer now combines long-term learning with a bounded short-term preference memory.
 
@@ -544,7 +544,7 @@ Class-balanced training prevents repeated LIKE or DISLIKE feedback from dominati
 Confidence is also balanced-aware: the model trusts histories with evidence on both sides more than equally large one-sided histories. Existing saved Taste ML data remains compatible; older models load with the new short-term layer initialized empty.
 
 
-### Loop Editor 3.0 — 0.58
+### Loop Editor 3.0 — 0.58 [Workflow]
 
 The piano roll is now a focused loop editor rather than only a note inspector.
 
@@ -562,7 +562,7 @@ The editor adds:
 All destructive editor operations use the existing edit history, so they participate in Undo/Redo. The transformations stay inside the selected loop and do not introduce any song/arrangement architecture.
 
 
-### Groove Engine — 0.54
+### Groove Engine — 0.54 [MIDI]
 - Builds one deterministic pocket profile per candidate and shares it across melody, bass, chords, arp and drums.
 - Uses different layer strengths so the parts feel related without moving as a rigid block.
 - Adds shared accent hierarchy on downbeats and selected offbeats instead of independent random velocities.
@@ -570,7 +570,7 @@ All destructive editor operations use the existing edit history, so they partici
 - Re-evaluates the complete loop with a groove score covering accent contrast, offbeat pocket, layer interaction, occupancy and sustain.
 - Keeps the system inside the loop: no song sections, arrangement layer or extra UI controls are introduced.
 
-### Motif Memory 2.0 — 0.53
+### Motif Memory 2.0 — 0.53 [MIDI]
 - Recognizes a loop's main motif from rhythm and relative pitch shape instead of absolute notes.
 - Tracks a secondary motif so a loop can contain both a primary identity and a contrasting answer.
 - Learns rhythmic fingerprints independently from pitch, so motif identity survives transposition and small pitch changes.
@@ -579,7 +579,7 @@ All destructive editor operations use the existing edit history, so they partici
 - Penalizes mechanical copying when every later bar becomes nearly identical to the opening motif.
 - Feeds the motif-memory score into the normal MAGIC Judge and gives the MOTIF archetype a stronger focus, without creating a separate generator or adding new UI controls.
 
-### Loop Quality 2.0 — 0.52
+### Loop Quality 2.0 — 0.52 [MIDI]
 - Judges the whole loop as one circular musical object instead of scoring only isolated notes or bars.
 - Checks the loop seam for both pitch continuity and intentional breathing room at the wrap point.
 - Measures motif recurrence using transposition-safe rhythm and contour fingerprints.
@@ -588,7 +588,7 @@ All destructive editor operations use the existing edit history, so they partici
 - Adds a soft closure score for the final bar and final note so the loop hands naturally back to bar one.
 - Keeps the existing MAGIC 3 archetype, DNA, diversity, Taste ML and Smart Lock systems in control; Loop Quality is an additional judge layer rather than a separate generator.
 
-### Piano Roll 2.0 — 0.50
+### Piano Roll 2.0 — 0.50 [Workflow]
 - Multi-select notes with Ctrl-click, Shift ranges and Ctrl+A.
 - Group drag keeps relative timing and pitch relationships intact.
 - Group transpose by octaves, scale-safe pitch snapping and selected-note quantization.
@@ -597,7 +597,7 @@ All destructive editor operations use the existing edit history, so they partici
 - Grid toolbar supports 1/16, 1/8, 1/4 and 1/2-step editing plus view reset.
 - Selection state and edit history remain visible while working.
 
-### Mutation 2.0 — 0.49
+### Mutation 2.0 — 0.49 [MIDI + Workflow]
 - MUTATE now chooses a musical mutation domain instead of independently randomizing notes.
 - Motif mutations preserve the contour of the selected phrase while changing its destination or interval shape.
 - Rhythm mutations move phrase segments together, keeping the rhythmic identity coherent.
@@ -606,13 +606,13 @@ All destructive editor operations use the existing edit history, so they partici
 - Smart Locks continue to freeze individual layers during mutation.
 - EVOLVE uses the same engine at lower strength.
 
-### Harmony 2.0 — 0.48
+### Harmony 2.0 — 0.48 [MIDI]
 - Chord voice leading now compares individual voices between adjacent bars instead of only comparing chord centres.
 - Common-tone retention is rewarded and unnecessary large voice jumps are penalized.
 - Bass pitch mutations are snapped back into the active scale.
 - Bass and late phrase notes can make controlled anticipation toward the next chord for stronger harmonic forward motion.
 
-### Human Phrase Engine — 0.47
+### Human Phrase Engine — 0.47 [MIDI]
 A four-bar idea is treated as a phrase with compositional roles:
 
 **A → A' → B → A''**
@@ -679,7 +679,7 @@ The plugin also supports:
 - enabling/disabling Taste ML;
 - reset of learned taste data.
 
-### Performance / stability — 0.46
+### Performance / stability — 0.46 [Workflow]
 Expensive generation triggered by sliders is debounced, so dragging a control does not launch the full candidate search on every mouse movement.
 
 State handling also persists newer options such as:
