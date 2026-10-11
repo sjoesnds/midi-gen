@@ -776,7 +776,7 @@ int main (int argc, char** argv)
     }
 
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("midiforge_0_108_0_release_qa");
+        .getChildFile ("midiforge_0_109_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
 

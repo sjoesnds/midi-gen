@@ -5839,8 +5839,9 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
         for (int role = 0; role < 4; ++role)
             phraseBars[(size_t) role] = collectBar (phraseStart + role);
 
-        if (phraseBars[0].size() < 2 || phraseBars[1].empty()
-            || phraseBars[2].empty() || phraseBars[3].empty())
+        // The opening motif must be clear enough to develop. Intentional rests in
+        // A', B or A'' should not disable shaping for every other populated bar.
+        if (phraseBars[0].size() < 2)
             continue;
 
         const auto motif = extractPhraseMotif (section, phraseStart);
@@ -5864,6 +5865,9 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
         for (int role = 1; role <= 3; ++role)
         {
             auto& current = phraseBars[(size_t) role];
+            if (current.empty())
+                continue; // Preserve the rest; shape the other populated phrase bars.
+
             const float pitchBlend = simple
                 ? (role == 1 ? 0.78f : role == 2 ? 0.58f : 0.84f)
                 : (role == 1 ? 0.84f : role == 2 ? 0.64f : 0.90f);
