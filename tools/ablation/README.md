@@ -25,3 +25,16 @@ Taste ML uses a matched deterministic synthetic model for every condition: on th
 The quality workflow runs a two-seed pilot and uploads `ablation-pilot.csv` as an artifact; the full 256-seed benchmark is kept out of every PR run. `loopForgeScore` and `contextualPhraseQualityScore` are also used by MUTATE/EVOLVE, not the primary MAGIC bank selection path. Their MAGIC ablation rows are useful negative controls; a transform-specific ablation is a separate follow-up if needed.
 
 The report changes selection scores only in the headless test target. It does not tune weights or alter shipped musical behaviour.
+
+
+## Blind MIDI listening pilot
+
+The same headless QA executable also creates a small, blinded listening pack. From PowerShell at the repository root, run:
+
+    .\tools\run_calibration_pack.ps1
+
+The default local pack uses four fixed seeds and creates 20 A/B pairs (40 MIDI files). In CI, a two-seed pilot is uploaded as the calibration-midi-pilot artifact. It contains 10 A/B pairs (20 MIDI files): each pair compares the normal MAGIC ranking with a run where one score is excluded. The five scores were selected because their ablation changed the selected bank in both initial pilot seeds; this keeps the first listening session manageable.
+
+Fill in ratings-template.csv first and leave answer-key.csv closed until the ratings are saved. Use the same instrument, mixer chain and volume for both files in each pair. The exported MIDI includes the full selected loop and tempo/time-signature metadata through the plugin's production exporter.
+
+This pack is for subjective calibration, not automatic weight changes. A two-seed pack is intentionally a small first listening batch; it is not a statistically reliable ranking of score functions.
