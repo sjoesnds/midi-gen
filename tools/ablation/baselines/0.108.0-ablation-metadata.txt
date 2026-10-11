@@ -1,0 +1,10 @@
+baseline_version=0.108.0
+source_commit=6d449697ee5e83348058cf7f5c9af63b7791327c
+seed_first=108000
+seed_last=108255
+seed_count=256
+treatment_count=30
+data_rows=7680
+workflow_run_id=38131563027
+generated_utc=2026-10-11T11:59:32Z
+d85bd2ceafe9a0d9abc63fdd76dfd95234bc591eb520a716b432bead9c4de162  tools/ablation/baselines/0.108.0-ablation-report.csv
