@@ -1,4 +1,4 @@
-// MIDI Forge 0.107.0 release checks for the melody + chords + bass creator.
+// MIDI Forge 0.108.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 #include "MidiForgeAblation.h"
 
@@ -776,7 +776,7 @@ int main (int argc, char** argv)
     }
 
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
-        .getChildFile ("midiforge_0_107_0_release_qa");
+        .getChildFile ("midiforge_0_108_0_release_qa");
     settings.createDirectory();
     MidiForgeAudioProcessor::setSettingsDirectoryOverride (settings);
 

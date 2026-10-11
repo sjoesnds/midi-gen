@@ -2,7 +2,13 @@
 
 **MIDI Forge** is a JUCE/VST3 MIDI composition plugin for FL Studio. The creator workflow combines a melody with optional chord and bass layers. MAGIC explores new ideas within Key / Scale / Bars, while individual locks keep each chosen switch or parameter fixed across generations.
 
-**Current version: 0.107.0**
+**Current version: 0.108.0**
+
+### 0.108.0 — Reproducible MAGIC & Generation Pipeline Cleanup
+- Makes MAGIC generation deterministic from the generation seed and persisted press counter, independent of wall-clock timing. Project state v5 preserves the sequence; older v3/v4 states start a safe fresh sequence.
+- Removes two obsolete phrase-rewriting passes that were changing candidates before the main post-transform pipeline finished. Loop closure now runs after the candidate's main rhythm, pitch and phrase processing.
+- Adds fixed-seed MIDI-bank fingerprints and save/load continuation checks, plus optional headless score-ablation and first-pick diagnostic reports. These tools do not automatically tune production weights and require no user calibration.
+- Keeps the creator focused on Key / Scale / Bars with no new genre/era controls. Existing grid, tonal/register safety, variation diversity, state migration, MIDI export/drag, sanitizer and Windows VST3 checks remain release gates.
 
 ### 0.107.0 — Stronger Mood Intent
 - Mood now has clearer signatures in phrase spacing, note density, interval movement, repetition and tension. Aggressive and Energetic encourage activity; Dreamy and Melancholic favor space and smoother motion; Nostalgic favors a returning motif; Dark and Mysterious retain more tension.
