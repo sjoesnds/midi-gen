@@ -203,6 +203,13 @@ bool getLeadStyleSoundCloud() const { return leadStyleSoundCloud; }
 int getVariationCount() const { const juce::ScopedLock sl (variationsLock); return static_cast<int>(variations.size()); }
 int getVariationMelodyCharacter (int index) const;
 int getVariationMelodyComplexityClass (int index) const;
+#ifdef MIDIFORGE_HEADLESS
+// QA-only observations. These methods do not participate in production/VST3 builds.
+float getBankIdeaSimilarityForQA (int firstSlot, int secondSlot) const;
+float getBankQualityForQA (int slot) const;
+void getBankHalfMetricsForQA (int slot, float& motifSimilarity,
+                              float& attackDensityDelta, float& pitchRangeDelta) const;
+#endif
 int getSelectedVariation() const { const juce::ScopedLock sl (variationsLock); return selectedVariation; }
 uint32_t getGenerationNonce() const { return generationNonce.load(); }
 // --- Learning: лайк/дизлайк текущей вариации, профиль вкуса влияет на следующий GENERATE ---
@@ -378,6 +385,9 @@ void addArticulation (juce::MidiMessageSequence& track, const ArtInfo& a, int ch
 mutable juce::CriticalSection variationsLock;
 mutable juce::CriticalSection activeNotesLock;
 std::vector<Section> variations;
+#ifdef MIDIFORGE_HEADLESS
+std::array<float, 8> qaSelectedQuality {};
+#endif
 int selectedVariation = 0;
 std::vector<NoteEvent> activeNotes;
 void syncEditedNotesToSelectedVariation (const std::vector<VisibleNote>& notes);

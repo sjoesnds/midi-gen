@@ -1,0 +1,81 @@
+name: MIDI Forge fixed-seed bank diagnostics
+
+on:
+  push:
+    branches:
+      - feature/0.109-bank-diagnostics
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bank-diagnostics-0108
+  cancel-in-progress: true
+
+jobs:
+  diagnostics:
+    if: ${{ !contains(github.event.head_commit.message, '[diagnostic-data]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-qa/_deps
+          key: ${{ runner.os }}-bank-diagnostics-juce-8.0.14-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure headless QA
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build headless QA
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Measure the 0.108.0 bank on fixed seeds 108000–108255
+        shell: bash
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          test -n "$QA"
+          OUTPUT=tools/ablation/diagnostics/0.108.0
+          mkdir -p tools/ablation/diagnostics
+          "$QA" --bank-diagnostics 256 "$OUTPUT"
+          test "$(wc -l < "$OUTPUT/bank-summary.csv")" -eq 257
+          test "$(wc -l < "$OUTPUT/pairwise-ideas.csv")" -eq 7169
+          test "$(wc -l < "$OUTPUT/slot-diagnostics.csv")" -eq 2049
+          {
+            echo "engine=0.108.0"
+            echo "source_commit=$GITHUB_SHA"
+            echo "seed_first=108000"
+            echo "seed_last=108255"
+            echo "seed_count=256"
+            echo "slots_per_seed=8"
+            echo "pair_rows=$((256 * 28))"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            sha256sum "$OUTPUT"/*.csv
+          } > "$OUTPUT/metadata.txt"
+          cat "$OUTPUT/metadata.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: midi-forge-0.108.0-bank-diagnostics
+          path: tools/ablation/diagnostics/0.108.0/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Commit diagnostic baseline to this branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/ablation/diagnostics/0.108.0/
+          git commit -m "[diagnostic-data] save fixed-seed 0.108.0 bank diagnostics"
+          git push origin HEAD:feature/0.109-bank-diagnostics
