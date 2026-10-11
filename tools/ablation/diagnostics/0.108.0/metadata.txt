@@ -1,0 +1,12 @@
+engine=0.108.0
+source_commit=155f6fbf6cb8ce6472e1e725ccf1958feac51f00
+seed_first=108000
+seed_last=108255
+seed_count=256
+slots_per_seed=8
+pair_rows=7168
+workflow_run_id=38132103226
+generated_utc=2026-10-11T10:35:42Z
+32b435cfc03ccae28592402ecaa7903270a2cdb435161ad32b0c74e761a6859b  tools/ablation/diagnostics/0.108.0/bank-summary.csv
+ea2bbd90f632b54e12f7c9d8d3cfd604cb8556b433d97dd0d357cdbe360511de  tools/ablation/diagnostics/0.108.0/pairwise-ideas.csv
+2f19e0ae984394b7c2de752d7abcb83ec5953caf6c65ac547226d59ead320525  tools/ablation/diagnostics/0.108.0/slot-diagnostics.csv
