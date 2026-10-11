@@ -66,6 +66,20 @@ jobs:
           test "$rows" -eq 17
           grep -q "hook_present,hook_count" memorability-smoke.csv
 
+      - name: Validate baseline analyzer against smoke output
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/memorability/analyze_baseline.py
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-smoke.csv \
+            --output-dir memorability-smoke-analysis \
+            --expected-seeds 2 \
+            --expected-slots 8 \
+            --listening-items 12
+          test -s memorability-smoke-analysis/summary.md
+          test -s memorability-smoke-analysis/counterexamples.csv
+          test -s memorability-smoke-analysis/listening-selection.csv
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -111,6 +125,7 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -163,3 +178,70 @@ jobs:
 
       - name: Build Windows VST3
         run: cmake --build build-win --config Release --parallel
+
+  # Runs only when all release-gate checks above passed. The full corpus report is
+  # diagnostic only; it must never tune production generation or score weights.
+  memorability-baseline:
+    needs: [quality, sanitizers, windows-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-qa/_deps
+          key: ${{ runner.os }}-qa-memorability-juce-8.0.14-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure headless QA target
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build headless QA target
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Generate 256-seed baseline
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          mkdir -p memorability-artifacts
+          "$QA" --memorability-report 256 memorability-artifacts/memorability-baseline-108000-108255.csv \
+            | tee memorability-artifacts/report.log
+          test -s memorability-artifacts/memorability-baseline-108000-108255.csv
+          rows=$(wc -l < memorability-artifacts/memorability-baseline-108000-108255.csv)
+          test "$rows" -eq 2049
+
+      - name: Summarize baseline and select listening examples
+        run: |
+          set -euo pipefail
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-artifacts/memorability-baseline-108000-108255.csv \
+            --output-dir memorability-artifacts \
+            --expected-seeds 256 \
+            --expected-slots 8 \
+            --listening-items 12
+          test -s memorability-artifacts/summary.md
+          test -s memorability-artifacts/counterexamples.csv
+          test -s memorability-artifacts/listening-selection.csv
+
+      - name: Export the 12 MIDI listening examples
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --memorability-pack memorability-artifacts/listening-selection.csv memorability-artifacts/listening-pack
+          clips=$(find memorability-artifacts/listening-pack -type f -name '*.mid' | wc -l)
+          test "$clips" -eq 12
+          test -s memorability-artifacts/listening-pack/LISTENING_PROMPT.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-baseline-108000-108255
+          path: memorability-artifacts/
+          if-no-files-found: warn
