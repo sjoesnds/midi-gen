@@ -444,7 +444,10 @@ namespace
         std::printf ("Ablation report: %s (%d seeds x %d conditions; %d data rows)\n",
                      outputFile.getFullPathName().toRawUTF8(),
                      seedCount, (int) treatments.size(), seedCount * (int) treatments.size());
-           bool exportCalibrationBank (int fixedSeed,
+        return 0;
+    }
+
+    bool exportCalibrationBank (int fixedSeed,
                                 const AblationTreatment& treatment,
                                 const juce::File& bankDirectory,
                                 const juce::File& settingsRoot)
@@ -729,9 +732,6 @@ namespace
         std::printf ("Calibration pack: %s (%d fixed seeds, %d blind pairs, %d MIDI clips)\n",
                      outputDirectory.getFullPathName().toRawUTF8(), seedCount, pairIndex, pairIndex * 2);
         return 0;
-    }
-
- return 0;
     }
 
 
