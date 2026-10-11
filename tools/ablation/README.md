@@ -27,14 +27,16 @@ The quality workflow runs a two-seed pilot and uploads `ablation-pilot.csv` as a
 The report changes selection scores only in the headless test target. It does not tune weights or alter shipped musical behaviour.
 
 
-## Blind MIDI listening pilot
+## First-pick blind MIDI listening pilot
 
-The same headless QA executable also creates a small, blinded listening pack. From PowerShell at the repository root, run:
+The headless QA executable creates a blinded listening pack using the first-ranked MAGIC result only. It compares the baseline against nine score ablations that changed the MIDI bank in both seeds of the initial pilot. A condition is included in ratings only if the first-picked MIDI differs; identical first picks are recorded in comparison-audit.csv and not rated.
+
+From PowerShell at the repository root, run:
 
     .\tools\run_calibration_pack.ps1
 
-The default local pack uses four fixed seeds and creates 20 A/B pairs (40 MIDI files). In CI, a two-seed pilot is uploaded as the calibration-midi-pilot artifact. It contains 10 A/B pairs (20 MIDI files): each pair compares the normal MAGIC ranking with a run where one score is excluded. The five scores were selected because their ablation changed the selected bank in both initial pilot seeds; this keeps the first listening session manageable.
+The local script defaults to eight fixed seeds (108000-108007), creating up to 72 comparisons. The CI calibration-midi-pilot artifact uses the same eight-seed pack. The actual number of A/B pairs depends on how often excluding a score changes the first-ranked MIDI; the audit CSV records all attempted comparisons.
 
-Fill in ratings-template.csv first and leave answer-key.csv closed until the ratings are saved. Use the same instrument, mixer chain and volume for both files in each pair. The exported MIDI includes the full selected loop and tempo/time-signature metadata through the plugin's production exporter.
+Keep answer-key.csv closed until ratings-template.csv is complete. For each pair, import A and B into the same FL Studio project and use the same instrument, preset, mixer chain and volume. Rate musical quality, not loudness. The answer key indicates the baseline and ablated score only after listening.
 
-This pack is for subjective calibration, not automatic weight changes. A two-seed pack is intentionally a small first listening batch; it is not a statistically reliable ranking of score functions.
+This is subjective calibration, not an automatic weight-tuning mechanism. No production score weights or shipped generation behaviour are changed by this tool.

@@ -56,17 +56,22 @@ jobs:
           rows=$(wc -l < ablation-pilot.csv)
           test "$rows" -eq 61
 
-      - name: Generate blind MIDI rating pack (2 fixed seeds; headless only)
+      - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          "$QA" --calibration-pack 2 calibration-midi-pilot
+          "$QA" --calibration-pack 8 calibration-midi-pilot
           test -s calibration-midi-pilot/ratings-template.csv
           test -s calibration-midi-pilot/answer-key.csv
+          audit_rows=$(wc -l < calibration-midi-pilot/comparison-audit.csv)
+          test "$audit_rows" -eq 73
           rows=$(wc -l < calibration-midi-pilot/ratings-template.csv)
-          test "$rows" -eq 11
+          test "$rows" -ge 2
+          key_rows=$(wc -l < calibration-midi-pilot/answer-key.csv)
+          test "$key_rows" -eq "$rows"
           clips=$(find calibration-midi-pilot/midi -type f -name '*.mid' | wc -l)
-          test "$clips" -eq 20
+          expected_clips=$(( (rows - 1) * 2 ))
+          test "$clips" -eq "$expected_clips"
 
       - uses: actions/upload-artifact@v4
         if: always()

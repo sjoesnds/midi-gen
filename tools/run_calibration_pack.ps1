@@ -1,6 +1,6 @@
 param(
     [ValidateRange(1, 32)]
-    [int]$Seeds = 4,
+    [int]$Seeds = 8,
     [string]$Output = "calibration-pack"
 )
 

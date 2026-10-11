@@ -447,15 +447,13 @@ namespace
         return 0;
     }
 
-    bool exportCalibrationBank (int fixedSeed,
+    bool exportCalibrationClip (int fixedSeed,
                                 const AblationTreatment& treatment,
-                                const juce::File& bankDirectory,
+                                const juce::File& outputFile,
                                 const juce::File& settingsRoot)
     {
-        if (bankDirectory.exists() && ! bankDirectory.deleteRecursively())
-            return false;
-        if (! bankDirectory.createDirectory())
-            return false;
+        if (outputFile.existsAsFile())
+            outputFile.deleteFile();
 
         midiforge::qa::setActiveAblation ("");
         const auto safeName = juce::String (treatment.name).replaceCharacter (':', '_');
@@ -474,7 +472,7 @@ namespace
             processor.setSeed (fixedSeed);
             processor.waitForGeneration();
 
-            // Match the ablation report: every arm gets an identical synthetic taste model.
+            // Give every condition the same deterministic synthetic taste context.
             processor.trainTaste (0, 1.0f, 1.0f);
             processor.trainTaste (7, 0.0f, 1.0f);
             midiforge::qa::setActiveAblation (treatment.target);
@@ -483,28 +481,27 @@ namespace
 
             processor.magicRandomize();
             processor.waitForGeneration();
-            const int variationCount = processor.getVariationCount();
-            exported = variationCount == 8;
-            for (int variation = 0; variation < variationCount && exported; ++variation)
+            if (processor.getVariationCount() == 8)
             {
-                processor.chooseVariation (variation);
-                const auto midiFile = bankDirectory.getChildFile (
-                    "variation_" + juce::String (variation) + ".mid");
-                exported = processor.exportMidi (midiFile)
-                    && midiFile.existsAsFile() && midiFile.getSize() > 0;
+                // Calibration is specifically about the first-ranked MAGIC pick.
+                processor.chooseVariation (0);
+                exported = processor.exportMidi (outputFile);
             }
         }
 
         midiforge::qa::setActiveAblation ("");
         runSettings.deleteRecursively();
-        return exported;
+        return exported && outputFile.existsAsFile() && outputFile.getSize() > 0;
     }
 
-    bool midiFilesAreIdentical (const juce::File& firstFile, const juce::File& secondFile)
+    bool midiFilesAreIdentical (const juce::File& firstFile,
+                                const juce::File& secondFile,
+                                bool& readable)
     {
         juce::MemoryBlock firstData, secondData;
-        if (! firstFile.loadFileAsData (firstData)
-            || ! secondFile.loadFileAsData (secondData))
+        readable = firstFile.loadFileAsData (firstData)
+            && secondFile.loadFileAsData (secondData);
+        if (! readable)
             return false;
 
         return firstData.getSize() == secondData.getSize()
@@ -514,7 +511,7 @@ namespace
     int runCalibrationPack (int seedCount, const juce::File& outputDirectory)
     {
         seedCount = juce::jlimit (1, 32, seedCount);
-        if (! outputDirectory.createDirectory())
+        if (! outputDirectory.exists() && ! outputDirectory.createDirectory())
         {
             std::fprintf (stderr, "Could not create calibration directory: %s\n",
                           outputDirectory.getFullPathName().toRawUTF8());
@@ -539,7 +536,10 @@ namespace
         std::ofstream key (outputDirectory.getChildFile ("answer-key.csv")
                                .getFullPathName().toStdString(),
                            std::ios::out | std::ios::trunc);
-        if (! ratings.is_open() || ! key.is_open())
+        std::ofstream audit (outputDirectory.getChildFile ("comparison-audit.csv")
+                                 .getFullPathName().toStdString(),
+                             std::ios::out | std::ios::trunc);
+        if (! ratings.is_open() || ! key.is_open() || ! audit.is_open())
         {
             std::fprintf (stderr, "Could not create calibration CSV files\n");
             return 2;
@@ -548,15 +548,20 @@ namespace
                    "quality_b_1_to_5,confidence_1_to_3,notes\n";
         key << "pair_id,seed,treatment,variation_slot_1_based,clip_a,clip_a_condition,"
                "clip_b,clip_b_condition\n";
+        audit << "seed,treatment,result,pair_id,details\n";
 
-        // These five score ablations changed the selected MIDI bank in both pilot seeds.
-        // They represent complementary dimensions and keep the first listening batch short.
-        const std::array<const char*, 5> selectedNames {{
+        // All nine scores changed the selected MIDI bank in both seeds of the first pilot.
+        // This batch checks the first ranked pick only, never a later matching slot.
+        const std::array<const char*, 9> selectedNames {{
             "melodyPleasantnessScore",
+            "melodyExpressionScore",
+            "harmonicIntelligenceScore",
             "melodicProsodyScore",
+            "creativeRangeScore",
             "motifMemoryScore",
             "grooveQualityScore",
-            "creativeRangeScore"
+            "localMelodyQualityScore",
+            "phraseContrastScore"
         }};
         const auto allTreatments = ablationTreatments();
         const auto baselineIt = std::find_if (allTreatments.begin(), allTreatments.end(),
@@ -602,16 +607,18 @@ namespace
         }
 
         int pairIndex = 0;
+        int unchangedCount = 0;
+        int attemptedCount = 0;
         bool success = true;
         for (int seedIndex = 0; seedIndex < seedCount && success; ++seedIndex)
         {
             const int fixedSeed = 108000 + seedIndex;
-            const auto baselineBank = tempRoot.getChildFile (
-                "baseline_" + juce::String (fixedSeed));
-            success = exportCalibrationBank (fixedSeed, baseline, baselineBank, settingsRoot);
+            const auto baselineMidi = tempRoot.getChildFile (
+                "baseline_" + juce::String (fixedSeed) + ".mid");
+            success = exportCalibrationClip (fixedSeed, baseline, baselineMidi, settingsRoot);
             if (! success)
             {
-                std::fprintf (stderr, "Failed to export baseline bank for seed %d\n", fixedSeed);
+                std::fprintf (stderr, "Failed to export baseline first pick for seed %d\n", fixedSeed);
                 break;
             }
 
@@ -620,120 +627,116 @@ namespace
                  ++treatmentIndex)
             {
                 const auto& treatment = selectedTreatments[(size_t) treatmentIndex];
-                const auto candidateBank = tempRoot.getChildFile (
+                const auto candidateMidi = tempRoot.getChildFile (
                     "candidate_" + juce::String (fixedSeed) + "_"
-                    + juce::String (treatment.name));
-                success = exportCalibrationBank (fixedSeed, treatment, candidateBank, settingsRoot);
+                    + juce::String (treatment.name) + ".mid");
+                success = exportCalibrationClip (fixedSeed, treatment, candidateMidi, settingsRoot);
                 if (! success)
                 {
-                    std::fprintf (stderr, "Failed to export %s bank for seed %d\n",
+                    std::fprintf (stderr, "Failed to export first pick for %s, seed %d\n",
                                   treatment.name, fixedSeed);
                     break;
                 }
 
-                int variationSlot = -1;
-                for (int variation = 0; variation < 8; ++variation)
+                ++attemptedCount;
+                bool readable = false;
+                const bool identical = midiFilesAreIdentical (baselineMidi, candidateMidi, readable);
+                if (! readable)
                 {
-                    const auto baselineSlot = baselineBank.getChildFile (
-                        "variation_" + juce::String (variation) + ".mid");
-                    const auto candidateSlot = candidateBank.getChildFile (
-                        "variation_" + juce::String (variation) + ".mid");
-                    if (! baselineSlot.existsAsFile() || ! candidateSlot.existsAsFile())
-                    {
-                        success = false;
-                        std::fprintf (stderr, "Missing MIDI variation while comparing %s, seed %d\n",
-                                      treatment.name, fixedSeed);
-                        break;
-                    }
-                    if (! midiFilesAreIdentical (baselineSlot, candidateSlot))
-                    {
-                        variationSlot = variation;
-                        break;
-                    }
-                }
-                if (! success)
-                    break;
-                if (variationSlot < 0)
-                {
+                    std::fprintf (stderr, "Could not read MIDI files for %s, seed %d\n",
+                                  treatment.name, fixedSeed);
                     success = false;
-                    std::fprintf (stderr, "No differing MIDI slot for %s, seed %d\n",
-                                  treatment.name, fixedSeed);
                     break;
                 }
+                if (identical)
+                {
+                    ++unchangedCount;
+                    audit << fixedSeed << ',' << treatment.name
+                          << ",NO_CHANGE_FIRST_PICK,,First-ranked MIDI is identical\n";
+                    candidateMidi.deleteFile();
+                    continue;
+                }
 
-                ++pairIndex;
+                const int nextPair = pairIndex + 1;
                 std::ostringstream idStream;
-                idStream << "P" << std::setw (3) << std::setfill ('0') << pairIndex;
+                idStream << "P" << std::setw (3) << std::setfill ('0') << nextPair;
                 const auto pairId = idStream.str();
                 const auto clipAName = "clip_" + pairId + "_A.mid";
                 const auto clipBName = "clip_" + pairId + "_B.mid";
                 const auto clipA = midiDirectory.getChildFile (clipAName);
                 const auto clipB = midiDirectory.getChildFile (clipBName);
-                const auto baselineMidi = baselineBank.getChildFile (
-                    "variation_" + juce::String (variationSlot) + ".mid");
-                const auto candidateMidi = candidateBank.getChildFile (
-                    "variation_" + juce::String (variationSlot) + ".mid");
 
-                // Alternate which condition is A so the baseline is not always first.
+                // Blind order alternates; condition names are written only to the separate key.
                 const bool baselineIsA = ((seedIndex + treatmentIndex) % 2) == 0;
                 const auto& sourceA = baselineIsA ? baselineMidi : candidateMidi;
                 const auto& sourceB = baselineIsA ? candidateMidi : baselineMidi;
-                if (! sourceA.copyFileTo (clipA) || ! sourceB.copyFileTo (clipB)
-                    || midiFilesAreIdentical (clipA, clipB))
+                if (! sourceA.copyFileTo (clipA) || ! sourceB.copyFileTo (clipB))
                 {
-                    std::fprintf (stderr, "Failed to create distinct blind pair %s\n", pairId.c_str());
+                    std::fprintf (stderr, "Failed to copy blind pair %s\n", pairId.c_str());
+                    success = false;
+                    break;
+                }
+                bool copiedFilesReadable = false;
+                const bool copiedFilesIdentical =
+                    midiFilesAreIdentical (clipA, clipB, copiedFilesReadable);
+                if (! copiedFilesReadable || copiedFilesIdentical)
+                {
+                    std::fprintf (stderr, "Invalid or identical MIDI data in pair %s\n", pairId.c_str());
+                    clipA.deleteFile();
+                    clipB.deleteFile();
                     success = false;
                     break;
                 }
 
+                pairIndex = nextPair;
                 ratings << pairId << ",midi/" << clipAName << ",midi/" << clipBName
                         << ",,,,,\n";
                 key << pairId << ',' << fixedSeed << ',' << treatment.name << ','
-                    << (variationSlot + 1) << ','
-                    << "midi/" << clipAName << ','
+                    << "1,midi/" << clipAName << ','
                     << (baselineIsA ? "Baseline" : treatment.name) << ','
                     << "midi/" << clipBName << ','
                     << (baselineIsA ? treatment.name : "Baseline") << '\n';
-
-                candidateBank.deleteRecursively();
+                audit << fixedSeed << ',' << treatment.name
+                      << ",PAIR_CREATED," << pairId << ",First-ranked MIDI differs\n";
+                candidateMidi.deleteFile();
             }
-            baselineBank.deleteRecursively();
+            baselineMidi.deleteFile();
         }
 
         ratings.close();
         key.close();
+        audit.close();
         tempRoot.deleteRecursively();
         if (! success)
             return 2;
 
         const juce::String instructions =
-            juce::String ("MIDI Forge - blind listening pilot\n\n")
-            + juce::String (pairIndex) + " A/B pairs. Each pair compares normal MAGIC ranking "
-              "against a run where one quality score is excluded.\n\n"
-              "1. Open ratings-template.csv and keep answer-key.csv closed until ratings are done.\n"
-              "2. In FL Studio, import both MIDI files from a pair into the same project. "
-              "Use the same instrument, mixer chain and volume for A and B.\n"
-              "3. Fill preference with A, B or TIE. Rate each version from 1 (weak) to 5 (strong); "
-              "confidence is 1 (guess), 2 (fairly sure) or 3 (very sure).\n"
-              "4. Judge the melody as music: phrasing, rhythm, memorability, naturalness and "
-              "whether you would keep the loop. Do not rate which one is louder.\n"
-              "5. After saving ratings-template.csv, open answer-key.csv to reveal which arm "
-              "was baseline and which score was excluded.\n\n"
-              "Every pair is checked to contain different MIDI data at the selected matching "
-              "variation slot. This is a small pilot, not enough by itself to justify changing "
-              "production weights. MIDI files use the plugin's production exporter; shipped "
-              "generation and score weights are unchanged.\n";
+            juce::String ("MIDI Forge - first-pick blind listening pilot\n\n")
+            + juce::String (pairIndex) + " valid A/B pairs from "
+            + juce::String (attemptedCount)
+            + " fixed-seed comparisons. Only the first-ranked MAGIC result is tested.\n\n"
+            + "Open ratings-template.csv and keep answer-key.csv closed until ratings are complete.\n"
+            + "In FL Studio, import A and B from each pair into the same project. Use the same instrument, "
+              "preset, mixer chain and volume. Choose A, B or TIE, rate both from 1 (weak) to 5 (strong), "
+              "and set confidence from 1 to 3. Judge phrasing, rhythm, memorability, naturalness and "
+              "whether you would keep the melody. Do not rate which one is louder.\n"
+            + juce::String (unchangedCount)
+            + " comparisons did not change the first-ranked MIDI and were excluded from the rating template; "
+              "see comparison-audit.csv.\n\n"
+              "This is a small pilot, not enough on its own to justify changing production score weights. "
+              "Every pair was checked for distinct MIDI data. Production generation and score weights are unchanged.\n";
         if (! outputDirectory.getChildFile ("README.txt").replaceWithText (instructions))
         {
             std::fprintf (stderr, "Could not write calibration instructions\n");
             return 2;
         }
 
-        std::printf ("Calibration pack: %s (%d fixed seeds, %d blind pairs, %d MIDI clips)\n",
-                     outputDirectory.getFullPathName().toRawUTF8(), seedCount, pairIndex, pairIndex * 2);
-        return 0;
+        std::printf ("Calibration pack: %s (%d seeds, %d attempted comparisons, %d blind pairs, "
+                     "%d unchanged first picks, %d MIDI clips)\n",
+                     outputDirectory.getFullPathName().toRawUTF8(), seedCount, attemptedCount,
+                     pairIndex, unchangedCount, pairIndex * 2);
+        return pairIndex > 0 ? 0 : 3;
     }
-
 
     bool validateAblationSwitches()
     {
@@ -758,7 +761,7 @@ int main (int argc, char** argv)
 {
     if (argc >= 2 && std::string (argv[1]) == "--calibration-pack")
     {
-        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 2;
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 8;
         const auto output = argc >= 4 ? juce::File (argv[3])
             : juce::File::getCurrentWorkingDirectory().getChildFile ("calibration-pack");
         return runCalibrationPack (seedCount, output);
