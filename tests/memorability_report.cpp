@@ -246,7 +246,6 @@ int runMemorabilityPack (const juce::File& csvFile, const juce::File& outputDire
     while (! input.isExhausted())
     {
         line = input.readNextLine().toStdString();
-    {
         if (line.empty()) continue;
         const auto fields = splitCsvLine (line);
         if (seedCol >= (int) fields.size() || variationCol >= (int) fields.size()
