@@ -12,7 +12,8 @@ REQUIRED = {
     "return_candidates", "return_exact", "return_varied", "return_random",
     "return_score", "contrast_density", "contrast_register", "contrast_present",
     "return_threshold", "contrast_threshold_density", "contrast_threshold_register",
-    "closure_melody_leap", "closure_melody_ok", "closure_chord_leap", "closure_chord_ok",
+    "closure_melody_leap", "closure_melody_tonic_or_dominant", "closure_melody_ok",
+    "closure_chord_leap", "closure_chord_tonic_or_dominant", "closure_chord_ok",
 }
 
 
@@ -55,10 +56,20 @@ def reasons(r, q25):
     if i(r, "contrast_present") != 1:
         out.append("below_baseline_contrast_cutpoints")
     leap = i(r, "closure_melody_leap", -1)
-    if i(r, "closure_melody_ok") != 1:
-        out.append("missing_closure_measurement" if leap < 0 else "loop_closure_not_met")
-    if i(r, "closure_chord_leap", -1) >= 0 and i(r, "closure_chord_ok") != 1:
-        out.append("chord_loop_closure_not_met")
+    if leap < 0:
+        out.append("missing_closure_measurement")
+    else:
+        if leap > 2:
+            out.append("large_melody_loop_seam_leap")
+        if i(r, "closure_melody_tonic_or_dominant") != 1:
+            out.append("ending_not_tonic_or_dominant")
+
+    chord_leap = i(r, "closure_chord_leap", -1)
+    if chord_leap >= 0:
+        if chord_leap > 2:
+            out.append("large_chord_loop_seam_leap")
+        if i(r, "closure_chord_tonic_or_dominant") != 1:
+            out.append("chord_ending_without_tonic_or_dominant")
     if n(r, "quality", -1) <= q25:
         out.append("quality_at_or_below_q25")
     return out
@@ -83,7 +94,8 @@ def choose(rows, q25, limit):
         ("no_hook", lambda r: i(r, "hook_present") != 1, lambda r: (n(r, "quality", -1), -i(r, "seed"))),
         ("weak_return", lambda r: i(r, "return_candidates", -1) <= 0 or n(r, "return_varied", -1) <= 0, lambda r: (n(r, "quality", -1), -i(r, "seed"))),
         ("low_contrast", lambda r: i(r, "contrast_present") != 1, lambda r: (n(r, "quality", -1), -i(r, "seed"))),
-        ("weak_closure", lambda r: i(r, "closure_melody_ok") != 1 and i(r, "closure_melody_leap", -1) >= 0, lambda r: (i(r, "closure_melody_leap", -1), n(r, "quality", -1))),
+        ("large_seam_leap", lambda r: i(r, "closure_melody_leap", -1) > 2, lambda r: (i(r, "closure_melody_leap", -1), n(r, "quality", -1))),
+        ("non_cadential_ending", lambda r: 0 <= i(r, "closure_melody_leap", -1) <= 2 and i(r, "closure_melody_tonic_or_dominant") != 1, lambda r: (n(r, "quality", -1), -i(r, "seed"))),
         ("exact_return", lambda r: n(r, "return_exact") > 0, lambda r: (n(r, "quality", -1), n(r, "return_exact"))),
         ("strong_contrast", lambda r: i(r, "contrast_present") == 1, lambda r: (n(r, "contrast_density"), n(r, "contrast_register"), n(r, "quality", -1))),
         ("strong_hook", lambda r: i(r, "hook_present") == 1, lambda r: (i(r, "hook_count"), n(r, "hook_spread_bars"), n(r, "quality", -1))),
@@ -182,10 +194,14 @@ def main():
         ("At least one return candidate", lambda r: i(r, "return_candidates", -1) > 0),
         ("At least one varied return", lambda r: n(r, "return_varied", -1) > 0),
         ("Above-baseline contrast cut points", lambda r: i(r, "contrast_present") == 1),
-        ("Melodic loop-closure proxy passes", lambda r: i(r, "closure_melody_ok") == 1),
+        ("Melody loop seam within 2 semitones", lambda r: 0 <= i(r, "closure_melody_leap", -1) <= 2),
+        ("Melody ends on tonic/dominant pitch class", lambda r: i(r, "closure_melody_tonic_or_dominant") == 1),
+        ("Composite melody closure proxy passes", lambda r: i(r, "closure_melody_ok") == 1),
         ("All four main proxies pass", all_core),
     ]
     chord_rows = [r for r in rows if i(r, "closure_chord_leap", -1) >= 0]
+    chord_seam_near = sum(0 <= i(r, "closure_chord_leap", -1) <= 2 for r in chord_rows)
+    chord_cadential = sum(i(r, "closure_chord_tonic_or_dominant") == 1 for r in chord_rows)
     chord_pass = sum(i(r, "closure_chord_ok") == 1 for r in chord_rows)
     lines = [
         "# MIDI Forge memorability baseline summary", "",
@@ -204,9 +220,13 @@ def main():
         count = sum(predicate(r) for r in rows)
         lines.append("| %s | %d / %d | %.1f%% |" % (label, count, len(rows), 100 * count / len(rows)))
     lines += [
-        "| Chord closure proxy (where chord events exist) | %d / %d | %.1f%% |" %
+        "| Chord loop seam within 2 semitones (where chord events exist) | %d / %d | %.1f%% |" %
+        (chord_seam_near, len(chord_rows), 100 * chord_seam_near / len(chord_rows) if chord_rows else 0),
+        "| Chord ends on tonic/dominant pitch class (where chord events exist) | %d / %d | %.1f%% |" %
+        (chord_cadential, len(chord_rows), 100 * chord_cadential / len(chord_rows) if chord_rows else 0),
+        "| Composite chord closure proxy (where chord events exist) | %d / %d | %.1f%% |" %
         (chord_pass, len(chord_rows), 100 * chord_pass / len(chord_rows) if chord_rows else 0),
-        "", "Chord closure denominator excludes rows without a chord lane.",
+        "", "Chord denominator excludes rows without chord events.",
         "", "## Selected-candidate quality distribution", "",
         "- Min: %.4f" % min(quality), "- 25th percentile: %.4f" % q25,
         "- Median: %.4f" % med, "- 75th percentile: %.4f" % q75, "- Max: %.4f" % max(quality),
@@ -220,7 +240,7 @@ def main():
         "", "## Interpretation", "",
         "- Hook detection compares pitch-interval contour with tolerant onset gaps and durations. It is transposition-safe but may miss recognizable hooks.",
         "- Return and contrast rates depend on corpus-derived cut points; they are not objective musical-quality scores.",
-        "- Loop closure is a structural proxy involving the first and last melody pitches; it does not replace listening.",
+        "- The report separates loop-seam distance from whether the ending contains tonic/dominant material. The strict composite proxy requires both a seam within two semitones and a tonic/dominant ending; neither condition alone proves musical closure.",
         "- The 12 selected clips include positive, weak and edge-case examples. Audition them in FL Studio with the same instrument and preset before changing generation or scoring.",
         "",
     ]
