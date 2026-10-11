@@ -1,0 +1,77 @@
+name: MIDI Forge 0.108.0 full ablation baseline
+
+on:
+  push:
+    branches:
+      - ablation/0.108-baseline
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ablation-baseline-0108
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    # The generated report commit triggers a second lightweight run only; don't rerun the benchmark.
+    if: ${{ !contains(github.event.head_commit.message, '[baseline-data]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Configure headless QA
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build headless QA
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Run complete 256-seed ablation baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          test -n "$QA"
+          mkdir -p tools/ablation/baselines
+          "$QA" --ablation-report 256 tools/ablation/baselines/0.108.0-ablation-report.csv
+          test -s tools/ablation/baselines/0.108.0-ablation-report.csv
+          rows=$(wc -l < tools/ablation/baselines/0.108.0-ablation-report.csv)
+          test "$rows" -eq 7681
+          {
+            echo "baseline_version=0.108.0"
+            echo "source_commit=$GITHUB_SHA"
+            echo "seed_first=108000"
+            echo "seed_last=108255"
+            echo "seed_count=256"
+            echo "treatment_count=30"
+            echo "data_rows=$((rows - 1))"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            sha256sum tools/ablation/baselines/0.108.0-ablation-report.csv
+          } > tools/ablation/baselines/0.108.0-ablation-metadata.txt
+          cat tools/ablation/baselines/0.108.0-ablation-metadata.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: midi-forge-0.108.0-ablation-baseline
+          path: tools/ablation/baselines/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Commit immutable baseline report to benchmark branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/ablation/baselines/0.108.0-ablation-report.csv tools/ablation/baselines/0.108.0-ablation-metadata.txt
+          git commit -m "[baseline-data] save MIDI Forge 0.108.0 256-seed ablation report"
+          git push origin HEAD:ablation/0.108-baseline
