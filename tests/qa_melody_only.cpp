@@ -453,12 +453,12 @@ namespace
         seedCount = juce::jlimit (1, 4096, seedCount);
         if (outputDirectory.exists() && ! outputDirectory.deleteRecursively())
         {
-            std::fprintf (stderr, "Could not clear diagnostics output directory\\n");
+            std::fprintf (stderr, "Could not clear diagnostics output directory\n");
             return 2;
         }
         if (! outputDirectory.createDirectory())
         {
-            std::fprintf (stderr, "Could not create diagnostics directory: %s\\n",
+            std::fprintf (stderr, "Could not create diagnostics directory: %s\n",
                           outputDirectory.getFullPathName().toRawUTF8());
             return 2;
         }
@@ -471,17 +471,17 @@ namespace
                                  .getFullPathName().toStdString(), std::ios::out | std::ios::trunc);
         if (! summary.is_open() || ! pairs.is_open() || ! slots.is_open())
         {
-            std::fprintf (stderr, "Could not create diagnostics CSV files\\n");
+            std::fprintf (stderr, "Could not create diagnostics CSV files\n");
             return 2;
         }
 
         summary << "seed,variation_count,unique_melodies,min_idea_distance,q1_idea_distance,median_idea_distance,"
                    "mean_idea_distance,max_idea_similarity,quality_min,quality_q1,quality_median,quality_mean,"
                    "quality_max,valid_half_slots,mean_half_idea_similarity,min_half_idea_similarity,"
-                   "mean_second_half_attack_delta_per_bar,mean_second_half_pitch_range_delta_semitones\\n";
-        pairs << "seed,slot_a,slot_b,idea_similarity,idea_distance\\n";
+                   "mean_second_half_attack_delta_per_bar,mean_second_half_pitch_range_delta_semitones\n";
+        pairs << "seed,slot_a,slot_b,idea_similarity,idea_distance\n";
         slots << "seed,slot,quality,half_idea_similarity,second_half_attack_delta_per_bar,"
-                 "second_half_pitch_range_delta_semitones,melody_note_count,unique_pitches\\n";
+                 "second_half_pitch_range_delta_semitones,melody_note_count,unique_pitches\n";
 
         const auto tempRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
             .getChildFile ("midiforge_bank_diagnostics");
@@ -496,7 +496,7 @@ namespace
             runSettings.deleteRecursively();
             if (! runSettings.createDirectory())
             {
-                std::fprintf (stderr, "Could not create settings directory for seed %d\\n", fixedSeed);
+                std::fprintf (stderr, "Could not create settings directory for seed %d\n", fixedSeed);
                 return 2;
             }
             MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
@@ -551,7 +551,7 @@ namespace
                     slots << fixedSeed << ',' << (slot + 1) << ','
                           << std::fixed << std::setprecision (5) << quality << ','
                           << halfSimilarity << ',' << attackDelta << ',' << rangeDelta << ','
-                          << melody.size() << ',' << pitches.size() << '\\n';
+                          << melody.size() << ',' << pitches.size() << '\n';
                 }
 
                 for (int a = 0; a < variationCount; ++a)
@@ -562,7 +562,7 @@ namespace
                         if (distance >= 0.0f)
                             distances.push_back (distance);
                         pairs << fixedSeed << ',' << (a + 1) << ',' << (b + 1) << ','
-                              << std::fixed << std::setprecision (5) << similarity << ',' << distance << '\\n';
+                              << std::fixed << std::setprecision (5) << similarity << ',' << distance << '\n';
                     }
             }
 
@@ -598,7 +598,7 @@ namespace
                     << quantile (qualities, 0.50) << ',' << qualityMean << ','
                     << quantile (qualities, 1.0) << ',' << validHalfSlots << ',' << halfMean << ','
                     << quantile (halfSimilarities, 0.0) << ',' << attackDeltaMean << ','
-                    << rangeDeltaMean << '\\n';
+                    << rangeDeltaMean << '\n';
             summary.flush();
             pairs.flush();
             slots.flush();
@@ -608,7 +608,7 @@ namespace
         pairs.close();
         slots.close();
         tempRoot.deleteRecursively();
-        std::printf ("Bank diagnostics: %s (%d seeds, %d slot rows, %d pair rows)\\n",
+        std::printf ("Bank diagnostics: %s (%d seeds, %d slot rows, %d pair rows)\n",
                      outputDirectory.getFullPathName().toRawUTF8(), seedCount,
                      seedCount * 8, seedCount * 28);
         return 0;

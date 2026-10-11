@@ -10235,6 +10235,8 @@ float MidiForgeAudioProcessor::getBankIdeaSimilarityForQA (int firstSlot, int se
 
     const auto first = makeIdeaFingerprint (variations[(size_t) firstSlot]);
     const auto second = makeIdeaFingerprint (variations[(size_t) secondSlot]);
+    if (first.count < 2 || second.count < 2)
+        return -1.0f; // invalid fingerprint is missing data, not maximal diversity
     return ideaSimilarity (first, second);
 }
 
