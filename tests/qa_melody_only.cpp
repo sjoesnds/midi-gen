@@ -648,7 +648,7 @@ namespace
             return 2;
 
         const juce::String instructions =
-            juce::String ("MIDI Forge — blind listening pilot\n\n")
+            juce::String ("MIDI Forge - blind listening pilot\n\n")
             + juce::String (pairIndex) + " A/B pairs; each pair compares the normal MAGIC ranker "
               "against one test where a single quality score is excluded from ranking.\n\n"
               "1. Open ratings-template.csv and keep answer-key.csv closed until you finish.\n"
