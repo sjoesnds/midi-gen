@@ -343,9 +343,9 @@ struct PhraseMotif
 struct ArtInfo { bool slide = false; int slideToStep = -1; bool vib = false; };
 std::vector<ArtInfo> articulationFor (const std::vector<NoteEvent>& notes) const;
 
-void applyMotifDevelopment (Section& section, int phraseStartBar, int variationSalt) const;
+
 void applyPhraseArchitecture (Section& section, uint32_t identity) const;
-void applyMotifSemantics (Section& section, int phraseStartBar, int variationSalt) const;
+
 float motifSemanticsScore (const Section& section, uint32_t identity) const;
 float phraseContrastScore (const Section& section, uint32_t identity) const;
 float localMelodyQualityScore (const Section& section, uint32_t identity) const;
