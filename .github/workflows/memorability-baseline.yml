@@ -1,26 +1,25 @@
 name: MIDI Forge memorability baseline
 
 on:
-  workflow_run:
-    workflows: ["Quality checks"]
-    types: [completed]
+  push:
     branches:
       - feature/0.110-memorability-probe
+    paths:
+      - .github/workflows/memorability-baseline.yml
+      - CMakeLists.txt
+      - Source/**
+      - tests/**
+      - tools/memorability/**
 
-permissions:
-  contents: read
-  actions: read
+concurrency:
+  group: memorability-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  baseline:
-    # Wait for the complete push CI, including ASan/UBSan and Windows VST3.
-    # A pull_request run also reports "Quality checks"; process the push only.
-    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' }}
+  quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Install Linux build dependencies
         run: |
@@ -32,7 +31,110 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build-qa/_deps
-          key: ubuntu-latest-memorability-juce-8.0.14-v1
+          key: ${{ runner.os }}-memorability-qa-juce-8.0.14-v1
+
+      - name: Configure
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Run quality checks
+        env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
+        run: |
+          set -o pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" | tee qa-report.txt
+
+      - name: Run 2-seed memorability smoke test
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --memorability-report 2 memorability-smoke.csv
+          test -s memorability-smoke.csv
+          rows=$(wc -l < memorability-smoke.csv)
+          test "$rows" -eq 17
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-smoke
+          path: memorability-smoke.csv
+          if-no-files-found: ignore
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-sanitize/_deps
+          key: ${{ runner.os }}-memorability-sanitize-juce-8.0.14-v1
+
+      - name: Configure ASan + UBSan
+        run: |
+          cmake -S tests -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            -DCMAKE_CXX_FLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitized QA
+        run: cmake --build build-sanitize --config Debug --parallel
+
+      - name: Run sanitized quality checks
+        env:
+          MIDIFORGE_PIPELINE_TRACE: "1"
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:detect_stack_use_after_return=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          QA=$(find build-sanitize -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" | tee sanitized-qa-report.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-sanitized-quality-report
+          path: sanitized-qa-report.txt
+          if-no-files-found: ignore
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Windows VST3
+        run: cmake -S . -B build-win
+
+      - name: Build Windows VST3
+        run: cmake --build build-win --config Release --parallel
+
+  baseline:
+    needs: [quality, sanitizers, windows-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-qa/_deps
+          key: ${{ runner.os }}-memorability-baseline-juce-8.0.14-v1
 
       - name: Configure headless QA target
         run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
