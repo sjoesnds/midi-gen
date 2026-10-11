@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   quality:
+    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,6 +125,7 @@ jobs:
           path: ablation-pilot.csv
 
   sanitizers:
+    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -169,6 +171,7 @@ jobs:
           path: sanitized-qa-report.txt
 
   windows-build:
+    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,6 +185,7 @@ jobs:
   # Runs only when all release-gate checks above passed. The full corpus report is
   # diagnostic only; it must never tune production generation or score weights.
   memorability-baseline:
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feature/0.110-memorability-probe') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/0.110-memorability-probe') }}
     needs: [quality, sanitizers, windows-build]
     runs-on: ubuntu-latest
     timeout-minutes: 60
