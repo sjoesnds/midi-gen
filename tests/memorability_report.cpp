@@ -91,7 +91,23 @@ bool validateMemorabilityProbe()
     };
     const auto closure = midiforge::memorability::analyze (sharpEnding, 1, 0, 1);
     const bool badEndingDetected = ! closure.closureMelodyOk && closure.closureMelodyLeap > 2;
-    return knownHook && exactReturns && noRepeatDetected && badEndingDetected;
+
+    const std::vector<Note> seamOnly {
+        { 0, 2, 60, 3 }, { 4, 2, 62, 3 }, { 8, 2, 61, 3 }
+    };
+    const auto seam = midiforge::memorability::analyze (seamOnly, 1, 0, 1);
+    const bool seamAndCadenceSplit = seam.closureMelodyLeap == 1
+        && ! seam.closureMelodyTonicOrDominant && ! seam.closureMelodyOk;
+
+    const std::vector<Note> octaveTonicEnding {
+        { 0, 2, 60, 3 }, { 4, 2, 64, 3 }, { 8, 2, 72, 3 }
+    };
+    const auto octave = midiforge::memorability::analyze (octaveTonicEnding, 1, 0, 1);
+    const bool tonalEndingSplit = octave.closureMelodyLeap == 12
+        && octave.closureMelodyTonicOrDominant && ! octave.closureMelodyOk;
+
+    return knownHook && exactReturns && noRepeatDetected && badEndingDetected
+        && seamAndCadenceSplit && tonalEndingSplit;
 }
 
 int runMemorabilityReport (int seedCount, const juce::File& outputFile)
@@ -181,8 +197,10 @@ int runMemorabilityReport (int seedCount, const juce::File& outputFile)
            "hook_present,hook_count,hook_length_notes,hook_spread_bars,"
            "return_candidates,return_threshold,return_exact,return_varied,return_random,return_score,"
            "contrast_density,contrast_register,contrast_present,contrast_threshold_density,contrast_threshold_register,"
-           "closure_melody_leap,closure_melody_length_delta,closure_melody_first_pitch,closure_melody_last_pitch,closure_melody_ok,"
-           "closure_chord_leap,closure_chord_length_delta,closure_chord_first_pitch,closure_chord_last_pitch,closure_chord_ok\n";
+           "closure_melody_leap,closure_melody_length_delta,closure_melody_first_pitch,closure_melody_last_pitch,"
+           "closure_melody_tonic_or_dominant,closure_melody_ok,"
+           "closure_chord_leap,closure_chord_length_delta,closure_chord_first_pitch,closure_chord_last_pitch,"
+           "closure_chord_tonic_or_dominant,closure_chord_ok\n";
     for (const auto& row : rows)
     {
         const auto& m = row.metrics;
@@ -201,9 +219,11 @@ int runMemorabilityReport (int seedCount, const juce::File& outputFile)
             << (m.contrastPresent ? 1 : 0) << ',' << densityThreshold << ',' << registerThreshold << ','
             << m.closureMelodyLeap << ',' << m.closureMelodyLengthDelta << ','
             << m.closureMelodyFirstPitch << ',' << m.closureMelodyLastPitch << ','
+            << (m.closureMelodyTonicOrDominant ? 1 : 0) << ','
             << (m.closureMelodyOk ? 1 : 0) << ','
             << m.closureChordLeap << ',' << m.closureChordLengthDelta << ','
             << m.closureChordFirstPitch << ',' << m.closureChordLastPitch << ','
+            << (m.closureChordTonicOrDominant ? 1 : 0) << ','
             << (m.closureChordOk ? 1 : 0) << '\n';
     }
     csv.flush();
