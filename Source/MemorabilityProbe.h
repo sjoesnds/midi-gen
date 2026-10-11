@@ -46,12 +46,14 @@ struct Metrics
     float closureMelodyLengthDelta = -1.0f;
     int closureMelodyFirstPitch = -1;
     int closureMelodyLastPitch = -1;
+    bool closureMelodyTonicOrDominant = false;
     bool closureMelodyOk = false;
 
     int closureChordLeap = -1;
     float closureChordLengthDelta = -1.0f;
     int closureChordFirstPitch = -1;
     int closureChordLastPitch = -1;
+    bool closureChordTonicOrDominant = false;
     bool closureChordOk = false;
 };
 
@@ -232,6 +234,7 @@ struct Closure
     float lengthDelta = -1.0f;
     int firstPitch = -1;
     int lastPitch = -1;
+    bool tonicOrDominant = false;
     bool ok = false;
 };
 
@@ -270,7 +273,8 @@ inline Closure analyzeClosure (const std::vector<Note>& notes, int channel, int 
             break;
         }
     }
-    result.ok = result.leap <= 2 && tonicOrDominant;
+    result.tonicOrDominant = tonicOrDominant;
+    result.ok = result.leap <= 2 && result.tonicOrDominant;
     return result;
 }
 
@@ -366,12 +370,14 @@ inline Metrics analyze (const std::vector<Note>& notes,
     result.closureMelodyLengthDelta = melodyClosure.lengthDelta;
     result.closureMelodyFirstPitch = melodyClosure.firstPitch;
     result.closureMelodyLastPitch = melodyClosure.lastPitch;
+    result.closureMelodyTonicOrDominant = melodyClosure.tonicOrDominant;
     result.closureMelodyOk = melodyClosure.ok;
     const auto chordClosure = analyzeClosure (notes, 1, rootPitchClass);
     result.closureChordLeap = chordClosure.leap;
     result.closureChordLengthDelta = chordClosure.lengthDelta;
     result.closureChordFirstPitch = chordClosure.firstPitch;
     result.closureChordLastPitch = chordClosure.lastPitch;
+    result.closureChordTonicOrDominant = chordClosure.tonicOrDominant;
     result.closureChordOk = chordClosure.ok;
 
     classifyReturns (result, returnThreshold);
