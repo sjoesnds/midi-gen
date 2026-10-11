@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: bank-diagnostics-0108
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   diagnostics:
