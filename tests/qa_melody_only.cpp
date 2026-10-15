@@ -975,6 +975,54 @@ namespace
             && std::abs (judgeBaseline - judgeAblated) > 0.00001f;
     }
 
+bool validateCorpusMetricDefinitions()
+{
+    std::vector<Note> notes;
+    const std::array<int, 18> deltas {{
+        1, 2, 3, 4, 5, 6,
+        1, 2, 3, 4, 5, 6,
+        1, 2, 3, 4, 5, 7
+    }};
+    int step = 0;
+    int pitch = 60;
+    notes.push_back ({ step, 2, pitch, 90, 3 });
+    for (const int delta : deltas)
+    {
+        step += 2;
+        pitch += delta;
+        notes.push_back ({ step, 2, pitch, 90, 3 });
+    }
+
+    // Pitch bands are authoritative, not the plugin's logical layer/channel.
+    notes.push_back ({ 6, 2, 60, 90, 2 }); // top layer, but below the onset's line note
+    notes.push_back ({ 0, 2, 47, 90, 3 }); // bass
+    notes.push_back ({ 2, 2, 48, 90, 2 }); // riff lower boundary
+    notes.push_back ({ 4, 2, 59, 90, 2 }); // riff upper boundary
+
+    // All drum channel representations must be excluded from the layer line.
+    notes.push_back ({ 8, 2, 127, 90, 5 });
+    notes.push_back ({ 10, 2, 120, 90, 9 });
+    notes.push_back ({ 12, 2, 118, 90, 10 });
+
+    const auto measured = midiforge::corpus::measure (notes, 3);
+    const auto& top = measured[midiforge::corpus::Top];
+    const auto& riff = measured[midiforge::corpus::Riff];
+    const auto& bass = measured[midiforge::corpus::Bass];
+    const double third = 1.0 / 3.0;
+
+    return top.noteCount == 20 && riff.noteCount == 2 && bass.noteCount == 1
+        && top.valid[midiforge::corpus::StepsLe2]
+        && top.valid[midiforge::corpus::LeapsGe5]
+        && top.valid[midiforge::corpus::WindowRepeat]
+        && top.valid[midiforge::corpus::DurationBeats]
+        && top.valid[midiforge::corpus::NotesPerBar]
+        && std::abs (top.value[midiforge::corpus::StepsLe2] - third) < 0.000001
+        && std::abs (top.value[midiforge::corpus::LeapsGe5] - third) < 0.000001
+        && std::abs (top.value[midiforge::corpus::WindowRepeat] - third) < 0.000001
+        && std::abs (top.value[midiforge::corpus::DurationBeats] - 0.5) < 0.000001
+        && std::abs (top.value[midiforge::corpus::NotesPerBar] - 8.0) < 0.000001;
+}
+
 int main (int argc, char** argv)
 {
     if (argc >= 2 && std::string (argv[1]) == "--calibration-pack")
@@ -1008,6 +1056,9 @@ int main (int argc, char** argv)
 
     check ("Headless-only ablation switches are isolated", validateAblationSwitches(),
            "default scores unchanged; selected score and Composer Judge group can be excluded");
+    check ("Corpus layer metrics follow the supplied definitions",
+           validateCorpusMetricDefinitions(),
+           "pitch bands, highest onset note, non-overlapping six-interval windows, duration and bars");
 
     bool allSupportedLayers = true;
     bool allInLoop = true;
