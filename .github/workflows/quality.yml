@@ -56,6 +56,36 @@ jobs:
           rows=$(wc -l < ablation-pilot.csv)
           test "$rows" -eq 61
 
+      - name: Verify corpus layer report determinism (2 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --corpus-layer-ablation 2 corpus-layer-smoke-a.csv >/dev/null
+          "$QA" --corpus-layer-ablation 2 corpus-layer-smoke-b.csv >/dev/null
+          cmp corpus-layer-smoke-a.csv corpus-layer-smoke-b.csv
+          rows=$(wc -l < corpus-layer-smoke-a.csv)
+          test "$rows" -eq 451
+
+      - name: Run corpus layer ablation (64 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --corpus-layer-ablation 64 corpus-layer-ablation.csv > corpus-layer-ablation.log
+          test -s corpus-layer-ablation.csv
+          rows=$(wc -l < corpus-layer-ablation.csv)
+          test "$rows" -eq 451
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: corpus-layer-ablation
+          path: |
+            corpus-layer-ablation.csv
+            corpus-layer-ablation.log
+            corpus-layer-smoke-a.csv
+            corpus-layer-smoke-b.csv
+          if-no-files-found: ignore
+
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
         run: |
           set -euo pipefail
