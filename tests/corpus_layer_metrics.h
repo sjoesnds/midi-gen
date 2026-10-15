@@ -134,15 +134,17 @@ inline std::array<LayerSample, LayerCount> measure (
             result.valid[StepsLe2] = result.valid[LeapsGe5] = true;
         }
 
-        // Use overlapping windows of six successive intervals. Clip each interval
-        // to [-12, 12], then compute sum(count(window) - 1) / number_of_windows.
-        if (intervals.size() >= 6)
+        // Split the ordered interval line into non-overlapping windows of six.
+        // Ignore an incomplete tail, clip each interval to [-12, 12], then compute
+        // sum(count(window) - 1) / number_of_windows.
+        const size_t nWindows = intervals.size() / 6;
+        if (nWindows > 0)
         {
             using Window = std::array<int, 6>;
             std::map<Window, int> counts;
-            const size_t nWindows = intervals.size() - 5;
-            for (size_t start = 0; start < nWindows; ++start)
+            for (size_t windowIndex = 0; windowIndex < nWindows; ++windowIndex)
             {
+                const size_t start = windowIndex * 6;
                 Window window {};
                 for (size_t offset = 0; offset < window.size(); ++offset)
                     window[offset] = std::max (-12, std::min (12, intervals[start + offset]));
