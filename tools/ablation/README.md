@@ -40,3 +40,24 @@ The local script defaults to eight fixed seeds (108000-108007), creating up to 7
 Keep answer-key.csv closed until ratings-template.csv is complete. For each pair, import A and B into the same FL Studio project and use the same instrument, preset, mixer chain and volume. Rate musical quality, not loudness. The answer key indicates the baseline and ablated score only after listening.
 
 This is subjective calibration, not an automatic weight-tuning mechanism. No production score weights or shipped generation behaviour are changed by this tool.
+
+## Corpus layer target diagnostics (0.109.0)
+
+The corpus summary lives in `data/corpus_targets.json`; no source MIDI notes, interval phrases or rhythm patterns are bundled. The target file contains aggregate medians/IQR ranges only. The QA-only helper is `tests/corpus_layer_metrics.h`, which is not part of the VST3 target.
+
+From the repository root, after building `MidiForgeQA`, run:
+
+```powershell
+.\build-qa\MidiForgeQA_artefacts\Release\MidiForgeQA.exe --corpus-layer-ablation 64 corpus-layer-ablation.csv
+```
+
+The command compares the baseline to every existing ablation treatment (named score functions, Composer Judge groups and Taste ML disabled) on fixed seeds 108000–108063. It writes the 450-row summary table for each treatment × layer × metric. Each metric median is calculated across the eight MIDI candidates generated per seed; the report also includes its sample count, corpus median, available IQR bounds, signed deviation in IQR widths, whether the value is outside the IQR, the difference from baseline, and tonal/grid safety fractions. The row order and CSV formatting are deterministic; CI checks two identical two-seed runs byte-for-byte and runs the 64-seed report.
+
+Layer assignment is by MIDI pitch: bass < 48, riff 48–59, top ≥ 60. Internal drum channel 5 and standard MIDI channels 9/10 are excluded. Each onset contributes the highest pitch in its layer; durations and note counts use all non-drum notes in that pitch layer. Positions are 16th-note steps, so 4 steps equal one beat and 16 equal a 4/4 bar. `window_repeat` uses overlapping six-interval windows and clips each interval to [-12, 12].
+
+Important comparability notes:
+- `min_notes_per_layer=50` describes corpus-track eligibility. Generated samples are four-bar candidate loops and therefore report loop-level metrics rather than pretending each loop contains 50 layer notes.
+- The supplied target JSON does not include an IQR for `dur_beats`; its IQR deviation and outside-IQR status are explicitly `NA`.
+- The 36-track corpus has broad dispersion and a rough pitch-only layer split. A target miss is diagnostic evidence, not a direction to change production scores or learn/copy any corpus phrase.
+- This report is QA-only. It does not change the generator, judge weights, Taste ML or golden MIDI fingerprints.
+
