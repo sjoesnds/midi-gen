@@ -1,6 +1,7 @@
 // MIDI Forge 0.108.0 release checks for the melody + chords + bass creator.
 #include "PluginProcessor.h"
 #include "MidiForgeAblation.h"
+#include "corpus_layer_metrics.h"
 
 #include <algorithm>
 #include <array>
@@ -447,6 +448,223 @@ namespace
         return 0;
     }
 
+
+    struct CorpusTreatmentStats
+    {
+        using MetricValues = std::array<
+            std::array<std::vector<double>, midiforge::corpus::MetricCount>,
+            midiforge::corpus::LayerCount>;
+        MetricValues values;
+        long long totalNotes = 0;
+        long long tonalSafeNotes = 0;
+        long long gridNotes = 0;
+    };
+
+    int runCorpusLayerAblationReport (int seedCount, const juce::File& outputFile)
+    {
+        seedCount = juce::jlimit (1, 256, seedCount);
+
+        const auto targetFile = juce::File::getCurrentWorkingDirectory()
+            .getChildFile ("data").getChildFile ("corpus_targets.json");
+        std::array<std::array<midiforge::corpus::Target, midiforge::corpus::MetricCount>,
+                   midiforge::corpus::LayerCount> targets {};
+        if (! midiforge::corpus::loadTargets (targetFile, targets))
+        {
+            std::fprintf (stderr, "Could not load corpus targets from %s\n",
+                          targetFile.getFullPathName().toRawUTF8());
+            return 2;
+        }
+
+        if (! outputFile.getParentDirectory().createDirectory())
+        {
+            std::fprintf (stderr, "Could not create corpus report directory: %s\n",
+                          outputFile.getParentDirectory().getFullPathName().toRawUTF8());
+            return 2;
+        }
+
+        const auto treatments = ablationTreatments();
+        std::vector<CorpusTreatmentStats> allStats (treatments.size());
+        const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("midiforge_corpus_layer_ablation");
+        reportRoot.createDirectory();
+
+        for (int seedIndex = 0; seedIndex < seedCount; ++seedIndex)
+        {
+            const int fixedSeed = 108000 + seedIndex;
+            for (size_t treatmentIndex = 0; treatmentIndex < treatments.size(); ++treatmentIndex)
+            {
+                const auto& treatment = treatments[treatmentIndex];
+                midiforge::qa::setActiveAblation ("");
+                const auto safeName = juce::String (treatment.name).replaceCharacter (':', '_');
+                const auto runSettings = reportRoot.getChildFile (
+                    safeName + "_" + juce::String (fixedSeed));
+                runSettings.deleteRecursively();
+                if (! runSettings.createDirectory())
+                {
+                    std::fprintf (stderr, "Could not create corpus settings directory for %s\n",
+                                  treatment.name);
+                    midiforge::qa::setActiveAblation ("");
+                    return 2;
+                }
+                MidiForgeAudioProcessor::setSettingsDirectoryOverride (runSettings);
+
+                {
+                    MidiForgeAudioProcessor processor;
+                    processor.setFeedbackLogFile (juce::File());
+                    processor.setTasteEnabled (true);
+                    processor.setSeed (fixedSeed);
+                    processor.waitForGeneration();
+
+                    // Match the existing ablation report's taste context exactly.
+                    processor.trainTaste (0, 1.0f, 1.0f);
+                    processor.trainTaste (7, 0.0f, 1.0f);
+                    midiforge::qa::setActiveAblation (treatment.target);
+                    if (treatment.disablesTaste)
+                        processor.setTasteEnabled (false);
+
+                    processor.magicRandomize();
+                    processor.waitForGeneration();
+
+                    const int variationCount = processor.getVariationCount();
+                    for (int variation = 0; variation < variationCount; ++variation)
+                    {
+                        processor.chooseVariation (variation);
+                        const auto notes = processor.getVisibleNotes();
+                        const auto measured = midiforge::corpus::measure (
+                            notes, processor.getVisibleBars());
+                        auto& stats = allStats[treatmentIndex];
+
+                        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+                            for (size_t metric = 0; metric < midiforge::corpus::MetricCount; ++metric)
+                                if (measured[layer].valid[metric])
+                                    stats.values[layer][metric].push_back (measured[layer].value[metric]);
+
+                        for (const auto& note : notes)
+                        {
+                            // Match the corpus non-drum filter for plugin-visible MIDI.
+                            if (note.channel == 5 || note.channel == 9 || note.channel == 10)
+                                continue;
+                            ++stats.totalNotes;
+                            if (inScale (note.note, processor.getRoot(), processor.getScale()))
+                                ++stats.tonalSafeNotes;
+                            if ((note.step % 2) == 0)
+                                ++stats.gridNotes;
+                        }
+                    }
+                }
+
+                midiforge::qa::setActiveAblation ("");
+                runSettings.deleteRecursively();
+            }
+        }
+
+        // Calculate baseline medians once; every other row reports the difference
+        // from the baseline so the existing score/judge effects are directly visible.
+        std::array<std::array<double, midiforge::corpus::MetricCount>,
+                   midiforge::corpus::LayerCount> baselineMedians {};
+        std::array<std::array<bool, midiforge::corpus::MetricCount>,
+                   midiforge::corpus::LayerCount> baselineValid {};
+        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+            for (size_t metric = 0; metric < midiforge::corpus::MetricCount; ++metric)
+            {
+                const auto& samples = allStats[0].values[layer][metric];
+                if (! samples.empty())
+                {
+                    baselineMedians[layer][metric] = midiforge::corpus::median (samples);
+                    baselineValid[layer][metric] = true;
+                }
+            }
+
+        std::ofstream csv (outputFile.getFullPathName().toStdString(),
+                           std::ios::out | std::ios::trunc);
+        if (! csv.is_open())
+        {
+            std::fprintf (stderr, "Could not open corpus report: %s\n",
+                          outputFile.getFullPathName().toRawUTF8());
+            midiforge::qa::setActiveAblation ("");
+            return 2;
+        }
+
+        csv << "treatment,category,seeds,variation_samples,layer,metric,bank_median,"
+               "corpus_median,iqr_low,iqr_high,deviation_iqr_units,outside_iqr,"
+               "delta_vs_baseline,tonal_safe_fraction,grid_fraction,notes_checked\n";
+        std::printf ("CORPUS_LAYER_ABLATION seeds=%d variations_per_seed=8 "
+                     "unit=per-candidate-loop; source_min_notes_per_layer=50\n", seedCount);
+        std::printf ("treatment,layer,metric,n,bank_median,corpus_median,"
+                     "iqr_low,iqr_high,deviation_iqr_units,outside_iqr,delta_vs_baseline,"
+                     "tonal_safe_fraction,grid_fraction\n");
+
+        for (size_t treatmentIndex = 0; treatmentIndex < treatments.size(); ++treatmentIndex)
+        {
+            const auto& treatment = treatments[treatmentIndex];
+            const auto& stats = allStats[treatmentIndex];
+            const double tonalFraction = stats.totalNotes > 0
+                ? (double) stats.tonalSafeNotes / (double) stats.totalNotes : 0.0;
+            const double gridFraction = stats.totalNotes > 0
+                ? (double) stats.gridNotes / (double) stats.totalNotes : 0.0;
+
+            for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+                for (size_t metric = 0; metric < midiforge::corpus::MetricCount; ++metric)
+                {
+                    const auto& samples = stats.values[layer][metric];
+                    const auto& target = targets[layer][metric];
+                    const bool hasSamples = ! samples.empty();
+                    const double bankMedian = hasSamples
+                        ? midiforge::corpus::median (samples) : 0.0;
+                    const bool hasBaseline = baselineValid[layer][metric];
+                    const double delta = hasSamples && hasBaseline
+                        ? bankMedian - baselineMedians[layer][metric] : 0.0;
+                    const bool outsideIqr = hasSamples && target.hasIqr
+                        && (bankMedian < target.iqrLow || bankMedian > target.iqrHigh);
+                    const double deviation = hasSamples && target.hasIqr
+                        ? (bankMedian - target.median) / (target.iqrHigh - target.iqrLow) : 0.0;
+
+                    csv << treatment.name << ',' << treatment.category << ',' << seedCount << ','
+                        << samples.size() << ',' << midiforge::corpus::layerNames[layer] << ','
+                        << midiforge::corpus::metricNames[metric] << ',';
+                    if (hasSamples) csv << std::fixed << std::setprecision (6) << bankMedian;
+                    else csv << "NA";
+                    csv << ',' << std::fixed << std::setprecision (6) << target.median << ',';
+                    if (target.hasIqr)
+                        csv << target.iqrLow << ',' << target.iqrHigh << ','
+                            << (hasSamples ? std::to_string (deviation) : "NA") << ','
+                            << (hasSamples ? (outsideIqr ? "true" : "false") : "NA");
+                    else
+                        csv << "NA,NA,NA,NA";
+                    csv << ',' << (hasSamples && hasBaseline ? std::to_string (delta) : "NA")
+                        << ',' << std::fixed << std::setprecision (6) << tonalFraction
+                        << ',' << gridFraction << ',' << stats.totalNotes << '\n';
+
+                    std::printf ("%s,%s,%s,%zu,", treatment.name,
+                        midiforge::corpus::layerNames[layer],
+                        midiforge::corpus::metricNames[metric], samples.size());
+                    if (hasSamples) std::printf ("%.6f", bankMedian);
+                    else std::printf ("NA");
+                    std::printf (",%.6f,", target.median);
+                    if (target.hasIqr)
+                        std::printf ("%.6f,%.6f,", target.iqrLow, target.iqrHigh);
+                    else
+                        std::printf ("NA,NA,");
+                    if (hasSamples && target.hasIqr)
+                        std::printf ("%.6f,%s,", deviation, outsideIqr ? "true" : "false");
+                    else
+                        std::printf ("NA,NA,");
+                    if (hasSamples && hasBaseline) std::printf ("%.6f", delta);
+                    else std::printf ("NA");
+                    std::printf (",%.6f,%.6f\n", tonalFraction, gridFraction);
+                }
+        }
+
+        csv.close();
+        reportRoot.deleteRecursively();
+        std::printf ("Corpus layer ablation report: %s (%d seeds x %d treatments; %d summary rows)\n",
+                     outputFile.getFullPathName().toRawUTF8(), seedCount,
+                     (int) treatments.size(),
+                     (int) (treatments.size() * midiforge::corpus::LayerCount
+                            * midiforge::corpus::MetricCount));
+        return 0;
+    }
+
     bool exportCalibrationClip (int fixedSeed,
                                 const AblationTreatment& treatment,
                                 const juce::File& outputFile,
@@ -773,6 +991,14 @@ int main (int argc, char** argv)
         const auto output = argc >= 4 ? juce::File (argv[3])
             : juce::File::getCurrentWorkingDirectory().getChildFile ("ablation-report.csv");
         return runAblationReport (seedCount, output);
+    }
+
+    if (argc >= 2 && std::string (argv[1]) == "--corpus-layer-ablation")
+    {
+        const int seedCount = argc >= 3 ? std::max (1, std::atoi (argv[2])) : 64;
+        const auto output = argc >= 4 ? juce::File (argv[3])
+            : juce::File::getCurrentWorkingDirectory().getChildFile ("corpus-layer-ablation.csv");
+        return runCorpusLayerAblationReport (seedCount, output);
     }
 
     const auto settings = juce::File::getSpecialLocation (juce::File::tempDirectory)
