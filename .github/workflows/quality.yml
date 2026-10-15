@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          "$QA" --corpus-layer-ablation 64 corpus-layer-ablation.csv > corpus-layer-ablation.log
+          "$QA" --corpus-layer-ablation 64 corpus-layer-ablation.csv | tee corpus-layer-ablation.log
           test -s corpus-layer-ablation.csv
           rows=$(wc -l < corpus-layer-ablation.csv)
           test "$rows" -eq 451
