@@ -55,6 +55,10 @@ The command compares the baseline to every existing ablation treatment (named sc
 
 Layer assignment is by MIDI pitch: bass < 48, riff 48–59, top ≥ 60. Internal drum channel 5 and standard MIDI channels 9/10 are excluded. Each onset contributes the highest pitch in its layer; durations and note counts use all non-drum notes in that pitch layer. Positions are 16th-note steps, so 4 steps equal one beat and 16 equal a 4/4 bar. `window_repeat` splits the interval line into non-overlapping windows of six intervals, ignores an incomplete tail, and clips each interval to [-12, 12].
 
+The same command also writes a sibling file named `<output-stem>-pipeline.csv`. It records two stages for each seed/treatment: the whole 1,000-candidate scored pool immediately before the existing final selector, and the eight candidates chosen by the existing judge + diversity selector before output cleanup. For each layer/metric it reports P10/P50/P90 across that stage's candidates, per-layer note-count percentiles, how many candidates meet the corpus's 50-notes-per-layer eligibility threshold, and candidate-quality P10/P50/P90. This allows us to see whether a target mismatch already exists in the generated pool or becomes stronger during selection. The quality P10 of the selected eight is the baseline lower-tail guardrail for any future experiment.
+
+CI compares the two pipeline smoke files byte-for-byte. The 2-seed smoke report has 1,800 data rows + header; the 64-seed report has 57,600 data rows + header. A few targets may be undefined for short candidate lines, so each metric row carries its own valid-sample count. The console summary prints the baseline pool/selected medians, candidate layer-note coverage, and quality percentiles across the fixed seeds.
+
 Important comparability notes:
 - `min_notes_per_layer=50` describes corpus-track eligibility. Generated samples are four-bar candidate loops and therefore report loop-level metrics rather than pretending each loop contains 50 layer notes.
 - The supplied target JSON does not include an IQR for `dur_beats`; its IQR deviation and outside-IQR status are explicitly `NA`.
