@@ -19,6 +19,9 @@
 
 #include "MidiForgeShared.h"
 #include "MidiForgeAblation.h"
+#ifdef MIDIFORGE_HEADLESS
+#include "../tests/corpus_layer_metrics.h"
+#endif
 
 MidiForgeAudioProcessor::MidiForgeAudioProcessor()
 : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
@@ -8754,6 +8757,33 @@ void MidiForgeAudioProcessor::buildVariationBank()
     constexpr int firstPassCandidates = 600;
     candidates.reserve(candidateCount);
     tasteFeatures.reserve(candidateCount);
+
+#ifdef MIDIFORGE_HEADLESS
+    auto traceCandidateDistribution = [] (const char* stage, const std::vector<Candidate>& pool)
+    {
+        if (! midiforge::corpus::pipelineTraceContext().enabled)
+            return;
+
+        std::vector<midiforge::corpus::PipelineTraceSample> samples;
+        samples.reserve (pool.size());
+        for (const auto& candidate : pool)
+        {
+            std::vector<VisibleNote> visible;
+            visible.reserve (candidate.section.notes.size());
+            for (const auto& note : candidate.section.notes)
+                visible.push_back ({ note.step, note.length, note.note, note.velocity, note.channel });
+
+            midiforge::corpus::PipelineTraceSample sample;
+            sample.layers = midiforge::corpus::measure (visible, candidate.section.bars);
+            sample.quality = candidate.quality;
+            samples.push_back (std::move (sample));
+        }
+
+        if (! midiforge::corpus::appendPipelineTraceSummary (stage, samples))
+            std::fprintf (stderr, "Could not append corpus pipeline trace for stage %s\\n",
+                          stage != nullptr ? stage : "unknown");
+    };
+#endif
     AdaptiveProfile adaptive;
     for(int c=0;c<candidateCount;++c)
     {
@@ -9966,6 +9996,12 @@ void MidiForgeAudioProcessor::buildVariationBank()
         }
     }
 
+#ifdef MIDIFORGE_HEADLESS
+    // Compare the whole scored pool with the bank that survives the existing
+    // judge + diversity selector. This is diagnostic only; no candidate is changed.
+    traceCandidateDistribution ("candidate_pool_before_final_selection", candidates);
+#endif
+
     std::vector<Candidate> selected;
     selected.reserve(8);
     std::vector<bool> used(candidates.size(),false);
@@ -10107,6 +10143,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
         used[(size_t) best] = true;
         selected.push_back (std::move (candidates[(size_t) best]));
     }
+
+#ifdef MIDIFORGE_HEADLESS
+    traceCandidateDistribution ("selected_bank_before_output_cleanup", selected);
+#endif
 
     // Creator-first generation:
     // The search has already found independent musical ideas and the diversity gate
