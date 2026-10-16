@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>
+#include <iomanip>
 #include <map>
 #include <string>
 #include <utility>
@@ -39,6 +41,124 @@ struct LayerSample
     std::array<bool, MetricCount> valid {};
     int noteCount = 0;
 };
+
+
+// Pipeline diagnostics are enabled only around an explicit headless QA MAGIC call.
+// The VST3 target never includes this test helper.
+struct PipelineTraceContext
+{
+    std::string outputPath;
+    std::string treatment;
+    int seed = 0;
+    bool enabled = false;
+};
+
+inline PipelineTraceContext& pipelineTraceContext()
+{
+    static PipelineTraceContext context;
+    return context;
+}
+
+inline void setPipelineTraceContext (const juce::File& outputFile,
+                                     const char* treatment, int seed)
+{
+    auto& context = pipelineTraceContext();
+    context.outputPath = outputFile.getFullPathName().toStdString();
+    context.treatment = treatment != nullptr ? treatment : "unknown";
+    context.seed = seed;
+    context.enabled = ! context.outputPath.empty();
+}
+
+inline void clearPipelineTraceContext()
+{
+    auto& context = pipelineTraceContext();
+    context.enabled = false;
+    context.outputPath.clear();
+    context.treatment.clear();
+    context.seed = 0;
+}
+
+struct PipelineTraceSample
+{
+    std::array<LayerSample, LayerCount> layers {};
+    double quality = 0.0;
+};
+
+inline double quantile (std::vector<double> values, double probability)
+{
+    if (values.empty())
+        return 0.0;
+    std::sort (values.begin(), values.end());
+    const double p = std::max (0.0, std::min (1.0, probability));
+    const double position = p * (double) (values.size() - 1);
+    const size_t low = (size_t) position;
+    const size_t high = std::min (values.size() - 1, low + 1);
+    const double fraction = position - (double) low;
+    return values[low] + (values[high] - values[low]) * fraction;
+}
+
+inline bool appendPipelineTraceSummary (const char* stage,
+                                        const std::vector<PipelineTraceSample>& samples)
+{
+    const auto& context = pipelineTraceContext();
+    if (! context.enabled || context.outputPath.empty() || samples.empty())
+        return true;
+
+    std::vector<double> qualities;
+    qualities.reserve (samples.size());
+    for (const auto& sample : samples)
+        qualities.push_back (sample.quality);
+
+    const double qualityP10 = quantile (qualities, 0.10);
+    const double qualityP50 = quantile (qualities, 0.50);
+    const double qualityP90 = quantile (qualities, 0.90);
+    std::ofstream csv (context.outputPath, std::ios::out | std::ios::app);
+    if (! csv.is_open())
+        return false;
+
+    for (size_t layer = 0; layer < LayerCount; ++layer)
+    {
+        std::vector<double> noteCounts;
+        noteCounts.reserve (samples.size());
+        size_t eligibleCandidates = 0;
+        std::array<std::vector<double>, MetricCount> metricValues;
+
+        for (const auto& sample : samples)
+        {
+            const auto& layerSample = sample.layers[layer];
+            noteCounts.push_back ((double) layerSample.noteCount);
+            if (layerSample.noteCount >= 50)
+                ++eligibleCandidates;
+            for (size_t metric = 0; metric < MetricCount; ++metric)
+                if (layerSample.valid[metric])
+                    metricValues[metric].push_back (layerSample.value[metric]);
+        }
+
+        const double noteP10 = quantile (noteCounts, 0.10);
+        const double noteP50 = quantile (noteCounts, 0.50);
+        const double noteP90 = quantile (noteCounts, 0.90);
+
+        for (size_t metric = 0; metric < MetricCount; ++metric)
+        {
+            const auto& values = metricValues[metric];
+            csv << context.seed << ',' << context.treatment << ','
+                << (stage != nullptr ? stage : "unknown") << ',' << samples.size() << ','
+                << layerNames[layer] << ','
+                << std::fixed << std::setprecision (6)
+                << noteP10 << ',' << noteP50 << ',' << noteP90 << ','
+                << eligibleCandidates << ',' << metricNames[metric] << ','
+                << values.size() << ',';
+            if (values.empty())
+                csv << "NA,NA,NA";
+            else
+                csv << quantile (values, 0.10) << ','
+                    << quantile (values, 0.50) << ','
+                    << quantile (values, 0.90);
+            csv << ',' << qualityP10 << ',' << qualityP50 << ',' << qualityP90 << '\n';
+        }
+    }
+    return csv.good();
+}
 
 inline double median (std::vector<double> values)
 {
