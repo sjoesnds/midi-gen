@@ -482,6 +482,23 @@ namespace
             return 2;
         }
 
+        const auto pipelineFile = outputFile.getSiblingFile (
+            outputFile.getFileNameWithoutExtension() + "-pipeline.csv");
+        {
+            std::ofstream traceCsv (pipelineFile.getFullPathName().toStdString(),
+                                   std::ios::out | std::ios::trunc);
+            if (! traceCsv.is_open())
+            {
+                std::fprintf (stderr, "Could not create pipeline trace: %s\n",
+                              pipelineFile.getFullPathName().toRawUTF8());
+                return 2;
+            }
+            traceCsv << "seed,treatment,stage,candidate_count,layer,layer_note_count_p10,"
+                        "layer_note_count_p50,layer_note_count_p90,candidates_ge_50_notes,"
+                        "metric,metric_samples,metric_p10,metric_p50,metric_p90,"
+                        "quality_p10,quality_p50,quality_p90\n";
+        }
+
         const auto treatments = ablationTreatments();
         std::vector<CorpusTreatmentStats> allStats (treatments.size());
         const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
@@ -522,8 +539,11 @@ namespace
                     if (treatment.disablesTaste)
                         processor.setTasteEnabled (false);
 
+                    midiforge::corpus::setPipelineTraceContext (
+                        pipelineFile, treatment.name, fixedSeed);
                     processor.magicRandomize();
                     processor.waitForGeneration();
+                    midiforge::corpus::clearPipelineTraceContext();
 
                     const int variationCount = processor.getVariationCount();
                     for (int variation = 0; variation < variationCount; ++variation)
@@ -657,6 +677,15 @@ namespace
 
         csv.close();
         reportRoot.deleteRecursively();
+        midiforge::corpus::clearPipelineTraceContext();
+        if (! pipelineFile.existsAsFile() || pipelineFile.getSize() < 100)
+        {
+            std::fprintf (stderr, "Corpus pipeline trace was not written: %s\n",
+                          pipelineFile.getFullPathName().toRawUTF8());
+            return 2;
+        }
+        std::printf ("Corpus candidate pipeline trace: %s (pool vs selected bank, quality percentiles, layer eligibility >=50 notes)\n",
+                     pipelineFile.getFullPathName().toRawUTF8());
         std::printf ("Corpus layer ablation report: %s (%d seeds x %d treatments; %d summary rows)\n",
                      outputFile.getFullPathName().toRawUTF8(), seedCount,
                      (int) treatments.size(),
