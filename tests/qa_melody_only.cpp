@@ -460,6 +460,112 @@ namespace
         long long gridNotes = 0;
     };
 
+    void printBaselinePipelineTraceSummary (const juce::File& pipelineFile)
+    {
+        std::ifstream input (pipelineFile.getFullPathName().toStdString());
+        if (! input.is_open())
+        {
+            std::printf ("Could not read pipeline summary: %s\n",
+                         pipelineFile.getFullPathName().toRawUTF8());
+            return;
+        }
+
+        using MetricSamples = std::array<
+            std::array<std::vector<double>, midiforge::corpus::MetricCount>,
+            midiforge::corpus::LayerCount>;
+        std::array<MetricSamples, 2> metricMedians {};
+        std::array<std::array<std::vector<double>, midiforge::corpus::LayerCount>, 2> noteMedians {};
+        std::array<std::array<std::vector<double>, midiforge::corpus::LayerCount>, 2> eligibility {};
+        std::array<std::array<std::vector<double>, 3>, 2> quality {};
+        std::string line;
+        std::getline (input, line); // header
+
+        while (std::getline (input, line))
+        {
+            std::stringstream row (line);
+            std::vector<std::string> fields;
+            std::string field;
+            while (std::getline (row, field, ','))
+                fields.push_back (field);
+            if (fields.size() < 17 || fields[1] != "Baseline")
+                continue;
+
+            int stage = -1;
+            if (fields[2] == "candidate_pool_before_final_selection") stage = 0;
+            else if (fields[2] == "selected_bank_before_output_cleanup") stage = 1;
+            if (stage < 0)
+                continue;
+
+            size_t layer = midiforge::corpus::LayerCount;
+            for (size_t i = 0; i < midiforge::corpus::LayerCount; ++i)
+                if (fields[4] == midiforge::corpus::layerNames[i]) layer = i;
+            size_t metric = midiforge::corpus::MetricCount;
+            for (size_t i = 0; i < midiforge::corpus::MetricCount; ++i)
+                if (fields[9] == midiforge::corpus::metricNames[i]) metric = i;
+            if (layer >= midiforge::corpus::LayerCount
+                || metric >= midiforge::corpus::MetricCount)
+                continue;
+
+            if (metric == midiforge::corpus::StepsLe2)
+            {
+                if (fields[6] != "NA") noteMedians[(size_t) stage][layer].push_back (std::stod (fields[6]));
+                const double count = std::stod (fields[3]);
+                if (count > 0.0)
+                    eligibility[(size_t) stage][layer].push_back (std::stod (fields[8]) / count);
+                if (layer == (size_t) midiforge::corpus::Top)
+                {
+                    for (size_t qi = 0; qi < 3; ++qi)
+                        if (fields[14 + qi] != "NA")
+                            quality[(size_t) stage][qi].push_back (std::stod (fields[14 + qi]));
+                }
+            }
+
+            if (fields[10] != "0" && fields[12] != "NA")
+                metricMedians[(size_t) stage][layer][metric].push_back (std::stod (fields[12]));
+        }
+
+        const char* stageNames[2] = { "candidate_pool", "selected_bank" };
+        const char* qualityNames[3] = { "P10", "P50", "P90" };
+        std::printf ("CORPUS_PIPELINE_BASELINE metric medians across fixed seeds: pool vs selected bank\n");
+        std::printf ("stage,layer,metric,seed_samples,median_of_per_seed_medians\n");
+        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+            for (size_t metric = 0; metric < midiforge::corpus::MetricCount; ++metric)
+                for (int stage = 0; stage < 2; ++stage)
+                {
+                    const auto& values = metricMedians[(size_t) stage][layer][metric];
+                    std::printf ("%s,%s,%s,%zu,",
+                        stageNames[stage], midiforge::corpus::layerNames[layer],
+                        midiforge::corpus::metricNames[metric], values.size());
+                    if (values.empty()) std::printf ("NA\n");
+                    else std::printf ("%.6f\n", midiforge::corpus::median (values));
+                }
+
+        std::printf ("CORPUS_PIPELINE_BASELINE coverage: layer-note counts and candidate share with >=50 notes\n");
+        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+            for (int stage = 0; stage < 2; ++stage)
+            {
+                const auto& counts = noteMedians[(size_t) stage][layer];
+                const auto& eligible = eligibility[(size_t) stage][layer];
+                std::printf ("%s,%s,note_count_median,",
+                    stageNames[stage], midiforge::corpus::layerNames[layer]);
+                if (counts.empty()) std::printf ("NA,");
+                else std::printf ("%.3f,", midiforge::corpus::median (counts));
+                if (eligible.empty()) std::printf ("NA\n");
+                else std::printf ("%.6f\n", midiforge::corpus::median (eligible));
+            }
+
+        std::printf ("CORPUS_PIPELINE_BASELINE candidate quality distribution; quality P10 is the lower-tail guardrail\n");
+        for (size_t qi = 0; qi < 3; ++qi)
+            for (int stage = 0; stage < 2; ++stage)
+            {
+                const auto& values = quality[(size_t) stage][qi];
+                std::printf ("%s,%s,seed_samples,",
+                    stageNames[stage], qualityNames[qi]);
+                if (values.empty()) std::printf ("0,NA\n");
+                else std::printf ("%zu,%.6f\n", values.size(), midiforge::corpus::median (values));
+            }
+    }
+
     int runCorpusLayerAblationReport (int seedCount, const juce::File& outputFile)
     {
         seedCount = juce::jlimit (1, 256, seedCount);
@@ -686,6 +792,7 @@ namespace
         }
         std::printf ("Corpus candidate pipeline trace: %s (pool vs selected bank, quality percentiles, layer eligibility >=50 notes)\n",
                      pipelineFile.getFullPathName().toRawUTF8());
+        printBaselinePipelineTraceSummary (pipelineFile);
         std::printf ("Corpus layer ablation report: %s (%d seeds x %d treatments; %d summary rows)\n",
                      outputFile.getFullPathName().toRawUTF8(), seedCount,
                      (int) treatments.size(),
