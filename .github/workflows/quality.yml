@@ -273,7 +273,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \\
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \
             libfreetype-dev libfontconfig1-dev libasound2-dev
 
       - name: Cache JUCE
@@ -293,7 +293,7 @@ jobs:
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
           mkdir -p memorability-artifacts
-          "$QA" --memorability-report 256 memorability-artifacts/memorability-baseline-108000-108255.csv \\
+          "$QA" --memorability-report 256 memorability-artifacts/memorability-baseline-108000-108255.csv \
             | tee memorability-artifacts/report.log
           test -s memorability-artifacts/memorability-baseline-108000-108255.csv
           rows=$(wc -l < memorability-artifacts/memorability-baseline-108000-108255.csv)
@@ -302,11 +302,11 @@ jobs:
       - name: Analyze baseline and choose listening clips
         run: |
           set -euo pipefail
-          python3 tools/memorability/analyze_baseline.py \\
-            --input memorability-artifacts/memorability-baseline-108000-108255.csv \\
-            --output-dir memorability-artifacts \\
-            --expected-seeds 256 \\
-            --expected-slots 8 \\
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-artifacts/memorability-baseline-108000-108255.csv \
+            --output-dir memorability-artifacts \
+            --expected-seeds 256 \
+            --expected-slots 8 \
             --listening-items 12
           test -s memorability-artifacts/summary.md
           test -s memorability-artifacts/counterexamples.csv
@@ -316,16 +316,16 @@ jobs:
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          python3 tools/memorability/prepare_blind_pack.py prepare \\
-            --selection memorability-artifacts/listening-selection.csv \\
-            --export-selection memorability-artifacts/listening-pack-selection.csv \\
-            --answer-key memorability-artifacts/listening-answer-key.csv \\
+          python3 tools/memorability/prepare_blind_pack.py prepare \
+            --selection memorability-artifacts/listening-selection.csv \
+            --export-selection memorability-artifacts/listening-pack-selection.csv \
+            --answer-key memorability-artifacts/listening-answer-key.csv \
             --expected-items 12
           "$QA" --memorability-pack memorability-artifacts/listening-pack-selection.csv memorability-artifacts/listening-pack
           clips=$(find memorability-artifacts/listening-pack -type f -name '*.mid' | wc -l)
           test "$clips" -eq 12
-          python3 tools/memorability/prepare_blind_pack.py finalize \\
-            --pack-dir memorability-artifacts/listening-pack \\
+          python3 tools/memorability/prepare_blind_pack.py finalize \
+            --pack-dir memorability-artifacts/listening-pack \
             --expected-items 12
           test -s memorability-artifacts/listening-pack/LISTENING_PROMPT.md
 
