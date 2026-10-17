@@ -76,6 +76,7 @@ jobs:
           test "$pipeline_rows" -eq 3601
 
       - name: Run corpus layer ablation (64 fixed seeds; headless only)
+        if: ${{ !contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
@@ -91,6 +92,7 @@ jobs:
           test "$pipeline_rows" -eq 115201
 
       - name: Analyze candidate audit (offline feasibility probe; headless only)
+        if: ${{ !contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           python3 tools/ablation/analyze_corpus_candidates.py \
@@ -140,6 +142,26 @@ jobs:
           grep -q clip_01.mid memorability-smoke-analysis/listening-pack-selection.csv
           grep -q clip_12.mid memorability-smoke-analysis/listening-pack-selection.csv
 
+      - name: Export one-off smoke MIDI pack from current main
+        if: ${{ contains(github.event.head_commit.message, '[listen-pack]') }}
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --memorability-pack memorability-smoke-analysis/listening-pack-selection.csv memorability-smoke-listening-pack
+          clips=$(find memorability-smoke-listening-pack -type f -name '*.mid' | wc -l)
+          test "$clips" -eq 12
+          python3 tools/memorability/prepare_blind_pack.py finalize \\
+            --pack-dir memorability-smoke-listening-pack \\
+            --expected-items 12
+          test -s memorability-smoke-listening-pack/LISTENING_PROMPT.md
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && contains(github.event.head_commit.message, '[listen-pack]') }}
+        with:
+          name: memorability-listening-pack-smoke
+          path: memorability-smoke-listening-pack/
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -169,6 +191,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
+        if: ${{ !contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
