@@ -40,3 +40,51 @@ The local script defaults to eight fixed seeds (108000-108007), creating up to 7
 Keep answer-key.csv closed until ratings-template.csv is complete. For each pair, import A and B into the same FL Studio project and use the same instrument, preset, mixer chain and volume. Rate musical quality, not loudness. The answer key indicates the baseline and ablated score only after listening.
 
 This is subjective calibration, not an automatic weight-tuning mechanism. No production score weights or shipped generation behaviour are changed by this tool.
+
+## Corpus layer target diagnostics (0.109.0)
+
+The corpus targets live in `data/corpus_targets.json`; anonymized per-track aggregate metrics live in `data/corpus_per_track_stats.json`. Source MIDI notes, interval phrases, track names and text are not bundled. The target medians/IQRs are validated against the per-track summaries by `tools/ablation/validate_corpus_targets.py`; because stored per-track values are rounded to three decimals, the check allows a 0.0011 absolute tolerance. The QA-only helper is `tests/corpus_layer_metrics.h`, which is not part of the VST3 target.
+
+From the repository root, after building `MidiForgeQA`, run:
+
+```powershell
+.\build-qa\MidiForgeQA_artefacts\Release\MidiForgeQA.exe --corpus-layer-ablation 64 corpus-layer-ablation.csv
+```
+
+The command compares the baseline to every existing ablation treatment (named score functions, Composer Judge groups and Taste ML disabled) on fixed seeds 108000–108063. It writes the 450-row summary table for each treatment × layer × metric. Each metric median is calculated across the eight MIDI candidates generated per seed; the report also includes its sample count, corpus median, available IQR bounds, signed deviation in IQR widths, whether the value is outside the IQR, the difference from baseline, and tonal/grid safety fractions. The row order and CSV formatting are deterministic; CI checks two identical two-seed runs byte-for-byte and runs the 64-seed report.
+
+Layer assignment is by MIDI pitch: bass < 48, riff 48–59, top ≥ 60. Internal drum channel 5 and standard MIDI channels 9/10 are excluded. Each onset contributes the highest pitch in its layer for contour/repeat metrics; durations and note counts use all non-drum notes in that pitch layer. Positions are 16th-note steps, so 4 steps equal one beat and 16 equal a 4/4 bar. The supplied source method skips all metrics when a pitch layer has fewer than five notes. `window_repeat` uses every sliding window of six consecutive intervals (stride one), clips each interval to [-12, 12], counts exact duplicate clipped tuples, then divides the excess duplicates by `max(1, window_count)`. No-window/single-window cases return zero when the layer has at least five notes. Notes-per-bar includes gaps from bar 0 through the final occupied bar but not trailing empty bars.
+
+The same command also writes a sibling file named `<output-stem>-pipeline.csv`. It records two stages for each seed/treatment: the whole 1,000-candidate scored pool immediately before the existing final selector, and the eight candidates chosen by the existing judge + diversity selector before output cleanup. For each layer/metric it reports P10/P50/P90 across that stage's candidates, per-layer note-count percentiles, how many candidates meet the corpus's 50-notes-per-layer eligibility threshold, and candidate-quality P10/P50/P90. Each record now has `population=all` or `population=layer50_eligible`. The eligible population is filtered independently per pitch layer, so a `top` metric is computed only from candidates with at least 50 top-layer notes, etc. When a layer has no eligible candidates, its metrics are `NA` with zero valid samples; these must not be treated as measured zeros. This lets the report compare only like-enough sample sizes when such candidates exist, while still quantifying how often eligibility is impossible. The quality P10 of the selected eight is the baseline lower-tail guardrail for any future experiment.
+
+CI compares the two pipeline smoke files and the new candidate-audit files byte-for-byte. The 2-seed candidate audit has 2,016 data rows + header; the 64-seed audit has 64,512 data rows + header. Candidate-level rows are written only for the baseline treatment, at the scored pool and the selected eight, and include each candidate's existing quality plus per-layer note count and metrics. `candidate_identity` links the candidate's pool row to its selected-bank row; `candidate_index` is only its order at that stage. This is measurement-only instrumentation in the headless target.
+
+Important comparability notes:
+- `min_notes_per_layer=50` describes corpus-track eligibility. Generated samples are four-bar candidate loops and therefore report loop-level metrics rather than pretending each loop contains 50 layer notes.
+- The supplied target JSON includes IQR bounds for all five metrics, including `dur_beats`.
+- The 36-track corpus has broad dispersion and a rough pitch-only layer split. A target miss is diagnostic evidence, not a direction to change production scores or learn/copy any corpus phrase.
+- This report is QA-only. It does not change the generator, judge weights, Taste ML or golden MIDI fingerprints.
+
+
+## Candidate-level corpus analysis (diagnostic only)
+
+After CI has produced `corpus-layer-ablation-candidates.csv`, the standard-library-only script `tools/ablation/analyze_corpus_candidates.py` summarizes each layer at the scored-pool and selected-bank stages, candidate note-count coverage, individual and joint source-IQR matches, and a top-layer selection-feasibility probe. Example:
+
+```powershell
+python tools/ablation/analyze_corpus_candidates.py `
+  --candidates corpus-layer-ablation-candidates.csv `
+  --targets data/corpus_targets.json `
+  --output corpus-candidate-selection-analysis.json
+```
+
+CI runs the analysis on both two-seed smoke exports and compares the JSON outputs byte-for-byte. The full 64-seed JSON is included in the `corpus-layer-ablation` artifact.
+
+The selection probe ranks existing candidates by their existing quality only after filtering top-layer `steps_le2`, `leaps_ge5`, and `notes_per_bar` into their supplied IQR ranges, requiring at least 20 top-layer notes; any remaining bank slots are filled from the existing selected bank. It is deliberately not the production diversity selector and never writes MIDI or changes a score, judge, Taste ML, or version. Its purpose is to check whether a selection-only idea is even plausible without violating the existing bank-quality lower-tail guardrail.
+
+Comparability safeguards: filtering a four-bar generated loop for at least 50 notes can mechanically push density toward 12.5 notes/bar, so the source `min_notes_per_layer=50` threshold should not be used as a density target for generated loops. Also validate the precise six-interval `window_repeat` definition and note-track-length comparability against the source corpus calculator before changing generation. A failed joint match is evidence to investigate definitions and the candidate generator, not permission to tune weights blindly.
+
+## `window_repeat` definition audit (diagnostic only)
+
+The source definition is now known from the supplied method script: construct the interval sequence from the highest note at each rounded onset within each pitch band; create six-interval windows with stride one; clip each interval to [-12, 12]; compare the clipped tuples exactly; and compute `sum(count - 1 for repeated tuples) / max(1, number_of_windows)`. If a pitch layer has fewer than five raw notes, the source calculator skips its metrics. If it has at least five notes but not enough intervals to form two windows, `window_repeat` is zero. The `window_repeat6_sliding_clip` sensitivity column uses `NA` when it has no second window to compare, so it may differ from source `window_repeat` for very short generated lines.
+
+The anonymized per-track summaries and target aggregation are now in the repo and validated in CI. The original MIDI note data is still absent, so validation confirms target medians/IQRs from the stored track summaries rather than independently recalculating those track-level metrics from notes. Other window lengths, non-overlapping windows and unclipped intervals remain sensitivity-only probes. No production generator change is justified by this diagnostic update alone.

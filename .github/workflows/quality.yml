@@ -38,6 +38,9 @@ jobs:
       - name: Build
         run: cmake --build build-qa --config Release --parallel
 
+      - name: Validate source corpus target aggregation
+        run: python3 tools/ablation/validate_corpus_targets.py
+
       - name: Run quality checks
         env:
           MIDIFORGE_PIPELINE_TRACE: "1"
@@ -55,6 +58,74 @@ jobs:
           test -s ablation-pilot.csv
           rows=$(wc -l < ablation-pilot.csv)
           test "$rows" -eq 61
+
+      - name: Verify corpus layer report determinism (2 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --corpus-layer-ablation 2 corpus-layer-smoke-a.csv >/dev/null
+          "$QA" --corpus-layer-ablation 2 corpus-layer-smoke-b.csv >/dev/null
+          cmp corpus-layer-smoke-a.csv corpus-layer-smoke-b.csv
+          cmp corpus-layer-smoke-a-pipeline.csv corpus-layer-smoke-b-pipeline.csv
+          cmp corpus-layer-smoke-a-candidates.csv corpus-layer-smoke-b-candidates.csv
+          candidate_rows=$(wc -l < corpus-layer-smoke-a-candidates.csv)
+          test "$candidate_rows" -eq 2017
+          rows=$(wc -l < corpus-layer-smoke-a.csv)
+          test "$rows" -eq 451
+          pipeline_rows=$(wc -l < corpus-layer-smoke-a-pipeline.csv)
+          test "$pipeline_rows" -eq 3601
+
+      - name: Run corpus layer ablation (64 fixed seeds; headless only)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --corpus-layer-ablation 64 corpus-layer-ablation.csv | tee corpus-layer-ablation.log
+          test -s corpus-layer-ablation.csv
+          test -s corpus-layer-ablation-pipeline.csv
+          test -s corpus-layer-ablation-candidates.csv
+          candidate_rows=$(wc -l < corpus-layer-ablation-candidates.csv)
+          test "$candidate_rows" -eq 64513
+          rows=$(wc -l < corpus-layer-ablation.csv)
+          test "$rows" -eq 451
+          pipeline_rows=$(wc -l < corpus-layer-ablation-pipeline.csv)
+          test "$pipeline_rows" -eq 115201
+
+      - name: Analyze candidate audit (offline feasibility probe; headless only)
+        run: |
+          set -euo pipefail
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-smoke-a-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-layer-smoke-a-analysis.json
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-smoke-b-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-layer-smoke-b-analysis.json
+          cmp corpus-layer-smoke-a-analysis.json corpus-layer-smoke-b-analysis.json
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-ablation-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-candidate-selection-analysis.json
+          test -s corpus-candidate-selection-analysis.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: corpus-layer-ablation
+          path: |
+            corpus-layer-ablation.csv
+            corpus-layer-ablation-pipeline.csv
+            corpus-layer-ablation-candidates.csv
+            corpus-candidate-selection-analysis.json
+            corpus-layer-smoke-a-analysis.json
+            corpus-layer-ablation.log
+            corpus-layer-smoke-a.csv
+            corpus-layer-smoke-a-pipeline.csv
+            corpus-layer-smoke-a-candidates.csv
+            corpus-layer-smoke-b.csv
+            corpus-layer-smoke-b-pipeline.csv
+            corpus-layer-smoke-b-candidates.csv
+          if-no-files-found: ignore
 
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
         run: |
