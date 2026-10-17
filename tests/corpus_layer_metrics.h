@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -48,6 +49,7 @@ struct LayerSample
 struct PipelineTraceContext
 {
     std::string outputPath;
+    std::string candidateOutputPath;
     std::string treatment;
     int seed = 0;
     bool enabled = false;
@@ -66,6 +68,12 @@ inline void setPipelineTraceContext (const juce::File& outputFile,
     context.outputPath = outputFile.getFullPathName().toStdString();
     context.treatment = treatment != nullptr ? treatment : "unknown";
     context.seed = seed;
+    juce::File pipelineFile (context.outputPath);
+    auto candidateStem = pipelineFile.getFileNameWithoutExtension();
+    if (candidateStem.endsWith ("-pipeline"))
+        candidateStem = candidateStem.dropLastCharacters (9);
+    context.candidateOutputPath = pipelineFile.getSiblingFile (
+        candidateStem + "-candidates.csv").getFullPathName().toStdString();
     context.enabled = ! context.outputPath.empty();
 }
 
@@ -74,6 +82,7 @@ inline void clearPipelineTraceContext()
     auto& context = pipelineTraceContext();
     context.enabled = false;
     context.outputPath.clear();
+    context.candidateOutputPath.clear();
     context.treatment.clear();
     context.seed = 0;
 }
@@ -81,6 +90,8 @@ inline void clearPipelineTraceContext()
 struct PipelineTraceSample
 {
     std::array<LayerSample, LayerCount> layers {};
+    int candidateIndex = -1;
+    std::uint32_t candidateIdentity = 0;
     double quality = 0.0;
 };
 
@@ -187,6 +198,45 @@ inline bool appendPipelineTraceSummary (const char* stage,
         // exact pitch layer. Empty subsets produce NA metrics rather than fake zeros.
         writeLayerPopulation ("layer50_eligible", layer, eligibleSamples, eligibleCount);
     }
+    return csv.good();
+}
+
+
+inline bool appendPipelineCandidateAudit (const char* stage,
+                                          const std::vector<PipelineTraceSample>& samples)
+{
+    const auto& context = pipelineTraceContext();
+    if (! context.enabled || context.treatment != "Baseline"
+        || context.candidateOutputPath.empty() || samples.empty())
+        return true;
+
+    std::ofstream csv (context.candidateOutputPath, std::ios::out | std::ios::app);
+    if (! csv.is_open())
+        return false;
+
+    for (const auto& sample : samples)
+    {
+        csv << context.seed << ',' << context.treatment << ','
+            << (stage != nullptr ? stage : "unknown") << ','
+            << sample.candidateIndex << ',' << sample.candidateIdentity << ','
+            << std::fixed << std::setprecision (6) << sample.quality;
+
+        for (size_t layer = 0; layer < LayerCount; ++layer)
+        {
+            const auto& layerSample = sample.layers[layer];
+            csv << ',' << layerSample.noteCount;
+            for (size_t metric = 0; metric < MetricCount; ++metric)
+            {
+                csv << ',';
+                if (layerSample.valid[metric])
+                    csv << std::fixed << std::setprecision (6) << layerSample.value[metric];
+                else
+                    csv << "NA";
+            }
+        }
+        csv << '\n';
+    }
+
     return csv.good();
 }
 
