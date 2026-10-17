@@ -87,6 +87,24 @@ jobs:
           pipeline_rows=$(wc -l < corpus-layer-ablation-pipeline.csv)
           test "$pipeline_rows" -eq 115201
 
+      - name: Analyze candidate audit (offline feasibility probe; headless only)
+        run: |
+          set -euo pipefail
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-smoke-a-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-layer-smoke-a-analysis.json
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-smoke-b-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-layer-smoke-b-analysis.json
+          cmp corpus-layer-smoke-a-analysis.json corpus-layer-smoke-b-analysis.json
+          python3 tools/ablation/analyze_corpus_candidates.py \
+            --candidates corpus-layer-ablation-candidates.csv \
+            --targets data/corpus_targets.json \
+            --output corpus-candidate-selection-analysis.json
+          test -s corpus-candidate-selection-analysis.json
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -95,6 +113,8 @@ jobs:
             corpus-layer-ablation.csv
             corpus-layer-ablation-pipeline.csv
             corpus-layer-ablation-candidates.csv
+            corpus-candidate-selection-analysis.json
+            corpus-layer-smoke-a-analysis.json
             corpus-layer-ablation.log
             corpus-layer-smoke-a.csv
             corpus-layer-smoke-a-pipeline.csv

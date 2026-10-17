@@ -65,3 +65,20 @@ Important comparability notes:
 - The 36-track corpus has broad dispersion and a rough pitch-only layer split. A target miss is diagnostic evidence, not a direction to change production scores or learn/copy any corpus phrase.
 - This report is QA-only. It does not change the generator, judge weights, Taste ML or golden MIDI fingerprints.
 
+
+## Candidate-level corpus analysis (diagnostic only)
+
+After CI has produced `corpus-layer-ablation-candidates.csv`, the standard-library-only script `tools/ablation/analyze_corpus_candidates.py` summarizes each layer at the scored-pool and selected-bank stages, candidate note-count coverage, individual and joint source-IQR matches, and a top-layer selection-feasibility probe. Example:
+
+```powershell
+python tools/ablation/analyze_corpus_candidates.py `
+  --candidates corpus-layer-ablation-candidates.csv `
+  --targets data/corpus_targets.json `
+  --output corpus-candidate-selection-analysis.json
+```
+
+CI runs the analysis on both two-seed smoke exports and compares the JSON outputs byte-for-byte. The full 64-seed JSON is included in the `corpus-layer-ablation` artifact.
+
+The selection probe ranks existing candidates by their existing quality only after filtering top-layer `steps_le2`, `leaps_ge5`, and `notes_per_bar` into their supplied IQR ranges, requiring at least 20 top-layer notes; any remaining bank slots are filled from the existing selected bank. It is deliberately not the production diversity selector and never writes MIDI or changes a score, judge, Taste ML, or version. Its purpose is to check whether a selection-only idea is even plausible without violating the existing bank-quality lower-tail guardrail.
+
+Comparability safeguards: filtering a four-bar generated loop for at least 50 notes can mechanically push density toward 12.5 notes/bar, so the source `min_notes_per_layer=50` threshold should not be used as a density target for generated loops. Also validate the precise six-interval `window_repeat` definition and note-track-length comparability against the source corpus calculator before changing generation. A failed joint match is evidence to investigate definitions and the candidate generator, not permission to tune weights blindly.
