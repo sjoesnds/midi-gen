@@ -67,7 +67,7 @@ jobs:
           rows=$(wc -l < corpus-layer-smoke-a.csv)
           test "$rows" -eq 451
           pipeline_rows=$(wc -l < corpus-layer-smoke-a-pipeline.csv)
-          test "$pipeline_rows" -eq 1801
+          test "$pipeline_rows" -eq 3601
 
       - name: Run corpus layer ablation (64 fixed seeds; headless only)
         run: |
@@ -79,7 +79,7 @@ jobs:
           rows=$(wc -l < corpus-layer-ablation.csv)
           test "$rows" -eq 451
           pipeline_rows=$(wc -l < corpus-layer-ablation-pipeline.csv)
-          test "$pipeline_rows" -eq 57601
+          test "$pipeline_rows" -eq 115201
 
       - uses: actions/upload-artifact@v4
         if: always()
