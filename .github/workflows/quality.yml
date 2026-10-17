@@ -108,6 +108,47 @@ jobs:
             --output corpus-candidate-selection-analysis.json
           test -s corpus-candidate-selection-analysis.json
 
+      - name: Smoke-test memorability probe (2 fixed seeds)
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          "$QA" --memorability-report 2 memorability-smoke.csv
+          test -s memorability-smoke.csv
+          rows=$(wc -l < memorability-smoke.csv)
+          test "$rows" -eq 17
+          grep -q "hook_present,hook_count" memorability-smoke.csv
+
+      - name: Validate memorability analyzer and anonymous selection
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/memorability/analyze_baseline.py tools/memorability/prepare_blind_pack.py
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-smoke.csv \
+            --output-dir memorability-smoke-analysis \
+            --expected-seeds 2 \
+            --expected-slots 8 \
+            --listening-items 12
+          python3 tools/memorability/prepare_blind_pack.py prepare \
+            --selection memorability-smoke-analysis/listening-selection.csv \
+            --export-selection memorability-smoke-analysis/listening-pack-selection.csv \
+            --answer-key memorability-smoke-analysis/listening-answer-key.csv \
+            --expected-items 12
+          test -s memorability-smoke-analysis/summary.md
+          test -s memorability-smoke-analysis/counterexamples.csv
+          test -s memorability-smoke-analysis/listening-pack-selection.csv
+          test -s memorability-smoke-analysis/listening-answer-key.csv
+          grep -q clip_01.mid memorability-smoke-analysis/listening-pack-selection.csv
+          grep -q clip_12.mid memorability-smoke-analysis/listening-pack-selection.csv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-smoke
+          path: |
+            memorability-smoke.csv
+            memorability-smoke-analysis/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -217,3 +258,87 @@ jobs:
 
       - name: Build Windows VST3
         run: cmake --build build-win --config Release --parallel
+
+  # The full 256-seed memorability pack is intentionally manual on main so ordinary
+  # direct-to-main commits do not each rerun the longer baseline. The 2-seed smoke
+  # test remains part of every standard quality run.
+  memorability-baseline:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    needs: [quality, sanitizers, windows-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev \\
+            libfreetype-dev libfontconfig1-dev libasound2-dev
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build-qa/_deps
+          key: ${{ runner.os }}-qa-memorability-juce-8.0.14-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure headless QA target
+        run: cmake -S tests -B build-qa -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build headless QA target
+        run: cmake --build build-qa --config Release --parallel
+
+      - name: Generate 256-seed baseline
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          mkdir -p memorability-artifacts
+          "$QA" --memorability-report 256 memorability-artifacts/memorability-baseline-108000-108255.csv \\
+            | tee memorability-artifacts/report.log
+          test -s memorability-artifacts/memorability-baseline-108000-108255.csv
+          rows=$(wc -l < memorability-artifacts/memorability-baseline-108000-108255.csv)
+          test "$rows" -eq 2049
+
+      - name: Analyze baseline and choose listening clips
+        run: |
+          set -euo pipefail
+          python3 tools/memorability/analyze_baseline.py \\
+            --input memorability-artifacts/memorability-baseline-108000-108255.csv \\
+            --output-dir memorability-artifacts \\
+            --expected-seeds 256 \\
+            --expected-slots 8 \\
+            --listening-items 12
+          test -s memorability-artifacts/summary.md
+          test -s memorability-artifacts/counterexamples.csv
+          test -s memorability-artifacts/listening-selection.csv
+
+      - name: Export and validate blind MIDI pack
+        run: |
+          set -euo pipefail
+          QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
+          python3 tools/memorability/prepare_blind_pack.py prepare \\
+            --selection memorability-artifacts/listening-selection.csv \\
+            --export-selection memorability-artifacts/listening-pack-selection.csv \\
+            --answer-key memorability-artifacts/listening-answer-key.csv \\
+            --expected-items 12
+          "$QA" --memorability-pack memorability-artifacts/listening-pack-selection.csv memorability-artifacts/listening-pack
+          clips=$(find memorability-artifacts/listening-pack -type f -name '*.mid' | wc -l)
+          test "$clips" -eq 12
+          python3 tools/memorability/prepare_blind_pack.py finalize \\
+            --pack-dir memorability-artifacts/listening-pack \\
+            --expected-items 12
+          test -s memorability-artifacts/listening-pack/LISTENING_PROMPT.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-listening-pack-blind
+          path: memorability-artifacts/listening-pack/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-baseline-108000-108255
+          path: memorability-artifacts/
+          if-no-files-found: warn
