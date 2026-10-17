@@ -30,6 +30,8 @@ target_sources(MidiForgeQA PRIVATE
     ../Source/MelodyDecision.h
     ../Source/MotifSemantics.cpp
     ../Source/LoopClosure.cpp
+    ../Source/MemorabilityProbe.h
+    memorability_report.cpp
 )
 target_include_directories(MidiForgeQA PRIVATE ../Source)
 juce_generate_juce_header(MidiForgeQA)
