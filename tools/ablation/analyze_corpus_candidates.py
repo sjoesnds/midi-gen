@@ -189,7 +189,7 @@ def summarize_repeat_sensitivity(rows: list[dict[str, str]]) -> dict[str, Any]:
             for layer in LAYERS
         }
     result["variant_definitions"] = {
-        "window_repeat": "Current diagnostic metric: complete non-overlapping six-interval windows; each interval clipped to [-12, 12]; excess exact duplicates divided by window count; reports zero with one complete window.",
+        "window_repeat": "Current diagnostic metric: complete non-overlapping six-interval windows; each interval clipped to [-12, 12]; excess exact duplicates divided by window count; valid only with at least two complete windows, otherwise NA.",
         "window_repeat6_sliding_clip": "Six-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
         "window_repeat4_nonoverlap_clip": "Four-interval windows, stride four, intervals clipped to [-12, 12]; valid only with at least two windows.",
         "window_repeat4_sliding_clip": "Four-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
