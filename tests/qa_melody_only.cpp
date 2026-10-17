@@ -473,10 +473,16 @@ namespace
         using MetricSamples = std::array<
             std::array<std::vector<double>, midiforge::corpus::MetricCount>,
             midiforge::corpus::LayerCount>;
+        using LayerTriples = std::array<
+            std::array<std::vector<double>, 3>, midiforge::corpus::LayerCount>;
         std::array<MetricSamples, 2> metricMedians {};
+        std::array<MetricSamples, 2> eligibleMetricMedians {};
         std::array<std::array<std::vector<double>, midiforge::corpus::LayerCount>, 2> noteMedians {};
         std::array<std::array<std::vector<double>, midiforge::corpus::LayerCount>, 2> eligibility {};
         std::array<std::array<std::vector<double>, 3>, 2> quality {};
+        std::array<LayerTriples, 2> eligibleQuality {};
+        std::map<std::string, double> allCandidateCounts;
+        std::map<std::string, double> eligibleCandidateCounts;
         std::string line;
         std::getline (input, line); // header
 
@@ -487,7 +493,7 @@ namespace
             std::string field;
             while (std::getline (row, field, ','))
                 fields.push_back (field);
-            if (fields.size() < 17 || fields[1] != "Baseline")
+            if (fields.size() < 18 || fields[1] != "Baseline")
                 continue;
 
             int stage = -1;
@@ -506,22 +512,58 @@ namespace
                 || metric >= midiforge::corpus::MetricCount)
                 continue;
 
-            if (metric == midiforge::corpus::StepsLe2)
+            const std::string countKey = fields[0] + "|" + fields[2] + "|" + fields[4];
+            if (fields[17] == "all")
             {
-                if (fields[6] != "NA") noteMedians[(size_t) stage][layer].push_back (std::stod (fields[6]));
-                const double count = std::stod (fields[3]);
-                if (count > 0.0)
-                    eligibility[(size_t) stage][layer].push_back (std::stod (fields[8]) / count);
-                if (layer == (size_t) midiforge::corpus::Top)
+                if (metric == midiforge::corpus::StepsLe2)
                 {
+                    if (fields[6] != "NA")
+                        noteMedians[(size_t) stage][layer].push_back (std::stod (fields[6]));
+                    const double count = std::stod (fields[3]);
+                    allCandidateCounts[countKey] = count;
+                    if (count > 0.0)
+                        eligibility[(size_t) stage][layer].push_back (std::stod (fields[8]) / count);
+                    if (layer == (size_t) midiforge::corpus::Top)
+                    {
+                        for (size_t qi = 0; qi < 3; ++qi)
+                            if (fields[14 + qi] != "NA")
+                                quality[(size_t) stage][qi].push_back (std::stod (fields[14 + qi]));
+                    }
+                }
+
+                if (fields[10] != "0" && fields[12] != "NA")
+                    metricMedians[(size_t) stage][layer][metric].push_back (std::stod (fields[12]));
+            }
+            else if (fields[17] == "layer50_eligible")
+            {
+                if (metric == midiforge::corpus::StepsLe2)
+                {
+                    const double count = std::stod (fields[3]);
+                    eligibleCandidateCounts[countKey] = count;
                     for (size_t qi = 0; qi < 3; ++qi)
                         if (fields[14 + qi] != "NA")
-                            quality[(size_t) stage][qi].push_back (std::stod (fields[14 + qi]));
+                            eligibleQuality[(size_t) stage][layer][qi].push_back (std::stod (fields[14 + qi]));
                 }
+                if (fields[10] != "0" && fields[12] != "NA")
+                    eligibleMetricMedians[(size_t) stage][layer][metric].push_back (std::stod (fields[12]));
             }
+        }
 
-            if (fields[10] != "0" && fields[12] != "NA")
-                metricMedians[(size_t) stage][layer][metric].push_back (std::stod (fields[12]));
+        for (const auto& entry : eligibleCandidateCounts)
+        {
+            const auto found = allCandidateCounts.find (entry.first);
+            if (found != allCandidateCounts.end() && found->second > 0.0)
+            {
+                const size_t split = entry.first.rfind ('|');
+                const size_t stagePosition = entry.first.find ('|');
+                const std::string stageName = entry.first.substr (stagePosition + 1,
+                                                                  split - stagePosition - 1);
+                const int stage = stageName == "candidate_pool_before_final_selection" ? 0 : 1;
+                const std::string layerName = entry.first.substr (split + 1);
+                for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+                    if (layerName == midiforge::corpus::layerNames[layer])
+                        eligibility[(size_t) stage][layer].push_back (entry.second / found->second);
+            }
         }
 
         const char* stageNames[2] = { "candidate_pool", "selected_bank" };
@@ -540,7 +582,7 @@ namespace
                     else std::printf ("%.6f\n", midiforge::corpus::median (values));
                 }
 
-        std::printf ("CORPUS_PIPELINE_BASELINE coverage: layer-note counts and candidate share with >=50 notes\n");
+        std::printf ("CORPUS_PIPELINE_BASELINE coverage: note-count median and >=50-note candidate share\n");
         for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
             for (int stage = 0; stage < 2; ++stage)
             {
@@ -554,7 +596,21 @@ namespace
                 else std::printf ("%.6f\n", midiforge::corpus::median (eligible));
             }
 
-        std::printf ("CORPUS_PIPELINE_BASELINE candidate quality distribution; quality P10 is the lower-tail guardrail\n");
+        std::printf ("CORPUS_PIPELINE_BASELINE metrics for candidates with >=50 notes in the same pitch layer\n");
+        std::printf ("stage,layer,metric,eligible_seed_samples,median_of_per_seed_eligible_medians\n");
+        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+            for (size_t metric = 0; metric < midiforge::corpus::MetricCount; ++metric)
+                for (int stage = 0; stage < 2; ++stage)
+                {
+                    const auto& values = eligibleMetricMedians[(size_t) stage][layer][metric];
+                    std::printf ("%s,%s,%s,%zu,",
+                        stageNames[stage], midiforge::corpus::layerNames[layer],
+                        midiforge::corpus::metricNames[metric], values.size());
+                    if (values.empty()) std::printf ("NA\n");
+                    else std::printf ("%.6f\n", midiforge::corpus::median (values));
+                }
+
+        std::printf ("CORPUS_PIPELINE_BASELINE quality distribution; global quality P10 is the lower-tail guardrail\n");
         for (size_t qi = 0; qi < 3; ++qi)
             for (int stage = 0; stage < 2; ++stage)
             {
@@ -564,6 +620,18 @@ namespace
                 if (values.empty()) std::printf ("0,NA\n");
                 else std::printf ("%zu,%.6f\n", values.size(), midiforge::corpus::median (values));
             }
+
+        std::printf ("CORPUS_PIPELINE_BASELINE quality percentiles within each >=50-note layer subset\n");
+        for (size_t layer = 0; layer < midiforge::corpus::LayerCount; ++layer)
+            for (size_t qi = 0; qi < 3; ++qi)
+                for (int stage = 0; stage < 2; ++stage)
+                {
+                    const auto& values = eligibleQuality[(size_t) stage][layer][qi];
+                    std::printf ("%s,%s,%s,seed_samples,",
+                        stageNames[stage], midiforge::corpus::layerNames[layer], qualityNames[qi]);
+                    if (values.empty()) std::printf ("0,NA\n");
+                    else std::printf ("%zu,%.6f\n", values.size(), midiforge::corpus::median (values));
+                }
     }
 
     int runCorpusLayerAblationReport (int seedCount, const juce::File& outputFile)
@@ -602,7 +670,7 @@ namespace
             traceCsv << "seed,treatment,stage,candidate_count,layer,layer_note_count_p10,"
                         "layer_note_count_p50,layer_note_count_p90,candidates_ge_50_notes,"
                         "metric,metric_samples,metric_p10,metric_p50,metric_p90,"
-                        "quality_p10,quality_p50,quality_p90\n";
+                        "quality_p10,quality_p50,quality_p90,population\n";
         }
 
         const auto treatments = ablationTreatments();
