@@ -150,6 +150,88 @@ namespace
         return c;
     }
 
+    struct HarmonyFitChecks
+    {
+        int structuralAnchors = 0;
+        int chordToneAnchors = 0;
+    };
+
+    HarmonyFitChecks inspectCurrentChordFit (const std::vector<Note>& notes, int bars)
+    {
+        struct ChordMoment
+        {
+            int step = 0;
+            std::array<bool, 12> pcs {};
+        };
+
+        HarmonyFitChecks result;
+        std::vector<ChordMoment> moments;
+        for (const auto& note : notes)
+        {
+            if (note.channel != 1 || note.step < 0)
+                continue;
+
+            auto it = std::find_if (moments.begin(), moments.end(),
+                [&] (const ChordMoment& moment) { return moment.step == note.step; });
+            if (it == moments.end())
+            {
+                moments.push_back ({ note.step, {} });
+                it = moments.end() - 1;
+            }
+            it->pcs[(size_t) ((note.note % 12 + 12) % 12)] = true;
+        }
+
+        std::stable_sort (moments.begin(), moments.end(),
+            [] (const ChordMoment& a, const ChordMoment& b)
+            {
+                return a.step < b.step;
+            });
+
+        std::vector<const Note*> melody;
+        for (const auto& note : notes)
+            if (note.channel == 3)
+                melody.push_back (&note);
+        std::stable_sort (melody.begin(), melody.end(),
+            [] (const Note* a, const Note* b)
+            {
+                if (a->step != b->step) return a->step < b->step;
+                return a->note < b->note;
+            });
+
+        for (size_t i = 0; i < melody.size(); ++i)
+        {
+            const auto& note = *melody[i];
+            const int local = note.step % 16;
+            const bool structural = (local % 4) == 0
+                || note.length >= 4
+                || i + 1 == melody.size();
+            if (! structural)
+                continue;
+
+            const int bar = note.step / 16;
+            int firstInBar = -1;
+            int activeInBar = -1;
+            for (size_t m = 0; m < moments.size(); ++m)
+            {
+                if (moments[m].step / 16 != bar)
+                    continue;
+                if (firstInBar < 0) firstInBar = (int) m;
+                if (moments[m].step <= note.step) activeInBar = (int) m;
+            }
+
+            const int selected = activeInBar >= 0 ? activeInBar : firstInBar;
+            if (selected < 0)
+                continue;
+
+            ++result.structuralAnchors;
+            const int pc = ((note.note % 12) + 12) % 12;
+            if (moments[(size_t) selected].pcs[(size_t) pc])
+                ++result.chordToneAnchors;
+        }
+
+        return result;
+    }
+
     std::string fingerprint (const std::vector<Note>& notes)
     {
         std::vector<Note> melody;
@@ -1343,6 +1425,8 @@ int main (int argc, char** argv)
     int checkedChordNotes = 0;
     int checkedBassNotes = 0;
     int severeLeapReversals = 0;
+    int checkedHarmonyAnchors = 0;
+    int matchedHarmonyAnchors = 0;
     int diverseBanks = 0;
 
     // Exercise all declared scales with eight selected candidates per scale.
@@ -1389,6 +1473,9 @@ int main (int argc, char** argv)
             checkedChordNotes += c.chordNotes;
             checkedBassNotes += c.bassNotes;
             severeLeapReversals += c.severeLeapReversals;
+            const auto harmony = inspectCurrentChordFit (notes, p.getVisibleBars());
+            checkedHarmonyAnchors += harmony.structuralAnchors;
+            matchedHarmonyAnchors += harmony.chordToneAnchors;
             allSupportedLayers = allSupportedLayers && c.populated && c.supportedLayers
                 && c.chordNotes > 0 && c.bassNotes > 0;
             allInLoop = allInLoop && c.inLoop;
@@ -1423,6 +1510,11 @@ int main (int argc, char** argv)
           allRegisterSafe && checkedMelodyNotes > 0, "MIDI pitches 48–90");
     check ("Melody avoids unsafe pitch leaps",
           allLeapsSafe && checkedMelodyNotes > 0, "adjacent pitches differ by at most 12 semitones");
+    check ("Structural melody notes follow the active chord",
+          checkedHarmonyAnchors > 0
+              && (double) matchedHarmonyAnchors / (double) checkedHarmonyAnchors >= 0.72,
+          juce::String (matchedHarmonyAnchors) + "/" + juce::String (checkedHarmonyAnchors)
+              + " strong/long melody notes are chord tones in the active chord");
     check ("MAGIC limits abrupt large-leap reversals",
           severeLeapReversals <= 14,
           juce::String (severeLeapReversals)
