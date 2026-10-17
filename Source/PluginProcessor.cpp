@@ -8790,6 +8790,160 @@ void MidiForgeAudioProcessor::buildVariationBank()
                           stage != nullptr ? stage : "unknown");
     };
 #endif
+    // Final harmony guard: earlier authoring passes can reshape notes after the
+    // first harmony pass. Re-check structural melody notes against the chord
+    // actually starting in that part of the bar, not every chord used anywhere
+    // in the bar. This is a local safety correction, not a judge/weight change.
+    auto applyFinalHarmonyGuard = [this] (Section& section)
+    {
+        if (section.notes.empty() || ! melodyEnabled
+            || soundProfileFor (soundTarget).soloLine)
+            return;
+
+        struct ChordMoment
+        {
+            int step = 0;
+            std::array<bool, 12> pcs {};
+        };
+
+        std::vector<ChordMoment> moments;
+        for (const auto& note : section.notes)
+        {
+            if (note.channel != 1 || note.step < 0)
+                continue;
+
+            auto it = std::find_if (moments.begin(), moments.end(),
+                [&] (const ChordMoment& moment) { return moment.step == note.step; });
+            if (it == moments.end())
+            {
+                moments.push_back ({ note.step, {} });
+                it = std::prev (moments.end());
+            }
+            const int pc = ((note.note % 12) + 12) % 12;
+            it->pcs[(size_t) pc] = true;
+        }
+
+        std::stable_sort (moments.begin(), moments.end(),
+            [] (const ChordMoment& a, const ChordMoment& b)
+            {
+                return a.step < b.step;
+            });
+
+        const auto progression = progressionDegrees();
+        const auto scalePitches = scaleSemitones();
+        auto pitchClass = [] (int pitch) { return ((pitch % 12) + 12) % 12; };
+        auto inScale = [&] (int pitch)
+        {
+            const int relative = (pitchClass (pitch) - rootPc + 12) % 12;
+            return std::find (scalePitches.begin(), scalePitches.end(), relative)
+                != scalePitches.end();
+        };
+
+        auto chordAtStep = [&] (int step)
+        {
+            std::array<bool, 12> pcs {};
+            const int bar = step / 16;
+            int firstInBar = -1;
+            int activeInBar = -1;
+
+            for (size_t i = 0; i < moments.size(); ++i)
+            {
+                if (moments[i].step / 16 != bar)
+                    continue;
+                if (firstInBar < 0)
+                    firstInBar = (int) i;
+                if (moments[i].step <= step)
+                    activeInBar = (int) i;
+            }
+
+            const int selected = activeInBar >= 0 ? activeInBar : firstInBar;
+            if (selected >= 0)
+                return moments[(size_t) selected].pcs;
+
+            // Chordless candidates still have a harmonic progression. Keep their
+            // anchors scale-safe against its triad without inventing a chord track.
+            if (! progression.empty())
+            {
+                const int degree = progression[(size_t) (bar % (int) progression.size())];
+                for (const int offset : { 0, 2, 4 })
+                {
+                    const int pc = pitchClass (degreeToPitch (degree + offset, octave));
+                    pcs[(size_t) pc] = true;
+                }
+            }
+            return pcs;
+        };
+
+        std::vector<size_t> melody;
+        for (size_t i = 0; i < section.notes.size(); ++i)
+            if (section.notes[i].channel == 3)
+                melody.push_back (i);
+        std::stable_sort (melody.begin(), melody.end(),
+            [&] (size_t a, size_t b)
+            {
+                if (section.notes[a].step != section.notes[b].step)
+                    return section.notes[a].step < section.notes[b].step;
+                return section.notes[a].note < section.notes[b].note;
+            });
+
+        if (melody.empty())
+            return;
+
+        int laneLo = 48, laneHi = 90, maxLeap = 9;
+        melodyRegisterContract (laneLo, laneHi, maxLeap);
+
+        for (size_t i = 0; i < melody.size(); ++i)
+        {
+            auto& note = section.notes[melody[i]];
+            const int local = note.step % 16;
+            const bool structural = (local % 4) == 0
+                || note.length >= 4
+                || i + 1 == melody.size();
+            if (! structural)
+                continue;
+
+            const auto pcs = chordAtStep (note.step);
+            if (pcs[(size_t) pitchClass (note.note)])
+                continue;
+
+            int bestPitch = note.note;
+            int bestCost = 100000;
+            const int previous = i > 0
+                ? section.notes[melody[i - 1]].note : -1;
+            const int next = i + 1 < melody.size()
+                ? section.notes[melody[i + 1]].note : -1;
+
+            // Prefer a small scale-safe move. Do not trade a tonal correction for
+            // a new wide leap or a large rewrite of the melodic contour.
+            for (int candidate = laneLo; candidate <= laneHi; ++candidate)
+            {
+                if (! inScale (candidate)
+                    || ! pcs[(size_t) pitchClass (candidate)])
+                    continue;
+
+                const int displacement = std::abs (candidate - note.note);
+                if (displacement == 0 || displacement > 4)
+                    continue;
+                if (previous >= 0 && std::abs (candidate - previous) > maxLeap)
+                    continue;
+                if (next >= 0 && std::abs (candidate - next) > maxLeap)
+                    continue;
+
+                int cost = displacement * 100;
+                if (previous >= 0 && candidate == previous) cost += 15;
+                if (next >= 0 && candidate == next) cost += 10;
+                if (cost < bestCost)
+                {
+                    bestCost = cost;
+                    bestPitch = candidate;
+                }
+            }
+
+            if (bestCost < 100000)
+                note.note = bestPitch;
+        }
+    };
+
     AdaptiveProfile adaptive;
     for(int c=0;c<candidateCount;++c)
     {
@@ -8907,6 +9061,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // about to be rewritten by the phrase architecture.
         repairLocalMelodyQuality (flat, identity);
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
+        applyFinalHarmonyGuard (flat);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (flat));
