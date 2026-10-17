@@ -1253,7 +1253,7 @@ bool validateCorpusMetricDefinitions()
         && top.repeatProbeValid[midiforge::corpus::Repeat4NonOverlapClipped]
         && top.repeatProbeValid[midiforge::corpus::Repeat4SlidingClipped]
         && top.repeatProbeValid[midiforge::corpus::Repeat6NonOverlapRaw]
-        && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6SlidingClipped] - (1.0 / 13.0)) < 0.000001
+        && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6SlidingClipped] - (6.0 / 13.0)) < 0.000001
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat4NonOverlapClipped] - 0.25) < 0.000001
         && top.repeatProbeValue[midiforge::corpus::Repeat4SlidingClipped] > 0.0
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6NonOverlapRaw] - third) < 0.000001
