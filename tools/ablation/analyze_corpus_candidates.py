@@ -14,6 +14,12 @@ POOL = "candidate_pool_before_final_selection"
 SELECTED = "selected_bank_before_output_cleanup"
 LAYERS = ("top", "riff", "bass")
 METRICS = ("steps_le2", "leaps_ge5", "window_repeat", "dur_beats", "notes_per_bar")
+REPEAT_PROBES = (
+    "window_repeat6_sliding_clip",
+    "window_repeat4_nonoverlap_clip",
+    "window_repeat4_sliding_clip",
+    "window_repeat6_nonoverlap_raw",
+)
 TOP_SELECTION_METRICS = ("steps_le2", "leaps_ge5", "notes_per_bar")
 MIN_TOP_NOTES = 20
 
@@ -117,6 +123,77 @@ def summarize_stage_layer(rows: list[dict[str, str]], layer: str, target: dict[s
         "seeds_with_match": len({row["seed"] for row in rows if fits(row, layer, target, TOP_SELECTION_METRICS)}),
         "quality": quality_stats([row for row in rows if fits(row, layer, target, TOP_SELECTION_METRICS)]),
         "at_least_50_notes_count": len(eligible_contour),
+    }
+    return result
+
+
+def repeat_probe_stats(rows: list[dict[str, str]], layer: str, column_suffix: str) -> dict[str, Any]:
+    values = [
+        (row, value)
+        for row in rows
+        if (value := num(row.get(f"{layer}_{column_suffix}"))) is not None
+    ]
+    all_count = len(rows)
+    nonzero = sum(value > 0.0 for _, value in values)
+    stats: dict[str, Any] = {
+        "candidate_count": all_count,
+        "valid_count": len(values),
+        "valid_fraction": rate(len(values), all_count),
+        "nonzero_count": nonzero,
+        "nonzero_fraction_of_valid": rate(nonzero, len(values)),
+        "median": rnd(q([value for _, value in values], .50)),
+        "p90": rnd(q([value for _, value in values], .90)),
+        "note_count_bands": {},
+    }
+    bands = (
+        ("lt20", lambda n: n < 20),
+        ("20to49", lambda n: 20 <= n < 50),
+        ("ge50", lambda n: n >= 50),
+    )
+    for name, predicate in bands:
+        band_rows = [
+            (row, value)
+            for row, value in values
+            if predicate(int(num(row.get(f"{layer}_note_count")) or 0))
+        ]
+        band_nonzero = sum(value > 0.0 for _, value in band_rows)
+        stats["note_count_bands"][name] = {
+            "candidate_count": sum(
+                predicate(int(num(row.get(f"{layer}_note_count")) or 0)) for row in rows
+            ),
+            "valid_count": len(band_rows),
+            "nonzero_count": band_nonzero,
+            "nonzero_fraction_of_valid": rate(band_nonzero, len(band_rows)),
+            "median": rnd(q([value for _, value in band_rows], .50)),
+            "p90": rnd(q([value for _, value in band_rows], .90)),
+        }
+    return stats
+
+
+def summarize_repeat_sensitivity(rows: list[dict[str, str]]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "source_definition_verified": False,
+        "warning": "Probe variants are diagnostic only; the corpus calculator/formula is not in this repository, so none is treated as matching its window_repeat target.",
+        "stages": {},
+    }
+    for stage in (POOL, SELECTED):
+        stage_rows = [row for row in rows if row.get("stage") == stage]
+        result["stages"][stage] = {
+            layer: {
+                "original_window_repeat": repeat_probe_stats(stage_rows, layer, "window_repeat"),
+                "variants": {
+                    name: repeat_probe_stats(stage_rows, layer, name)
+                    for name in REPEAT_PROBES
+                },
+            }
+            for layer in LAYERS
+        }
+    result["variant_definitions"] = {
+        "window_repeat": "Current diagnostic metric: complete non-overlapping six-interval windows; each interval clipped to [-12, 12]; excess exact duplicates divided by window count; reports zero with one complete window.",
+        "window_repeat6_sliding_clip": "Six-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
+        "window_repeat4_nonoverlap_clip": "Four-interval windows, stride four, intervals clipped to [-12, 12]; valid only with at least two windows.",
+        "window_repeat4_sliding_clip": "Four-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
+        "window_repeat6_nonoverlap_raw": "Six-interval windows, stride six, no interval clipping; valid only with at least two windows.",
     }
     return result
 
@@ -237,9 +314,12 @@ def main() -> int:
             rows = list(csv.DictReader(stream))
     except (OSError, json.JSONDecodeError, csv.Error) as exc:
         parser.error(str(exc))
-    required = {"seed", "treatment", "stage", "candidate_index", "candidate_identity", "quality"}
+    required = {
+        "seed", "treatment", "stage", "candidate_index", "candidate_identity", "quality",
+        *(f"{layer}_{probe}" for layer in LAYERS for probe in REPEAT_PROBES),
+    }
     if not rows or not required.issubset(rows[0]):
-        parser.error("candidate CSV is empty or missing required columns")
+        parser.error("candidate CSV is empty or missing required candidate/repeat-probe columns")
     rows = [row for row in rows if row.get("treatment") == "Baseline"]
     pool = [row for row in rows if row.get("stage") == POOL]
     selected = [row for row in rows if row.get("stage") == SELECTED]
@@ -257,7 +337,7 @@ def main() -> int:
         },
         "interpretation_notes": [
             "The 50-notes-per-layer threshold describes source-corpus eligibility; conditioning a four-bar loop on 50 notes can bias notes_per_bar upward.",
-            "window_repeat means exact duplicate non-overlapping six-interval windows in this helper. Validate its definition and track-length comparability against the source-data calculator before production changes.",
+            "The original corpus window_repeat calculator/formula is not included in this repository. Four explicitly named alternative window definitions are diagnostic probes only and are not compared to the corpus target.",
             "Pitch bands top/riff/bass are rough proxies, not semantic source tracks; aggregate targets from 36 tracks are diagnostics, not a score to optimize blindly.",
             "The alternative selector probe ignores musical diversity. This script never changes MIDI output, production scores, judge weights, Taste ML, or the plugin version.",
         ],
@@ -265,6 +345,7 @@ def main() -> int:
             POOL: {layer: summarize_stage_layer(pool, layer, targets["layers"][layer]) for layer in LAYERS},
             SELECTED: {layer: summarize_stage_layer(selected, layer, targets["layers"][layer]) for layer in LAYERS},
         },
+        "window_repeat_sensitivity": summarize_repeat_sensitivity(rows),
         "top_layer_selection_probe": selection_probe(pool, selected, targets["layers"]["top"]),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

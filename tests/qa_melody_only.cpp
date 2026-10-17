@@ -687,10 +687,16 @@ namespace
             candidateCsv << "seed,treatment,stage,candidate_index,candidate_identity,quality,"
                             "top_note_count,top_steps_le2,top_leaps_ge5,top_window_repeat,"
                             "top_dur_beats,top_notes_per_bar,"
+                            "top_window_repeat6_sliding_clip,top_window_repeat4_nonoverlap_clip,"
+                            "top_window_repeat4_sliding_clip,top_window_repeat6_nonoverlap_raw,"
                             "riff_note_count,riff_steps_le2,riff_leaps_ge5,riff_window_repeat,"
                             "riff_dur_beats,riff_notes_per_bar,"
+                            "riff_window_repeat6_sliding_clip,riff_window_repeat4_nonoverlap_clip,"
+                            "riff_window_repeat4_sliding_clip,riff_window_repeat6_nonoverlap_raw,"
                             "bass_note_count,bass_steps_le2,bass_leaps_ge5,bass_window_repeat,"
-                            "bass_dur_beats,bass_notes_per_bar\n";
+                            "bass_dur_beats,bass_notes_per_bar,"
+                            "bass_window_repeat6_sliding_clip,bass_window_repeat4_nonoverlap_clip,"
+                            "bass_window_repeat4_sliding_clip,bass_window_repeat6_nonoverlap_raw\n";
         }
 
         const auto treatments = ablationTreatments();
@@ -1243,6 +1249,14 @@ bool validateCorpusMetricDefinitions()
         && std::abs (top.value[midiforge::corpus::StepsLe2] - third) < 0.000001
         && std::abs (top.value[midiforge::corpus::LeapsGe5] - third) < 0.000001
         && std::abs (top.value[midiforge::corpus::WindowRepeat] - third) < 0.000001
+        && top.repeatProbeValid[midiforge::corpus::Repeat6SlidingClipped]
+        && top.repeatProbeValid[midiforge::corpus::Repeat4NonOverlapClipped]
+        && top.repeatProbeValid[midiforge::corpus::Repeat4SlidingClipped]
+        && top.repeatProbeValid[midiforge::corpus::Repeat6NonOverlapRaw]
+        && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6SlidingClipped] - (1.0 / 13.0)) < 0.000001
+        && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat4NonOverlapClipped] - 0.25) < 0.000001
+        && top.repeatProbeValue[midiforge::corpus::Repeat4SlidingClipped] > 0.0
+        && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6NonOverlapRaw] - third) < 0.000001
         && std::abs (top.value[midiforge::corpus::DurationBeats] - 0.5) < 0.000001
         && std::abs (top.value[midiforge::corpus::NotesPerBar] - 8.0) < 0.000001;
 }

@@ -28,6 +28,21 @@ static constexpr const char* metricNames[MetricCount] = {
     "steps_le2", "leaps_ge5", "window_repeat", "dur_beats", "notes_per_bar"
 };
 
+enum RepeatProbe : size_t
+{
+    Repeat6SlidingClipped = 0,
+    Repeat4NonOverlapClipped = 1,
+    Repeat4SlidingClipped = 2,
+    Repeat6NonOverlapRaw = 3,
+    RepeatProbeCount = 4
+};
+static constexpr const char* repeatProbeNames[RepeatProbeCount] = {
+    "window_repeat6_sliding_clip",
+    "window_repeat4_nonoverlap_clip",
+    "window_repeat4_sliding_clip",
+    "window_repeat6_nonoverlap_raw"
+};
+
 struct Target
 {
     double median = 0.0;
@@ -40,6 +55,8 @@ struct LayerSample
 {
     std::array<double, MetricCount> value {};
     std::array<bool, MetricCount> valid {};
+    std::array<double, RepeatProbeCount> repeatProbeValue {};
+    std::array<bool, RepeatProbeCount> repeatProbeValid {};
     int noteCount = 0;
 };
 
@@ -94,6 +111,43 @@ struct PipelineTraceSample
     std::uint32_t candidateIdentity = 0;
     double quality = 0.0;
 };
+
+// Diagnostic sensitivity helper. It deliberately requires at least two complete
+// windows; one window cannot demonstrate a repetition. This is not assumed to be
+// the original corpus metric definition.
+inline std::pair<double, bool> repeatedWindowRate (const std::vector<int>& intervals,
+                                                   size_t windowLength,
+                                                   size_t stride,
+                                                   bool clipIntervals)
+{
+    if (windowLength == 0 || stride == 0 || intervals.size() < windowLength)
+        return { 0.0, false };
+
+    const size_t windowCount = 1 + (intervals.size() - windowLength) / stride;
+    if (windowCount < 2)
+        return { 0.0, false };
+
+    std::map<std::vector<int>, size_t> counts;
+    for (size_t start = 0; start + windowLength <= intervals.size(); start += stride)
+    {
+        std::vector<int> window;
+        window.reserve (windowLength);
+        for (size_t offset = 0; offset < windowLength; ++offset)
+        {
+            int interval = intervals[start + offset];
+            if (clipIntervals)
+                interval = std::max (-12, std::min (12, interval));
+            window.push_back (interval);
+        }
+        ++counts[window];
+    }
+
+    size_t repeats = 0;
+    for (const auto& entry : counts)
+        if (entry.second > 1)
+            repeats += entry.second - 1;
+    return { (double) repeats / (double) windowCount, true };
+}
 
 inline double quantile (std::vector<double> values, double probability)
 {
@@ -233,6 +287,14 @@ inline bool appendPipelineCandidateAudit (const char* stage,
                 else
                     csv << "NA";
             }
+            for (size_t probe = 0; probe < RepeatProbeCount; ++probe)
+            {
+                csv << ',';
+                if (layerSample.repeatProbeValid[probe])
+                    csv << std::fixed << std::setprecision (6) << layerSample.repeatProbeValue[probe];
+                else
+                    csv << "NA";
+            }
         }
         csv << '\n';
     }
@@ -358,6 +420,26 @@ inline std::array<LayerSample, LayerCount> measure (
             result.value[WindowRepeat] = (double) repeats / (double) nWindows;
             result.valid[WindowRepeat] = true;
         }
+
+        // Sensitivity-only alternatives expose how the repeat statistic changes
+        // with window length, overlap, and extreme-interval clipping. These values
+        // must not be compared with corpus targets until the original calculator
+        // definition is recovered.
+        const auto repeat6Sliding = repeatedWindowRate (intervals, 6, 1, true);
+        result.repeatProbeValue[Repeat6SlidingClipped] = repeat6Sliding.first;
+        result.repeatProbeValid[Repeat6SlidingClipped] = repeat6Sliding.second;
+
+        const auto repeat4NonOverlap = repeatedWindowRate (intervals, 4, 4, true);
+        result.repeatProbeValue[Repeat4NonOverlapClipped] = repeat4NonOverlap.first;
+        result.repeatProbeValid[Repeat4NonOverlapClipped] = repeat4NonOverlap.second;
+
+        const auto repeat4Sliding = repeatedWindowRate (intervals, 4, 1, true);
+        result.repeatProbeValue[Repeat4SlidingClipped] = repeat4Sliding.first;
+        result.repeatProbeValid[Repeat4SlidingClipped] = repeat4Sliding.second;
+
+        const auto repeat6Raw = repeatedWindowRate (intervals, 6, 6, false);
+        result.repeatProbeValue[Repeat6NonOverlapRaw] = repeat6Raw.first;
+        result.repeatProbeValid[Repeat6NonOverlapRaw] = repeat6Raw.second;
     }
     return out;
 }
