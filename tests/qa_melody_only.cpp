@@ -1235,6 +1235,9 @@ bool validateCorpusMetricDefinitions()
     notes.push_back ({ 12, 2, 118, 90, 10 });
 
     const auto measured = midiforge::corpus::measure (notes, 3);
+    const std::vector<Note> oneWindowNotes (notes.begin(), notes.begin() + 7);
+    const auto oneWindowMeasured = midiforge::corpus::measure (oneWindowNotes, 3);
+    const auto& oneWindowTop = oneWindowMeasured[midiforge::corpus::Top];
     const auto& top = measured[midiforge::corpus::Top];
     const auto& riff = measured[midiforge::corpus::Riff];
     const auto& bass = measured[midiforge::corpus::Bass];
@@ -1257,6 +1260,11 @@ bool validateCorpusMetricDefinitions()
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat4NonOverlapClipped] - 0.25) < 0.000001
         && top.repeatProbeValue[midiforge::corpus::Repeat4SlidingClipped] > 0.0
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6NonOverlapRaw] - third) < 0.000001
+        && ! oneWindowTop.valid[midiforge::corpus::WindowRepeat]
+        && ! oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat6SlidingClipped]
+        && ! oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat4NonOverlapClipped]
+        && oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat4SlidingClipped]
+        && ! oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat6NonOverlapRaw]
         && std::abs (top.value[midiforge::corpus::DurationBeats] - 0.5) < 0.000001
         && std::abs (top.value[midiforge::corpus::NotesPerBar] - 8.0) < 0.000001;
 }

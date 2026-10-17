@@ -36,12 +36,6 @@ enum RepeatProbe : size_t
     Repeat6NonOverlapRaw = 3,
     RepeatProbeCount = 4
 };
-static constexpr const char* repeatProbeNames[RepeatProbeCount] = {
-    "window_repeat6_sliding_clip",
-    "window_repeat4_nonoverlap_clip",
-    "window_repeat4_sliding_clip",
-    "window_repeat6_nonoverlap_raw"
-};
 
 struct Target
 {
@@ -400,7 +394,9 @@ inline std::array<LayerSample, LayerCount> measure (
         // Ignore an incomplete tail, clip each interval to [-12, 12], then compute
         // sum(count(window) - 1) / number_of_windows.
         const size_t nWindows = intervals.size() / 6;
-        if (nWindows > 0)
+        // One complete window has no comparison partner; report NA rather than
+        // treating "repeat not observable" as an observed repeat rate of zero.
+        if (nWindows >= 2)
         {
             using Window = std::array<int, 6>;
             std::map<Window, int> counts;
