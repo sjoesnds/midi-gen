@@ -8766,8 +8766,9 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
         std::vector<midiforge::corpus::PipelineTraceSample> samples;
         samples.reserve (pool.size());
-        for (const auto& candidate : pool)
+        for (size_t candidateIndex = 0; candidateIndex < pool.size(); ++candidateIndex)
         {
+            const auto& candidate = pool[candidateIndex];
             std::vector<VisibleNote> visible;
             visible.reserve (candidate.section.notes.size());
             for (const auto& note : candidate.section.notes)
@@ -8775,10 +8776,15 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
             midiforge::corpus::PipelineTraceSample sample;
             sample.layers = midiforge::corpus::measure (visible, candidate.section.bars);
+            sample.candidateIndex = (int) candidateIndex;
+            sample.candidateIdentity = candidate.identity;
             sample.quality = candidate.quality;
             samples.push_back (std::move (sample));
         }
 
+        if (! midiforge::corpus::appendPipelineCandidateAudit (stage, samples))
+            std::fprintf (stderr, "Could not append corpus candidate audit for stage %s\n",
+                          stage != nullptr ? stage : "unknown");
         if (! midiforge::corpus::appendPipelineTraceSummary (stage, samples))
             std::fprintf (stderr, "Could not append corpus pipeline trace for stage %s\\n",
                           stage != nullptr ? stage : "unknown");
