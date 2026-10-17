@@ -64,6 +64,9 @@ jobs:
           "$QA" --corpus-layer-ablation 2 corpus-layer-smoke-b.csv >/dev/null
           cmp corpus-layer-smoke-a.csv corpus-layer-smoke-b.csv
           cmp corpus-layer-smoke-a-pipeline.csv corpus-layer-smoke-b-pipeline.csv
+          cmp corpus-layer-smoke-a-candidates.csv corpus-layer-smoke-b-candidates.csv
+          candidate_rows=$(wc -l < corpus-layer-smoke-a-candidates.csv)
+          test "$candidate_rows" -eq 2017
           rows=$(wc -l < corpus-layer-smoke-a.csv)
           test "$rows" -eq 451
           pipeline_rows=$(wc -l < corpus-layer-smoke-a-pipeline.csv)
@@ -76,6 +79,9 @@ jobs:
           "$QA" --corpus-layer-ablation 64 corpus-layer-ablation.csv | tee corpus-layer-ablation.log
           test -s corpus-layer-ablation.csv
           test -s corpus-layer-ablation-pipeline.csv
+          test -s corpus-layer-ablation-candidates.csv
+          candidate_rows=$(wc -l < corpus-layer-ablation-candidates.csv)
+          test "$candidate_rows" -eq 64513
           rows=$(wc -l < corpus-layer-ablation.csv)
           test "$rows" -eq 451
           pipeline_rows=$(wc -l < corpus-layer-ablation-pipeline.csv)
@@ -88,11 +94,14 @@ jobs:
           path: |
             corpus-layer-ablation.csv
             corpus-layer-ablation-pipeline.csv
+            corpus-layer-ablation-candidates.csv
             corpus-layer-ablation.log
             corpus-layer-smoke-a.csv
             corpus-layer-smoke-a-pipeline.csv
+            corpus-layer-smoke-a-candidates.csv
             corpus-layer-smoke-b.csv
             corpus-layer-smoke-b-pipeline.csv
+            corpus-layer-smoke-b-candidates.csv
           if-no-files-found: ignore
 
       - name: Generate first-pick blind MIDI rating pack (8 fixed seeds; headless only)
