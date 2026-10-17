@@ -673,6 +673,26 @@ namespace
                         "quality_p10,quality_p50,quality_p90,population\n";
         }
 
+        const auto candidateFile = outputFile.getSiblingFile (
+            outputFile.getFileNameWithoutExtension() + "-candidates.csv");
+        {
+            std::ofstream candidateCsv (candidateFile.getFullPathName().toStdString(),
+                                        std::ios::out | std::ios::trunc);
+            if (! candidateCsv.is_open())
+            {
+                std::fprintf (stderr, "Could not create corpus candidate audit: %s\n",
+                              candidateFile.getFullPathName().toRawUTF8());
+                return 2;
+            }
+            candidateCsv << "seed,treatment,stage,candidate_index,candidate_identity,quality,"
+                            "top_note_count,top_steps_le2,top_leaps_ge5,top_window_repeat,"
+                            "top_dur_beats,top_notes_per_bar,"
+                            "riff_note_count,riff_steps_le2,riff_leaps_ge5,riff_window_repeat,"
+                            "riff_dur_beats,riff_notes_per_bar,"
+                            "bass_note_count,bass_steps_le2,bass_leaps_ge5,bass_window_repeat,"
+                            "bass_dur_beats,bass_notes_per_bar\n";
+        }
+
         const auto treatments = ablationTreatments();
         std::vector<CorpusTreatmentStats> allStats (treatments.size());
         const auto reportRoot = juce::File::getSpecialLocation (juce::File::tempDirectory)
