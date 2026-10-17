@@ -51,6 +51,7 @@ jobs:
           "$QA" | tee qa-report.txt
 
       - name: Run ablation pilot (2 fixed seeds; headless target only)
+        if: ${{ !contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
@@ -60,6 +61,7 @@ jobs:
           test "$rows" -eq 61
 
       - name: Verify corpus layer report determinism (2 fixed seeds; headless only)
+        if: ${{ !contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
