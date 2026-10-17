@@ -88,3 +88,16 @@ Comparability safeguards: filtering a four-bar generated loop for at least 50 no
 The source definition is now known from the supplied method script: construct the interval sequence from the highest note at each rounded onset within each pitch band; create six-interval windows with stride one; clip each interval to [-12, 12]; compare the clipped tuples exactly; and compute `sum(count - 1 for repeated tuples) / max(1, number_of_windows)`. If a pitch layer has fewer than five raw notes, the source calculator skips its metrics. If it has at least five notes but not enough intervals to form two windows, `window_repeat` is zero. The `window_repeat6_sliding_clip` sensitivity column uses `NA` when it has no second window to compare, so it may differ from source `window_repeat` for very short generated lines.
 
 The anonymized per-track summaries and target aggregation are now in the repo and validated in CI. The original MIDI note data is still absent, so validation confirms target medians/IQRs from the stored track summaries rather than independently recalculating those track-level metrics from notes. Other window lengths, non-overlapping windows and unclipped intervals remain sensitivity-only probes. No production generator change is justified by this diagnostic update alone.
+
+
+## Memorability probe (read-only, MIDI Forge 0.109.0)
+
+The probe is compiled only into the `MIDIFORGE_HEADLESS` QA target. Run a two-seed smoke report with:
+
+```powershell
+.\build-qa\MidiForgeQA_artefacts\Release\MidiForgeQA --memorability-report 2 memorability-smoke.csv
+```
+
+The full baseline uses fixed seeds 108000–108255 and writes one row per selected variation (2,048 data rows). The varied-return threshold is the median positive edit distance on the same baseline; exact copies are recorded separately. Contrast-present is a descriptive flag requiring both density spread and register spread to exceed their respective baseline medians. These thresholds are diagnostic cut points, not generator targets.
+
+The QA workflow produces a structured counterexample index and a 12-file anonymous FL Studio listening pack. The blind artifact contains only neutral clip names and a free-form prompt; seed/category mappings remain separate. Structural metrics are proxies, not proof that a motif is memorable to listeners. No MIDI generation, scoring, Taste ML, UI or version behavior is changed by this diagnostics-only work.
