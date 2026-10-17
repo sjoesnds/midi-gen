@@ -150,8 +150,8 @@ jobs:
           "$QA" --memorability-pack memorability-smoke-analysis/listening-pack-selection.csv memorability-smoke-listening-pack
           clips=$(find memorability-smoke-listening-pack -type f -name '*.mid' | wc -l)
           test "$clips" -eq 12
-          python3 tools/memorability/prepare_blind_pack.py finalize \\
-            --pack-dir memorability-smoke-listening-pack \\
+          python3 tools/memorability/prepare_blind_pack.py finalize \
+            --pack-dir memorability-smoke-listening-pack \
             --expected-items 12
           test -s memorability-smoke-listening-pack/LISTENING_PROMPT.md
 
