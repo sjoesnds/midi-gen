@@ -80,6 +80,16 @@ jobs:
           test -s memorability-smoke-analysis/summary.md
           test -s memorability-smoke-analysis/counterexamples.csv
           test -s memorability-smoke-analysis/listening-selection.csv
+          python3 -m py_compile tools/memorability/prepare_blind_pack.py
+          python3 tools/memorability/prepare_blind_pack.py prepare \
+            --selection memorability-smoke-analysis/listening-selection.csv \
+            --export-selection memorability-smoke-analysis/listening-pack-selection.csv \
+            --answer-key memorability-smoke-analysis/listening-answer-key.csv \
+            --expected-items 12
+          test -s memorability-smoke-analysis/listening-pack-selection.csv
+          test -s memorability-smoke-analysis/listening-answer-key.csv
+          grep -q clip_01.mid memorability-smoke-analysis/listening-pack-selection.csv
+          grep -q clip_12.mid memorability-smoke-analysis/listening-pack-selection.csv
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -238,10 +248,25 @@ jobs:
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          "$QA" --memorability-pack memorability-artifacts/listening-selection.csv memorability-artifacts/listening-pack
+          python3 tools/memorability/prepare_blind_pack.py prepare \
+            --selection memorability-artifacts/listening-selection.csv \
+            --export-selection memorability-artifacts/listening-pack-selection.csv \
+            --answer-key memorability-artifacts/listening-answer-key.csv \
+            --expected-items 12
+          "$QA" --memorability-pack memorability-artifacts/listening-pack-selection.csv memorability-artifacts/listening-pack
           clips=$(find memorability-artifacts/listening-pack -type f -name '*.mid' | wc -l)
           test "$clips" -eq 12
+          python3 tools/memorability/prepare_blind_pack.py finalize \
+            --pack-dir memorability-artifacts/listening-pack \
+            --expected-items 12
           test -s memorability-artifacts/listening-pack/LISTENING_PROMPT.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memorability-listening-pack-blind
+          path: memorability-artifacts/listening-pack/
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: always()
