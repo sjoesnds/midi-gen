@@ -1251,7 +1251,7 @@ bool validateCorpusMetricDefinitions()
         && top.valid[midiforge::corpus::NotesPerBar]
         && std::abs (top.value[midiforge::corpus::StepsLe2] - third) < 0.000001
         && std::abs (top.value[midiforge::corpus::LeapsGe5] - third) < 0.000001
-        && std::abs (top.value[midiforge::corpus::WindowRepeat] - third) < 0.000001
+        && std::abs (top.value[midiforge::corpus::WindowRepeat] - (6.0 / 13.0)) < 0.000001
         && top.repeatProbeValid[midiforge::corpus::Repeat6SlidingClipped]
         && top.repeatProbeValid[midiforge::corpus::Repeat4NonOverlapClipped]
         && top.repeatProbeValid[midiforge::corpus::Repeat4SlidingClipped]
@@ -1260,7 +1260,8 @@ bool validateCorpusMetricDefinitions()
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat4NonOverlapClipped] - 0.25) < 0.000001
         && top.repeatProbeValue[midiforge::corpus::Repeat4SlidingClipped] > 0.0
         && std::abs (top.repeatProbeValue[midiforge::corpus::Repeat6NonOverlapRaw] - third) < 0.000001
-        && ! oneWindowTop.valid[midiforge::corpus::WindowRepeat]
+        && oneWindowTop.valid[midiforge::corpus::WindowRepeat]
+        && std::abs (oneWindowTop.value[midiforge::corpus::WindowRepeat]) < 0.000001
         && ! oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat6SlidingClipped]
         && ! oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat4NonOverlapClipped]
         && oneWindowTop.repeatProbeValid[midiforge::corpus::Repeat4SlidingClipped]

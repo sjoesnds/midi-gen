@@ -106,9 +106,10 @@ struct PipelineTraceSample
     double quality = 0.0;
 };
 
-// Diagnostic sensitivity helper. It deliberately requires at least two complete
-// windows; one window cannot demonstrate a repetition. This is not assumed to be
-// the original corpus metric definition.
+// Sensitivity helper for alternate window policies. It requires two complete
+// windows so probe values with no comparison partner are NA. Source-compatible
+// window_repeat is calculated separately because the corpus method defines no-window
+// and single-window samples as zero when the layer has at least five notes.
 inline std::pair<double, bool> repeatedWindowRate (const std::vector<int>& intervals,
                                                    size_t windowLength,
                                                    size_t stride,
@@ -349,17 +350,25 @@ inline std::array<LayerSample, LayerCount> measure (
     {
         auto& result = out[layer];
         result.noteCount = (int) notesByLayer[layer].size();
-        if (notesByLayer[layer].empty())
+        // The source calculator reports "too few" and skips all metrics for fewer
+        // than five notes in a pitch layer.
+        if (result.noteCount < 5)
             continue;
+
+        int lastOccupiedBar = 0;
+        for (const auto* note : notesByLayer[layer])
+            lastOccupiedBar = std::max (lastOccupiedBar, note->step / 16);
 
         std::vector<double> durations;
         durations.reserve (notesByLayer[layer].size());
-        std::vector<double> notesPerBar ((size_t) bars, 0.0);
+        // Match the source calculator: include zero-note gaps from bar 0 through
+        // the last occupied bar, but do not append empty bars after the last note.
+        std::vector<double> notesPerBar ((size_t) lastOccupiedBar + 1, 0.0);
         for (const auto* note : notesByLayer[layer])
         {
             durations.push_back ((double) note->length / 4.0);
             const int bar = note->step / 16;
-            if (bar >= 0 && bar < bars)
+            if (bar >= 0 && (size_t) bar < notesPerBar.size())
                 notesPerBar[(size_t) bar] += 1.0;
         }
         result.value[DurationBeats] = median (std::move (durations));
@@ -383,44 +392,31 @@ inline std::array<LayerSample, LayerCount> measure (
             if (std::abs (delta) <= 2) ++smallSteps;
             if (std::abs (delta) >= 5) ++largeLeaps;
         }
-        if (! intervals.empty())
-        {
-            result.value[StepsLe2] = (double) smallSteps / (double) intervals.size();
-            result.value[LeapsGe5] = (double) largeLeaps / (double) intervals.size();
-            result.valid[StepsLe2] = result.valid[LeapsGe5] = true;
-        }
+        const double intervalDenominator = intervals.empty() ? 1.0 : (double) intervals.size();
+        result.value[StepsLe2] = (double) smallSteps / intervalDenominator;
+        result.value[LeapsGe5] = (double) largeLeaps / intervalDenominator;
+        result.valid[StepsLe2] = result.valid[LeapsGe5] = true;
 
-        // Split the ordered interval line into non-overlapping windows of six.
-        // Ignore an incomplete tail, clip each interval to [-12, 12], then compute
-        // sum(count(window) - 1) / number_of_windows.
-        const size_t nWindows = intervals.size() / 6;
-        // One complete window has no comparison partner; report NA rather than
-        // treating "repeat not observable" as an observed repeat rate of zero.
-        if (nWindows >= 2)
+        // Source-compatible window_repeat: six consecutive intervals per window,
+        // sliding one interval at a time, clip intervals to [-12, 12], count exact
+        // duplicate clipped signatures, divide excess copies by max(1, window count).
+        // The source calculator returns zero when fewer than six intervals exist;
+        // layers with fewer than five raw notes were already marked invalid above.
+        const auto sourceRepeat = repeatedWindowRate (intervals, 6, 1, true);
+        if (intervals.size() < 7)
         {
-            using Window = std::array<int, 6>;
-            std::map<Window, int> counts;
-            for (size_t windowIndex = 0; windowIndex < nWindows; ++windowIndex)
-            {
-                const size_t start = windowIndex * 6;
-                Window window {};
-                for (size_t offset = 0; offset < window.size(); ++offset)
-                    window[offset] = std::max (-12, std::min (12, intervals[start + offset]));
-                ++counts[window];
-            }
-
-            size_t repeats = 0;
-            for (const auto& entry : counts)
-                if (entry.second > 1)
-                    repeats += (size_t) (entry.second - 1);
-            result.value[WindowRepeat] = (double) repeats / (double) nWindows;
+            result.value[WindowRepeat] = 0.0;
             result.valid[WindowRepeat] = true;
         }
+        else
+        {
+            result.value[WindowRepeat] = sourceRepeat.first;
+            result.valid[WindowRepeat] = sourceRepeat.second;
+        }
 
-        // Sensitivity-only alternatives expose how the repeat statistic changes
-        // with window length, overlap, and extreme-interval clipping. These values
-        // must not be compared with corpus targets until the original calculator
-        // definition is recovered.
+        // Sensitivity-only alternatives expose how the statistic changes with
+        // window length, overlap, and interval clipping. The six-interval sliding
+        // clipped probe is the source definition when at least two windows exist.
         const auto repeat6Sliding = repeatedWindowRate (intervals, 6, 1, true);
         result.repeatProbeValue[Repeat6SlidingClipped] = repeat6Sliding.first;
         result.repeatProbeValid[Repeat6SlidingClipped] = repeat6Sliding.second;
@@ -470,8 +466,7 @@ inline bool loadTargets (const juce::File& file,
                 return false;
             target.median = value.toString().getDoubleValue();
 
-            // The supplied corpus summary has no IQR for dur_beats. Keep that
-            // comparison explicitly unavailable rather than inventing bounds.
+            // IQR bounds are supplied for all five metrics, including duration.
             const auto bounds = iqrObject.getProperty (
                 juce::Identifier (metricNames[metric]), juce::var());
             const auto* array = bounds.getArray();

@@ -74,7 +74,9 @@ def quality_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     return {"count": len(vals), "p10": rnd(q(vals, .10)), "p50": rnd(q(vals, .50)), "p90": rnd(q(vals, .90))}
 
 
-def summarize_stage_layer(rows: list[dict[str, str]], layer: str, target: dict[str, Any]) -> dict[str, Any]:
+def summarize_stage_layer(
+    rows: list[dict[str, str]], layer: str, target: dict[str, Any], min_layer_notes: int
+) -> dict[str, Any]:
     counts = [int(num(row.get(f"{layer}_note_count")) or 0) for row in rows]
     result: dict[str, Any] = {
         "candidate_count": len(rows),
@@ -92,18 +94,27 @@ def summarize_stage_layer(rows: list[dict[str, str]], layer: str, target: dict[s
     }
     metric_iqrs = {m: bounds_for(target, m) for m in METRICS}
     valid_joint_metrics = tuple(m for m in METRICS if metric_iqrs[m] is not None)
-    fit_all = sum(fits(row, layer, target, valid_joint_metrics) for row in rows)
+    eligible_rows = [
+        row for row in rows
+        if int(num(row.get(f"{layer}_note_count")) or 0) >= min_layer_notes
+    ]
+    # Source targets are based on tracks meeting the note-count gate in that pitch layer.
+    fit_all = sum(fits(row, layer, target, valid_joint_metrics) for row in eligible_rows)
     fit_contour = sum(fits(row, layer, target, TOP_SELECTION_METRICS) for row in rows)
     eligible_contour = [
-        row for row in rows
-        if int(num(row.get(f"{layer}_note_count")) or 0) >= 50
-        and fits(row, layer, target, TOP_SELECTION_METRICS)
+        row for row in eligible_rows
+        if fits(row, layer, target, TOP_SELECTION_METRICS)
     ]
 
     for metric in METRICS:
-        vals = [v for row in rows if (v := value_for(row, layer, metric)) is not None]
         metric_bounds = metric_iqrs[metric]
+        vals = [v for row in rows if (v := value_for(row, layer, metric)) is not None]
         inside = sum(within(value_for(row, layer, metric), metric_bounds) for row in rows) if metric_bounds else None
+        eligible_vals = [v for row in eligible_rows if (v := value_for(row, layer, metric)) is not None]
+        eligible_inside = (
+            sum(within(value_for(row, layer, metric), metric_bounds) for row in eligible_rows)
+            if metric_bounds else None
+        )
         result["metrics"][metric] = {
             "target_iqr": metric_bounds,
             "valid_count": len(vals),
@@ -111,11 +122,24 @@ def summarize_stage_layer(rows: list[dict[str, str]], layer: str, target: dict[s
             "median": rnd(q(vals, .50)),
             "within_iqr_count": inside,
             "within_iqr_fraction_of_valid": rate(inside, len(vals)) if inside is not None else None,
+            "eligible_ge50_notes": {
+                "candidate_count": len(eligible_rows),
+                "valid_count": len(eligible_vals),
+                "valid_fraction": rate(len(eligible_vals), len(eligible_rows)),
+                "median": rnd(q(eligible_vals, .50)),
+                "within_iqr_count": eligible_inside,
+                "within_iqr_fraction_of_valid": (
+                    rate(eligible_inside, len(eligible_vals)) if eligible_inside is not None else None
+                ),
+            },
         }
 
     result["joint_source_iqr_match"] = {
-        "metrics": list(valid_joint_metrics), "candidate_count": fit_all,
-        "candidate_fraction": rate(fit_all, len(rows)),
+        "metrics": list(valid_joint_metrics),
+        "candidate_count": fit_all,
+        "eligible_candidate_count": len(eligible_rows),
+        "candidate_fraction": rate(fit_all, len(eligible_rows)),
+        "fraction_of_all_candidates": rate(fit_all, len(rows)),
     }
     result["joint_contour_density_match"] = {
         "metrics": list(TOP_SELECTION_METRICS), "candidate_count": fit_contour,
@@ -172,8 +196,13 @@ def repeat_probe_stats(rows: list[dict[str, str]], layer: str, column_suffix: st
 
 def summarize_repeat_sensitivity(rows: list[dict[str, str]]) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "source_definition_verified": False,
-        "warning": "Probe variants are diagnostic only; the corpus calculator/formula is not in this repository, so none is treated as matching its window_repeat target.",
+        "source_definition_verified": True,
+        "warning": (
+            "window_repeat now matches the supplied source method: six-interval sliding windows, "
+            "stride one, intervals clipped to [-12, 12], excess exact duplicates divided by "
+            "max(1, window_count). Anonymized per-track aggregates validate target medians/IQRs; "
+            "raw source MIDI notes are not included, so note-level metrics cannot be regenerated."
+        ),
         "stages": {},
     }
     for stage in (POOL, SELECTED):
@@ -189,8 +218,14 @@ def summarize_repeat_sensitivity(rows: list[dict[str, str]]) -> dict[str, Any]:
             for layer in LAYERS
         }
     result["variant_definitions"] = {
-        "window_repeat": "Current diagnostic metric: complete non-overlapping six-interval windows; each interval clipped to [-12, 12]; excess exact duplicates divided by window count; valid only with at least two complete windows, otherwise NA.",
-        "window_repeat6_sliding_clip": "Six-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
+        "window_repeat": (
+            "Source definition: six-interval windows sliding by one interval; clip intervals to "
+            "[-12, 12]; count exact duplicate clipped interval tuples; sum(count - 1) for repeated "
+            "tuples and divide by max(1, number of windows). The source method skips all metrics when "
+            "the layer has fewer than five raw notes; with >=5 notes but fewer than two windows, "
+            "window_repeat is zero."
+        ),
+        "window_repeat6_sliding_clip": "Same six-interval sliding/clipped windows, but the sensitivity probe is NA unless at least two windows exist.",
         "window_repeat4_nonoverlap_clip": "Four-interval windows, stride four, intervals clipped to [-12, 12]; valid only with at least two windows.",
         "window_repeat4_sliding_clip": "Four-interval windows, stride one, intervals clipped to [-12, 12]; valid only with at least two windows.",
         "window_repeat6_nonoverlap_raw": "Six-interval windows, stride six, no interval clipping; valid only with at least two windows.",
@@ -337,13 +372,21 @@ def main() -> int:
         },
         "interpretation_notes": [
             "The 50-notes-per-layer threshold describes source-corpus eligibility; conditioning a four-bar loop on 50 notes can bias notes_per_bar upward.",
-            "The original corpus window_repeat calculator/formula is not included in this repository. Four explicitly named alternative window definitions are diagnostic probes only and are not compared to the corpus target.",
+            "The supplied source method defines window_repeat as exact duplicate six-interval windows sliding by one interval after clipping intervals to [-12, 12]; the rate divides excess duplicate windows by max(1, window count).",
+            "Target medians/IQRs are checked against anonymized per-track aggregates; raw MIDI notes are not bundled, so note-level values cannot be independently regenerated.",
+            "Only candidate rows with at least min_notes_per_layer notes in that pitch band count toward source-IQR match rates; the full candidate pool is also reported separately.",
             "Pitch bands top/riff/bass are rough proxies, not semantic source tracks; aggregate targets from 36 tracks are diagnostics, not a score to optimize blindly.",
             "The alternative selector probe ignores musical diversity. This script never changes MIDI output, production scores, judge weights, Taste ML, or the plugin version.",
         ],
         "stage_layer_summary": {
-            POOL: {layer: summarize_stage_layer(pool, layer, targets["layers"][layer]) for layer in LAYERS},
-            SELECTED: {layer: summarize_stage_layer(selected, layer, targets["layers"][layer]) for layer in LAYERS},
+            POOL: {
+                layer: summarize_stage_layer(pool, layer, targets["layers"][layer], int(targets.get("min_notes_per_layer", 50)))
+                for layer in LAYERS
+            },
+            SELECTED: {
+                layer: summarize_stage_layer(selected, layer, targets["layers"][layer], int(targets.get("min_notes_per_layer", 50)))
+                for layer in LAYERS
+            },
         },
         "window_repeat_sensitivity": summarize_repeat_sensitivity(rows),
         "top_layer_selection_probe": selection_probe(pool, selected, targets["layers"]["top"]),
@@ -352,8 +395,10 @@ def main() -> int:
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     probe = report["top_layer_selection_probe"]
     guard = probe["quality_guardrail"]
-    print(f"Analysis rows: {len(pool)} pool / {len(selected)} selected; fit all source IQRs: "
-          f"{report['stage_layer_summary'][POOL]['top']['joint_source_iqr_match']['candidate_count']}")
+    fit_summary = report["stage_layer_summary"][POOL]["top"]["joint_source_iqr_match"]
+    print(f"Analysis rows: {len(pool)} pool / {len(selected)} selected; source-IQR fit in eligible top candidates "
+          f"(>= {targets.get('min_notes_per_layer', 50)} notes): {fit_summary['candidate_count']}/"
+          f"{fit_summary['eligible_candidate_count']}")
     print(f"Top selection probe quality P10 median: {guard['current_bank_median_per_seed_p10']} -> "
           f"{guard['probe_bank_median_per_seed_p10']}; no-regression seeds "
           f"{guard['seeds_without_quality_p10_regression']}/{guard['seeds_compared']}")

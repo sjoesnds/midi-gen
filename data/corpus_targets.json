@@ -1,46 +1,95 @@
 {
   "units": "beats",
-  "tempo": "не используется, BPM у источника фейковый",
+  "tempo": "not used (source BPM is fake)",
   "n_tracks": 36,
   "min_notes_per_layer": 50,
+  "summary_method": "Median and exclusive quartiles over per-track values with at least min_notes_per_layer notes in the pitch layer; per-track summary values are rounded to 3 decimals.",
   "layers": {
     "top": {
       "steps_le2": 0.62,
-      "leaps_ge5": 0.21,
-      "window_repeat": 0.22,
-      "dur_beats": 0.44,
-      "notes_per_bar": 7.0,
+      "leaps_ge5": 0.209,
+      "window_repeat": 0.216,
+      "dur_beats": 0.441,
+      "notes_per_bar": 7,
       "iqr": {
-        "steps_le2": [0.51, 0.73],
-        "leaps_ge5": [0.14, 0.31],
-        "window_repeat": [0.07, 0.31],
-        "notes_per_bar": [4.0, 12.0]
+        "steps_le2": [
+          0.511,
+          0.728
+        ],
+        "leaps_ge5": [
+          0.143,
+          0.307
+        ],
+        "window_repeat": [
+          0.073,
+          0.308
+        ],
+        "dur_beats": [
+          0.36,
+          0.52
+        ],
+        "notes_per_bar": [
+          4,
+          12
+        ]
       }
     },
     "riff": {
-      "steps_le2": 0.84,
-      "leaps_ge5": 0.07,
-      "window_repeat": 0.45,
-      "dur_beats": 0.44,
-      "notes_per_bar": 4.0,
+      "steps_le2": 0.836,
+      "leaps_ge5": 0.074,
+      "window_repeat": 0.454,
+      "dur_beats": 0.441,
+      "notes_per_bar": 4,
       "iqr": {
-        "steps_le2": [0.75, 0.90],
-        "leaps_ge5": [0.03, 0.15],
-        "window_repeat": [0.16, 0.62],
-        "notes_per_bar": [2.0, 14.0]
+        "steps_le2": [
+          0.75,
+          0.904
+        ],
+        "leaps_ge5": [
+          0.035,
+          0.152
+        ],
+        "window_repeat": [
+          0.155,
+          0.621
+        ],
+        "dur_beats": [
+          0.38,
+          0.52
+        ],
+        "notes_per_bar": [
+          2,
+          14
+        ]
       }
     },
     "bass": {
-      "steps_le2": 0.79,
-      "leaps_ge5": 0.18,
-      "window_repeat": 0.49,
-      "dur_beats": 0.46,
-      "notes_per_bar": 6.0,
+      "steps_le2": 0.791,
+      "leaps_ge5": 0.181,
+      "window_repeat": 0.493,
+      "dur_beats": 0.459,
+      "notes_per_bar": 6,
       "iqr": {
-        "steps_le2": [0.64, 0.86],
-        "leaps_ge5": [0.11, 0.25],
-        "window_repeat": [0.17, 0.74],
-        "notes_per_bar": [4.0, 10.0]
+        "steps_le2": [
+          0.642,
+          0.86
+        ],
+        "leaps_ge5": [
+          0.111,
+          0.249
+        ],
+        "window_repeat": [
+          0.17,
+          0.735
+        ],
+        "dur_beats": [
+          0.39,
+          0.8
+        ],
+        "notes_per_bar": [
+          4,
+          10
+        ]
       }
     }
   },

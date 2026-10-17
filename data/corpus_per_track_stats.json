@@ -1,0 +1,924 @@
+{
+  "units": "beats",
+  "tempo": "not used (source BPM is fake)",
+  "n_tracks": 36,
+  "tracks": [
+    {
+      "track_id": "t01",
+      "key": "G maj r=0.92",
+      "top": {
+        "notes": 560,
+        "steps_le2": 0.74,
+        "leaps_ge5": 0.173,
+        "window_repeat": 0.308,
+        "dur_beats": 0.38,
+        "notes_per_bar": 7
+      },
+      "riff": {
+        "notes": 1051,
+        "steps_le2": 0.856,
+        "leaps_ge5": 0.057,
+        "window_repeat": 0.708,
+        "dur_beats": 0.38,
+        "notes_per_bar": 14
+      },
+      "bass": {
+        "notes": 780,
+        "steps_le2": 0.888,
+        "leaps_ge5": 0.068,
+        "window_repeat": 0.794,
+        "dur_beats": 0.38,
+        "notes_per_bar": 8
+      }
+    },
+    {
+      "track_id": "t02",
+      "key": "G maj r=0.74",
+      "top": {
+        "notes": 1351,
+        "steps_le2": 0.503,
+        "leaps_ge5": 0.36,
+        "window_repeat": 0.296,
+        "dur_beats": 0.34,
+        "notes_per_bar": 28
+      },
+      "riff": {
+        "notes": 784,
+        "steps_le2": 0.986,
+        "leaps_ge5": 0.012,
+        "window_repeat": 0.905,
+        "dur_beats": 0.34,
+        "notes_per_bar": 17.5
+      },
+      "bass": {
+        "notes": 742,
+        "steps_le2": 0.944,
+        "leaps_ge5": 0.051,
+        "window_repeat": 0.858,
+        "dur_beats": 0.34,
+        "notes_per_bar": 17.5
+      }
+    },
+    {
+      "track_id": "t03",
+      "key": "F maj r=0.89",
+      "top": {
+        "notes": 579,
+        "steps_le2": 0.398,
+        "leaps_ge5": 0.385,
+        "window_repeat": 0.025,
+        "dur_beats": 0.38,
+        "notes_per_bar": 9
+      },
+      "riff": {
+        "notes": 217,
+        "steps_le2": 0.735,
+        "leaps_ge5": 0.177,
+        "window_repeat": 0.454,
+        "dur_beats": 0.76,
+        "notes_per_bar": 0
+      },
+      "bass": {
+        "notes": 334,
+        "steps_le2": 0.649,
+        "leaps_ge5": 0.25,
+        "window_repeat": 0.547,
+        "dur_beats": 1.14,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t04",
+      "key": "C# maj r=0.82",
+      "top": {
+        "notes": 819,
+        "steps_le2": 0.45,
+        "leaps_ge5": 0.441,
+        "window_repeat": 0.216,
+        "dur_beats": 0.341,
+        "notes_per_bar": 10
+      },
+      "riff": {
+        "notes": 89,
+        "steps_le2": 0.803,
+        "leaps_ge5": 0.171,
+        "window_repeat": 0.296,
+        "dur_beats": 0.36,
+        "notes_per_bar": 1
+      },
+      "bass": {
+        "notes": 235,
+        "steps_le2": 0.791,
+        "leaps_ge5": 0.124,
+        "window_repeat": 0.455,
+        "dur_beats": 0.7,
+        "notes_per_bar": 2
+      }
+    },
+    {
+      "track_id": "t05",
+      "key": "B maj r=0.86",
+      "top": {
+        "notes": 218,
+        "steps_le2": 0.684,
+        "leaps_ge5": 0.143,
+        "window_repeat": 0.241,
+        "dur_beats": 0.3,
+        "notes_per_bar": 5.5
+      },
+      "riff": null,
+      "bass": {
+        "notes": 155,
+        "steps_le2": 0.711,
+        "leaps_ge5": 0.185,
+        "window_repeat": 0.369,
+        "dur_beats": 0.9,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t06",
+      "key": "C# min r=0.85",
+      "top": {
+        "notes": 160,
+        "steps_le2": 0.616,
+        "leaps_ge5": 0.286,
+        "window_repeat": 0,
+        "dur_beats": 0.9,
+        "notes_per_bar": 4
+      },
+      "riff": {
+        "notes": 89,
+        "steps_le2": 0.743,
+        "leaps_ge5": 0.1,
+        "window_repeat": 0.154,
+        "dur_beats": 0.92,
+        "notes_per_bar": 3
+      },
+      "bass": {
+        "notes": 120,
+        "steps_le2": 0.69,
+        "leaps_ge5": 0.253,
+        "window_repeat": 0,
+        "dur_beats": 0.91,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t07",
+      "key": "D maj r=0.90",
+      "top": {
+        "notes": 367,
+        "steps_le2": 0.758,
+        "leaps_ge5": 0.137,
+        "window_repeat": 0.399,
+        "dur_beats": 0.559,
+        "notes_per_bar": 5
+      },
+      "riff": {
+        "notes": 850,
+        "steps_le2": 0.972,
+        "leaps_ge5": 0.005,
+        "window_repeat": 0.803,
+        "dur_beats": 0.559,
+        "notes_per_bar": 14
+      },
+      "bass": {
+        "notes": 847,
+        "steps_le2": 0.849,
+        "leaps_ge5": 0.123,
+        "window_repeat": 0.744,
+        "dur_beats": 0.3,
+        "notes_per_bar": 13.5
+      }
+    },
+    {
+      "track_id": "t08",
+      "key": "D# maj r=0.81",
+      "top": {
+        "notes": 96,
+        "steps_le2": 0.811,
+        "leaps_ge5": 0.122,
+        "window_repeat": 0.012,
+        "dur_beats": 0.46,
+        "notes_per_bar": 0
+      },
+      "riff": {
+        "notes": 151,
+        "steps_le2": 0.761,
+        "leaps_ge5": 0.145,
+        "window_repeat": 0.023,
+        "dur_beats": 0.459,
+        "notes_per_bar": 0
+      },
+      "bass": {
+        "notes": 714,
+        "steps_le2": 0.873,
+        "leaps_ge5": 0.119,
+        "window_repeat": 0.698,
+        "dur_beats": 0.241,
+        "notes_per_bar": 8
+      }
+    },
+    {
+      "track_id": "t09",
+      "key": "C# min r=0.72",
+      "top": {
+        "notes": 2918,
+        "steps_le2": 0.623,
+        "leaps_ge5": 0.24,
+        "window_repeat": 0.244,
+        "dur_beats": 0.241,
+        "notes_per_bar": 21.5
+      },
+      "riff": {
+        "notes": 2080,
+        "steps_le2": 0.947,
+        "leaps_ge5": 0.038,
+        "window_repeat": 0.872,
+        "dur_beats": 0.241,
+        "notes_per_bar": 16
+      },
+      "bass": {
+        "notes": 557,
+        "steps_le2": 0.791,
+        "leaps_ge5": 0.203,
+        "window_repeat": 0.37,
+        "dur_beats": 0.459,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t10",
+      "key": "F maj r=0.95",
+      "top": {
+        "notes": 570,
+        "steps_le2": 0.587,
+        "leaps_ge5": 0.286,
+        "window_repeat": 0.121,
+        "dur_beats": 0.44,
+        "notes_per_bar": 7
+      },
+      "riff": {
+        "notes": 1306,
+        "steps_le2": 0.814,
+        "leaps_ge5": 0.11,
+        "window_repeat": 0.558,
+        "dur_beats": 0.44,
+        "notes_per_bar": 18
+      },
+      "bass": {
+        "notes": 952,
+        "steps_le2": 0.853,
+        "leaps_ge5": 0.128,
+        "window_repeat": 0.839,
+        "dur_beats": 0.44,
+        "notes_per_bar": 12
+      }
+    },
+    {
+      "track_id": "t11",
+      "key": "G# min r=0.80",
+      "top": {
+        "notes": 151,
+        "steps_le2": 0.62,
+        "leaps_ge5": 0.16,
+        "window_repeat": 0.007,
+        "dur_beats": 0.5,
+        "notes_per_bar": 0
+      },
+      "riff": {
+        "notes": 253,
+        "steps_le2": 0.982,
+        "leaps_ge5": 0.004,
+        "window_repeat": 0.789,
+        "dur_beats": 0.5,
+        "notes_per_bar": 0
+      },
+      "bass": {
+        "notes": 1421,
+        "steps_le2": 0.907,
+        "leaps_ge5": 0.053,
+        "window_repeat": 0.77,
+        "dur_beats": 0.5,
+        "notes_per_bar": 16
+      }
+    },
+    {
+      "track_id": "t12",
+      "key": "B maj r=0.79",
+      "top": {
+        "notes": 174,
+        "steps_le2": 0.58,
+        "leaps_ge5": 0.224,
+        "window_repeat": 0.283,
+        "dur_beats": 0.4,
+        "notes_per_bar": 6
+      },
+      "riff": {
+        "notes": 87,
+        "steps_le2": 0.836,
+        "leaps_ge5": 0.148,
+        "window_repeat": 0.107,
+        "dur_beats": 0.4,
+        "notes_per_bar": 2
+      },
+      "bass": {
+        "notes": 93,
+        "steps_le2": 0.857,
+        "leaps_ge5": 0.143,
+        "window_repeat": 0.569,
+        "dur_beats": 0.4,
+        "notes_per_bar": 4.5
+      }
+    },
+    {
+      "track_id": "t13",
+      "key": "D# min r=0.84",
+      "top": null,
+      "riff": {
+        "notes": 248,
+        "steps_le2": 0.904,
+        "leaps_ge5": 0.074,
+        "window_repeat": 0.523,
+        "dur_beats": 0.441,
+        "notes_per_bar": 0
+      },
+      "bass": {
+        "notes": 357,
+        "steps_le2": 0.779,
+        "leaps_ge5": 0.147,
+        "window_repeat": 0.458,
+        "dur_beats": 0.459,
+        "notes_per_bar": 8
+      }
+    },
+    {
+      "track_id": "t14",
+      "key": "D# maj r=0.94",
+      "top": {
+        "notes": 515,
+        "steps_le2": 0.813,
+        "leaps_ge5": 0.056,
+        "window_repeat": 0.377,
+        "dur_beats": 0.48,
+        "notes_per_bar": 10
+      },
+      "riff": {
+        "notes": 893,
+        "steps_le2": 0.96,
+        "leaps_ge5": 0.004,
+        "window_repeat": 0.876,
+        "dur_beats": 0.241,
+        "notes_per_bar": 22
+      },
+      "bass": {
+        "notes": 678,
+        "steps_le2": 0.862,
+        "leaps_ge5": 0.113,
+        "window_repeat": 0.769,
+        "dur_beats": 0.241,
+        "notes_per_bar": 12
+      }
+    },
+    {
+      "track_id": "t15",
+      "key": "G# min r=0.72",
+      "top": null,
+      "riff": {
+        "notes": 203,
+        "steps_le2": 0.886,
+        "leaps_ge5": 0.07,
+        "window_repeat": 0.417,
+        "dur_beats": 0.4,
+        "notes_per_bar": 4
+      },
+      "bass": {
+        "notes": 181,
+        "steps_le2": 0.557,
+        "leaps_ge5": 0.282,
+        "window_repeat": 0.119,
+        "dur_beats": 0.8,
+        "notes_per_bar": 3.5
+      }
+    },
+    {
+      "track_id": "t16",
+      "key": "C maj r=0.88",
+      "top": {
+        "notes": 453,
+        "steps_le2": 0.36,
+        "leaps_ge5": 0.403,
+        "window_repeat": 0.086,
+        "dur_beats": 0.48,
+        "notes_per_bar": 6.5
+      },
+      "riff": {
+        "notes": 161,
+        "steps_le2": 0.424,
+        "leaps_ge5": 0.187,
+        "window_repeat": 0.149,
+        "dur_beats": 0.48,
+        "notes_per_bar": 2
+      },
+      "bass": {
+        "notes": 145,
+        "steps_le2": 0.434,
+        "leaps_ge5": 0.328,
+        "window_repeat": 0.214,
+        "dur_beats": 0.5,
+        "notes_per_bar": 2
+      }
+    },
+    {
+      "track_id": "t17",
+      "key": "B min r=0.82",
+      "top": {
+        "notes": 76,
+        "steps_le2": 0.426,
+        "leaps_ge5": 0.241,
+        "window_repeat": 0.061,
+        "dur_beats": 0.79,
+        "notes_per_bar": 0.5
+      },
+      "riff": {
+        "notes": 285,
+        "steps_le2": 0.564,
+        "leaps_ge5": 0.119,
+        "window_repeat": 0.155,
+        "dur_beats": 0.4,
+        "notes_per_bar": 8
+      },
+      "bass": {
+        "notes": 223,
+        "steps_le2": 0.461,
+        "leaps_ge5": 0.409,
+        "window_repeat": 0.08,
+        "dur_beats": 0.421,
+        "notes_per_bar": 5
+      }
+    },
+    {
+      "track_id": "t18",
+      "key": "C# min r=0.89",
+      "top": {
+        "notes": 698,
+        "steps_le2": 0.685,
+        "leaps_ge5": 0.158,
+        "window_repeat": 0.33,
+        "dur_beats": 0.58,
+        "notes_per_bar": 12
+      },
+      "riff": {
+        "notes": 759,
+        "steps_le2": 0.769,
+        "leaps_ge5": 0.126,
+        "window_repeat": 0.346,
+        "dur_beats": 0.58,
+        "notes_per_bar": 12
+      },
+      "bass": {
+        "notes": 221,
+        "steps_le2": 0.634,
+        "leaps_ge5": 0.186,
+        "window_repeat": 0.127,
+        "dur_beats": 1.159,
+        "notes_per_bar": 3
+      }
+    },
+    {
+      "track_id": "t19",
+      "key": "G# maj r=0.74",
+      "top": {
+        "notes": 317,
+        "steps_le2": 0.728,
+        "leaps_ge5": 0.029,
+        "window_repeat": 0.378,
+        "dur_beats": 0.5,
+        "notes_per_bar": 7.5
+      },
+      "riff": {
+        "notes": 92,
+        "steps_le2": 0.87,
+        "leaps_ge5": 0.029,
+        "window_repeat": 0.469,
+        "dur_beats": 0.5,
+        "notes_per_bar": 2
+      },
+      "bass": {
+        "notes": 76,
+        "steps_le2": 0.49,
+        "leaps_ge5": 0.347,
+        "window_repeat": 0.023,
+        "dur_beats": 3.95,
+        "notes_per_bar": 1.5
+      }
+    },
+    {
+      "track_id": "t20",
+      "key": "D maj r=0.73",
+      "top": {
+        "notes": 200,
+        "steps_le2": 0.56,
+        "leaps_ge5": 0.28,
+        "window_repeat": 0.073,
+        "dur_beats": 0.3,
+        "notes_per_bar": 1
+      },
+      "riff": {
+        "notes": 416,
+        "steps_le2": 0.795,
+        "leaps_ge5": 0.152,
+        "window_repeat": 0.436,
+        "dur_beats": 0.3,
+        "notes_per_bar": 4
+      },
+      "bass": {
+        "notes": 1623,
+        "steps_le2": 0.801,
+        "leaps_ge5": 0.181,
+        "window_repeat": 0.727,
+        "dur_beats": 0.3,
+        "notes_per_bar": 19.5
+      }
+    },
+    {
+      "track_id": "t21",
+      "key": "A min r=0.91",
+      "top": {
+        "notes": 503,
+        "steps_le2": 0.511,
+        "leaps_ge5": 0.307,
+        "window_repeat": 0.085,
+        "dur_beats": 0.48,
+        "notes_per_bar": 12
+      },
+      "riff": {
+        "notes": 481,
+        "steps_le2": 0.894,
+        "leaps_ge5": 0.041,
+        "window_repeat": 0.469,
+        "dur_beats": 0.48,
+        "notes_per_bar": 14
+      },
+      "bass": {
+        "notes": 306,
+        "steps_le2": 0.776,
+        "leaps_ge5": 0.202,
+        "window_repeat": 0.489,
+        "dur_beats": 0.48,
+        "notes_per_bar": 7
+      }
+    },
+    {
+      "track_id": "t22",
+      "key": "C maj r=0.89",
+      "top": {
+        "notes": 126,
+        "steps_le2": 0.646,
+        "leaps_ge5": 0.172,
+        "window_repeat": 0.043,
+        "dur_beats": 0.501,
+        "notes_per_bar": 6.5
+      },
+      "riff": {
+        "notes": 70,
+        "steps_le2": 0.582,
+        "leaps_ge5": 0.309,
+        "window_repeat": 0,
+        "dur_beats": 0.66,
+        "notes_per_bar": 3.5
+      },
+      "bass": {
+        "notes": 92,
+        "steps_le2": 0.348,
+        "leaps_ge5": 0.576,
+        "window_repeat": 0.016,
+        "dur_beats": 0.82,
+        "notes_per_bar": 4.5
+      }
+    },
+    {
+      "track_id": "t23",
+      "key": "B min r=0.42",
+      "top": {
+        "notes": 142,
+        "steps_le2": 0.768,
+        "leaps_ge5": 0.181,
+        "window_repeat": 0.241,
+        "dur_beats": 0.241,
+        "notes_per_bar": 2
+      },
+      "riff": {
+        "notes": 281,
+        "steps_le2": 0.75,
+        "leaps_ge5": 0.23,
+        "window_repeat": 0.47,
+        "dur_beats": 0.241,
+        "notes_per_bar": 7
+      },
+      "bass": {
+        "notes": 539,
+        "steps_le2": 0.791,
+        "leaps_ge5": 0.19,
+        "window_repeat": 0.493,
+        "dur_beats": 0.241,
+        "notes_per_bar": 13.5
+      }
+    },
+    {
+      "track_id": "t24",
+      "key": "C# maj r=0.99",
+      "top": {
+        "notes": 487,
+        "steps_le2": 0.969,
+        "leaps_ge5": 0,
+        "window_repeat": 0.931,
+        "dur_beats": 0.441,
+        "notes_per_bar": 7
+      },
+      "riff": {
+        "notes": 840,
+        "steps_le2": 0.997,
+        "leaps_ge5": 0.003,
+        "window_repeat": 0.931,
+        "dur_beats": 0.441,
+        "notes_per_bar": 14
+      },
+      "bass": {
+        "notes": 485,
+        "steps_le2": 0.922,
+        "leaps_ge5": 0.033,
+        "window_repeat": 0.763,
+        "dur_beats": 0.441,
+        "notes_per_bar": 7
+      }
+    },
+    {
+      "track_id": "t25",
+      "key": "A# min r=0.72",
+      "top": null,
+      "riff": null,
+      "bass": {
+        "notes": 311,
+        "steps_le2": 0.881,
+        "leaps_ge5": 0.063,
+        "window_repeat": 0.682,
+        "dur_beats": 1.4,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t26",
+      "key": "D# maj r=0.82",
+      "top": {
+        "notes": 132,
+        "steps_le2": 0.81,
+        "leaps_ge5": 0.048,
+        "window_repeat": 0.354,
+        "dur_beats": 0.52,
+        "notes_per_bar": 0
+      },
+      "riff": {
+        "notes": 213,
+        "steps_le2": 0.824,
+        "leaps_ge5": 0.098,
+        "window_repeat": 0.113,
+        "dur_beats": 0.52,
+        "notes_per_bar": 2.5
+      },
+      "bass": {
+        "notes": 263,
+        "steps_le2": 0.635,
+        "leaps_ge5": 0.236,
+        "window_repeat": 0.104,
+        "dur_beats": 0.521,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t27",
+      "key": "F min r=0.95",
+      "top": {
+        "notes": 570,
+        "steps_le2": 0.367,
+        "leaps_ge5": 0.45,
+        "window_repeat": 0.011,
+        "dur_beats": 0.42,
+        "notes_per_bar": 12
+      },
+      "riff": {
+        "notes": 200,
+        "steps_le2": 0.823,
+        "leaps_ge5": 0.054,
+        "window_repeat": 0.409,
+        "dur_beats": 0.42,
+        "notes_per_bar": 3
+      },
+      "bass": {
+        "notes": 429,
+        "steps_le2": 0.797,
+        "leaps_ge5": 0.109,
+        "window_repeat": 0.642,
+        "dur_beats": 0.42,
+        "notes_per_bar": 8
+      }
+    },
+    {
+      "track_id": "t28",
+      "key": "E maj r=0.61",
+      "top": {
+        "notes": 874,
+        "steps_le2": 0.727,
+        "leaps_ge5": 0.077,
+        "window_repeat": 0.252,
+        "dur_beats": 0.421,
+        "notes_per_bar": 13
+      },
+      "riff": {
+        "notes": 758,
+        "steps_le2": 0.875,
+        "leaps_ge5": 0.063,
+        "window_repeat": 0.408,
+        "dur_beats": 0.4,
+        "notes_per_bar": 9
+      },
+      "bass": {
+        "notes": 527,
+        "steps_le2": 0.787,
+        "leaps_ge5": 0.128,
+        "window_repeat": 0.54,
+        "dur_beats": 0.44,
+        "notes_per_bar": 8
+      }
+    },
+    {
+      "track_id": "t29",
+      "key": "E min r=0.96",
+      "top": {
+        "notes": 586,
+        "steps_le2": 0.725,
+        "leaps_ge5": 0.152,
+        "window_repeat": 0.362,
+        "dur_beats": 0.44,
+        "notes_per_bar": 9
+      },
+      "riff": {
+        "notes": 1265,
+        "steps_le2": 0.864,
+        "leaps_ge5": 0.035,
+        "window_repeat": 0.621,
+        "dur_beats": 0.44,
+        "notes_per_bar": 20.5
+      },
+      "bass": {
+        "notes": 1345,
+        "steps_le2": 0.902,
+        "leaps_ge5": 0.05,
+        "window_repeat": 0.859,
+        "dur_beats": 0.44,
+        "notes_per_bar": 22
+      }
+    },
+    {
+      "track_id": "t30",
+      "key": "D min r=0.95",
+      "top": {
+        "notes": 631,
+        "steps_le2": 0.664,
+        "leaps_ge5": 0.209,
+        "window_repeat": 0.186,
+        "dur_beats": 0.64,
+        "notes_per_bar": 4
+      },
+      "riff": {
+        "notes": 820,
+        "steps_le2": 0.696,
+        "leaps_ge5": 0.196,
+        "window_repeat": 0.457,
+        "dur_beats": 0.64,
+        "notes_per_bar": 3
+      },
+      "bass": {
+        "notes": 701,
+        "steps_le2": 0.67,
+        "leaps_ge5": 0.247,
+        "window_repeat": 0.494,
+        "dur_beats": 0.64,
+        "notes_per_bar": 4
+      }
+    },
+    {
+      "track_id": "t31",
+      "key": "A maj r=0.72",
+      "top": {
+        "notes": 260,
+        "steps_le2": 0.587,
+        "leaps_ge5": 0.339,
+        "window_repeat": 0.205,
+        "dur_beats": 0.36,
+        "notes_per_bar": 9.5
+      },
+      "riff": {
+        "notes": 74,
+        "steps_le2": 1,
+        "leaps_ge5": 0,
+        "window_repeat": 0.559,
+        "dur_beats": 0.36,
+        "notes_per_bar": 0
+      },
+      "bass": {
+        "notes": 378,
+        "steps_le2": 0.792,
+        "leaps_ge5": 0.063,
+        "window_repeat": 0.44,
+        "dur_beats": 0.38,
+        "notes_per_bar": 7
+      }
+    },
+    {
+      "track_id": "t32",
+      "key": "E maj r=0.98",
+      "top": {
+        "notes": 592,
+        "steps_le2": 0.59,
+        "leaps_ge5": 0.253,
+        "window_repeat": 0.091,
+        "dur_beats": 0.52,
+        "notes_per_bar": 13
+      },
+      "riff": {
+        "notes": 304,
+        "steps_le2": 0.837,
+        "leaps_ge5": 0.072,
+        "window_repeat": 0.257,
+        "dur_beats": 0.541,
+        "notes_per_bar": 6
+      },
+      "bass": {
+        "notes": 308,
+        "steps_le2": 0.549,
+        "leaps_ge5": 0.418,
+        "window_repeat": 0.085,
+        "dur_beats": 0.551,
+        "notes_per_bar": 6
+      }
+    },
+    {
+      "track_id": "t33",
+      "key": "E min r=0.77",
+      "top": null,
+      "riff": null,
+      "bass": null
+    },
+    {
+      "track_id": "t34",
+      "key": "G# maj r=0.89",
+      "top": {
+        "notes": 69,
+        "steps_le2": 0.288,
+        "leaps_ge5": 0.373,
+        "window_repeat": 0.204,
+        "dur_beats": 0.34,
+        "notes_per_bar": 12.5
+      },
+      "riff": null,
+      "bass": null
+    },
+    {
+      "track_id": "t35",
+      "key": "D min r=0.85",
+      "top": null,
+      "riff": null,
+      "bass": {
+        "notes": 129,
+        "steps_le2": 0.781,
+        "leaps_ge5": 0.188,
+        "window_repeat": 0.22,
+        "dur_beats": 0.8,
+        "notes_per_bar": 6
+      }
+    },
+    {
+      "track_id": "t36",
+      "key": "E maj r=0.81",
+      "top": {
+        "notes": 132,
+        "steps_le2": 0.6,
+        "leaps_ge5": 0.2,
+        "window_repeat": 0.295,
+        "dur_beats": 0.52,
+        "notes_per_bar": 7
+      },
+      "riff": {
+        "notes": 125,
+        "steps_le2": 0.485,
+        "leaps_ge5": 0.33,
+        "window_repeat": 0.076,
+        "dur_beats": 0.52,
+        "notes_per_bar": 6
+      },
+      "bass": null
+    }
+  ]
+}
