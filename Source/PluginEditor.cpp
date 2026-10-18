@@ -213,13 +213,15 @@ setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ChordExtensions, "Chor
 setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::Inversions, "Chord inversions");
 setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, "Chords on/off");
 setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::BassEnabled, "Bass on/off");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::RootKey, "Root key");
+setupMagicLockButton (MidiForgeAudioProcessor::MagicLock::ScaleMode, "Major/minor mode");
 
 generate.setColour (juce::TextButton::buttonColourId, juce::Colour (kAccent));
 generate.setColour (juce::TextButton::buttonOnColourId, juce::Colour (kAccent).brighter (0.12f));
 generate.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
 generate.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 generate.setButtonText ("MAGIC");
-generate.setTooltip ("Explore new ideas across the melody, chord and bass layers; locked controls stay fixed.");
+generate.setTooltip ("Explore new ideas across melody, chords, bass, root key and major/minor mode; lock any value you want to preserve.");
 newSeed.setTooltip ("Keep the current musical direction but reroll the seed.");
 applyVariation.setTooltip ("Commit the selected variation as the active loop.");
 similarButton.setTooltip ("Generate close relatives of the selected loop.");
@@ -538,8 +540,8 @@ addAndMakeVisible(dragChords);addAndMakeVisible(dragBass);
 addAndMakeVisible(dragMelody);addAndMakeVisible(dragArp);addAndMakeVisible(dragDrums);
 refreshTaste();
 
-// Key / Scale / Bars remain explicit creator constraints. Chord and bass layers
-// are available in the compact creator row; their additional controls live in ADVANCED.
+// MAGIC randomizes Key and Major/Minor mode unless their lock icons are enabled.
+// Bars remains a fixed creator constraint. Chord and bass controls remain in the compact row.
 mode.setVisible (false);
 setAdvancedControlsVisible (false);
 hookModeButton.setVisible (false);
@@ -751,17 +753,19 @@ void MidiForgeAudioProcessorEditor::resized()
     versionLabel.setBounds (W - 215, 20, 70, 22);
     tempoLabel.setBounds (W - 140, 20, 122, 22);
 
-    // Key / Scale / Bars stay fixed by MAGIC. Chords and Bass are the two
-    // additional layer switches kept in the compact row, each with its own lock.
+    // Key and Scale can be randomized by MAGIC, with individual locks beside each selector.
+    // Bars stays fixed. Chords and Bass keep their separate layer locks.
     const int layoutShift = advancedControlsVisible ? 166 : 0;
-    root.setBounds (margin + 12, 108, 92, 26);
-    scale.setBounds (margin + 114, 108, 150, 26);
-    bars.setBounds (margin + 274, 108, 62, 26);
-    advancedButton.setBounds (margin + 350, 108, 96, 26);
+    placeLockedControl (root, MidiForgeAudioProcessor::MagicLock::RootKey,
+                        margin + 12, 108, 120, 26);
+    placeLockedControl (scale, MidiForgeAudioProcessor::MagicLock::ScaleMode,
+                        margin + 140, 108, 178, 26);
+    bars.setBounds (margin + 326, 108, 62, 26);
+    advancedButton.setBounds (margin + 404, 108, 96, 26);
     placeLockedControl (chords, MidiForgeAudioProcessor::MagicLock::ChordsEnabled,
-                        margin + 460, 108, 120, 26);
+                        margin + 512, 108, 120, 26);
     placeLockedControl (bass, MidiForgeAudioProcessor::MagicLock::BassEnabled,
-                        margin + 590, 108, 120, 26);
+                        margin + 642, 108, 120, 26);
 
     if (advancedControlsVisible)
     {
