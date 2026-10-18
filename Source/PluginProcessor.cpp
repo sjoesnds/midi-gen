@@ -5878,12 +5878,12 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
             // each generated bar intact and use the motif as a compositional
             // reference, not a replacement for the candidate's own line.
             const float pitchBlend = simple
-                ? (role == 1 ? 0.60f : role == 2 ? 0.44f : 0.68f)
-                : (role == 1 ? 0.66f : role == 2 ? 0.48f : 0.74f);
+                ? (role == 1 ? 0.70f : role == 2 ? 0.54f : 0.76f)
+                : (role == 1 ? 0.74f : role == 2 ? 0.58f : 0.82f);
 
-            // A' borrows some rhythmic identity; B keeps most of its own
-            // rhythm for contrast; A'' recalls the opening without copying it.
-            const float rhythmBlend = role == 1 ? 0.46f : role == 2 ? 0.20f : 0.50f;
+            // A' and A'' keep slightly more rhythmic identity than B, while
+            // retaining more of the candidate's own timing than before.
+            const float rhythmBlend = role == 1 ? 0.54f : role == 2 ? 0.24f : 0.60f;
             const int currentAnchor = section.notes[current.front()].note;
 
             for (size_t i = 0; i < current.size(); ++i)
