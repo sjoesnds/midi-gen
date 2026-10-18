@@ -285,6 +285,64 @@ namespace
         return key;
     }
 
+    // Detect a short contour returned from the opening bar in the fourth
+    // bar of a four-bar phrase. Octave transposition is allowed, but the
+    // consecutive pitch intervals must match exactly and the cadence note is
+    // excluded from the returned window.
+    bool hasMotifReturn (const std::vector<Note>& notes, int bars)
+    {
+        std::vector<Note> melody;
+        for (const auto& note : notes)
+            if (note.channel == 3)
+                melody.push_back (note);
+
+        std::stable_sort (melody.begin(), melody.end(),
+            [] (const Note& a, const Note& b)
+            {
+                if (a.step != b.step) return a.step < b.step;
+                return a.note < b.note;
+            });
+
+        for (int phraseStart = 0; phraseStart + 3 < bars; phraseStart += 4)
+        {
+            std::vector<Note> opening;
+            std::vector<Note> reprise;
+            for (const auto& note : melody)
+            {
+                const int bar = note.step / 16;
+                if (bar == phraseStart)
+                    opening.push_back (note);
+                else if (bar == phraseStart + 3)
+                    reprise.push_back (note);
+            }
+
+            if (opening.size() < 4 || reprise.size() < 5)
+                continue;
+
+            const size_t hookNotes = std::min<size_t> (
+                7, std::min (opening.size(), reprise.size() - 1));
+            const size_t sourceStart = opening.size() - hookNotes;
+            const size_t targetStart = reprise.size() - hookNotes - 1;
+            bool sameIntervals = true;
+            for (size_t i = 1; i < hookNotes; ++i)
+            {
+                const int sourceDelta = opening[sourceStart + i].note
+                    - opening[sourceStart + i - 1].note;
+                const int targetDelta = reprise[targetStart + i].note
+                    - reprise[targetStart + i - 1].note;
+                if (sourceDelta != targetDelta)
+                {
+                    sameIntervals = false;
+                    break;
+                }
+            }
+
+            if (sameIntervals)
+                return true;
+        }
+        return false;
+    }
+
     std::string midiBankFingerprint (MidiForgeAudioProcessor& processor)
     {
         std::uint64_t hash = 14695981039346656037ull;
@@ -1463,6 +1521,7 @@ int main (int argc, char** argv)
     int matchedHarmonyAnchors = 0;
     int diverseBanks = 0;
     int diverseContourBanks = 0;
+    int motifReturnVariations = 0;
 
     // Exercise all declared scales with eight selected candidates per scale.
     for (int scale = 0; scale < 12; ++scale)
@@ -1502,6 +1561,8 @@ int main (int argc, char** argv)
         {
             p.chooseVariation (v);
             const auto notes = p.getVisibleNotes();
+            if (hasMotifReturn (notes, p.getVisibleBars()))
+                ++motifReturnVariations;
             const auto c = inspectMelody (notes, p.getVisibleBars(), root, scale);
             ++checkedSlots;
             checkedNotes += c.noteCount;
@@ -1573,6 +1634,10 @@ int main (int argc, char** argv)
           diverseContourBanks >= 10,
           juce::String (diverseContourBanks)
               + " of 12 banks have at least five transposition-normalized contours");
+    check ("MAGIC returns a short melodic motif",
+          motifReturnVariations > 0,
+          juce::String (motifReturnVariations)
+              + " of 96 selected variations contain a matching opening-to-ending contour");
 
     // Mood should create a repeatable difference in melodic intent across seeds/archetypes,
     // rather than being washed out by hidden Character variation.
