@@ -6066,84 +6066,6 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
             }
         }
 
-        // Conventional-return candidates keep one complete, scale-safe hook
-        // window from the opening bar. The final note remains untouched so the
-        // cadence authored above can still resolve the loop.
-        if (developmentStyle == 0
-            && phraseBars[0].size() >= 7
-            && phraseBars[3].size() >= 8)
-        {
-            constexpr size_t hookNotes = 7;
-            const auto& opening = phraseBars[0];
-            auto& reprise = phraseBars[3];
-            const size_t sourceStart = opening.size() - hookNotes;
-            const size_t targetStart = reprise.size() - hookNotes - 1;
-            std::array<int, hookNotes> hookPitches {};
-            bool sourceContourSafe = true;
-
-            for (size_t i = 0; i < hookNotes; ++i)
-            {
-                hookPitches[i] = section.notes[opening[sourceStart + i]].note;
-                if (i > 0
-                    && std::abs (hookPitches[i] - hookPitches[i - 1]) > 12)
-                    sourceContourSafe = false;
-            }
-
-            const bool hasLeft = targetStart > 0 || ! phraseBars[2].empty();
-            const int leftPitch = targetStart > 0
-                ? section.notes[reprise[targetStart - 1]].note
-                : (! phraseBars[2].empty()
-                    ? section.notes[phraseBars[2].back()].note : 0);
-            const bool hasRight = targetStart + hookNotes < reprise.size();
-            const int rightPitch = hasRight
-                ? section.notes[reprise[targetStart + hookNotes]].note : 0;
-
-            int bestShift = std::numeric_limits<int>::max();
-            int bestCost = std::numeric_limits<int>::max();
-
-            if (sourceContourSafe)
-            {
-                // Octave-only transposition preserves every scale pitch and
-                // interval. Choose the register that also keeps both boundary
-                // leaps safe; if none fits, leave the generated phrase alone.
-                for (const int shift : { -24, -12, 0, 12, 24 })
-                {
-                    bool valid = true;
-                    for (const int pitch : hookPitches)
-                    {
-                        const int shifted = pitch + shift;
-                        if (shifted < 48 || shifted > 90 || ! inScale (shifted))
-                        {
-                            valid = false;
-                            break;
-                        }
-                    }
-                    if (! valid)
-                        continue;
-
-                    const int first = hookPitches.front() + shift;
-                    const int last = hookPitches.back() + shift;
-                    if ((hasLeft && std::abs (first - leftPitch) > 12)
-                        || (hasRight && std::abs (rightPitch - last) > 12))
-                        continue;
-
-                    int cost = (hasLeft ? std::abs (first - leftPitch) : 0)
-                        + (hasRight ? std::abs (rightPitch - last) : 0);
-                    if (shift == 0)
-                        cost += 2; // Prefer a genuine octave answer when equally smooth.
-
-                    if (cost < bestCost)
-                    {
-                        bestCost = cost;
-                        bestShift = shift;
-                    }
-                }
-            }
-
-            if (bestShift != std::numeric_limits<int>::max())
-                for (size_t i = 0; i < hookNotes; ++i)
-                    section.notes[reprise[targetStart + i]].note = hookPitches[i] + bestShift;
-        }
     }
 
     cleanMelodyLine (section.notes);
@@ -8968,7 +8890,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // first harmony pass. Re-check structural melody notes against the chord
     // actually starting in that part of the bar, not every chord used anywhere
     // in the bar. This is a local safety correction, not a judge/weight change.
-    auto applyFinalHarmonyGuard = [this] (Section& section)
+    auto applyFinalHarmonyGuard = [this] (Section& section, uint32_t identity)
     {
         if (section.notes.empty() || ! melodyEnabled
             || soundProfileFor (soundTarget).soloLine)
@@ -9332,6 +9254,130 @@ void MidiForgeAudioProcessor::buildVariationBank()
             if (! changed)
                 break;
         }
+
+        // Repeat one short hook window only after pitch/harmony/seam repairs.
+        // Since this runs at the end of the guard, no later correction pass can
+        // silently erase the motif. Leave the cadence note untouched.
+        if (section.bars >= 4
+            && (hash32 (identity ^ 0xD37E10A9u) % 4u) == 0u)
+        {
+            constexpr size_t hookNotes = 7;
+            const auto hasLargeReversal = [] (int firstDelta, int secondDelta)
+            {
+                return std::abs (firstDelta) >= 7
+                    && std::abs (secondDelta) >= 7
+                    && ((firstDelta > 0 && secondDelta < 0)
+                        || (firstDelta < 0 && secondDelta > 0));
+            };
+
+            for (int phraseStart = 0; phraseStart + 3 < section.bars; phraseStart += 4)
+            {
+                std::vector<size_t> opening;
+                std::vector<size_t> reprise;
+                for (const size_t index : melody)
+                {
+                    const int bar = section.notes[index].step / 16;
+                    if (bar == phraseStart)
+                        opening.push_back (index);
+                    else if (bar == phraseStart + 3)
+                        reprise.push_back (index);
+                }
+
+                if (opening.size() < hookNotes || reprise.size() < hookNotes + 1)
+                    continue;
+
+                const size_t sourceStart = opening.size() - hookNotes;
+                const size_t targetStart = reprise.size() - hookNotes - 1;
+                std::array<int, hookNotes> hookPitches {};
+                bool sourceContourSafe = true;
+
+                for (size_t i = 0; i < hookNotes; ++i)
+                {
+                    hookPitches[i] = section.notes[opening[sourceStart + i]].note;
+                    if (i > 0)
+                    {
+                        const int delta = hookPitches[i] - hookPitches[i - 1];
+                        if (std::abs (delta) > maxLeap)
+                            sourceContourSafe = false;
+                        if (i > 1)
+                        {
+                            const int previousDelta = hookPitches[i - 1] - hookPitches[i - 2];
+                            if (hasLargeReversal (previousDelta, delta))
+                                sourceContourSafe = false;
+                        }
+                    }
+                }
+
+                if (! sourceContourSafe)
+                    continue;
+
+                const size_t firstTargetIndex = reprise[targetStart];
+                const auto targetPosition = std::find (
+                    melody.begin(), melody.end(), firstTargetIndex);
+                if (targetPosition == melody.end() || targetPosition == melody.begin())
+                    continue;
+
+                const int leftPitch = section.notes[*(targetPosition - 1)].note;
+                const int rightPitch = section.notes[reprise[targetStart + hookNotes]].note;
+                const int firstInternalDelta = hookPitches[1] - hookPitches[0];
+                const int lastInternalDelta = hookPitches[hookNotes - 1]
+                    - hookPitches[hookNotes - 2];
+
+                int bestShift = std::numeric_limits<int>::max();
+                int bestCost = std::numeric_limits<int>::max();
+
+                for (const int shift : { -24, -12, 0, 12, 24 })
+                {
+                    bool valid = true;
+                    for (size_t i = 0; i < hookNotes; ++i)
+                    {
+                        const int shiftedPitch = hookPitches[i] + shift;
+                        const auto& target = section.notes[reprise[targetStart + i]];
+                        if (shiftedPitch < laneLo || shiftedPitch > laneHi
+                            || ! inScale (shiftedPitch))
+                        {
+                            valid = false;
+                            break;
+                        }
+
+                        const int local = target.step % 16;
+                        const bool structural = (local % 4) == 0 || target.length >= 4;
+                        if (structural
+                            && ! chordAtStep (target.step)[(size_t) pitchClass (shiftedPitch)])
+                        {
+                            valid = false;
+                            break;
+                        }
+                    }
+
+                    if (! valid)
+                        continue;
+
+                    const int firstShifted = hookPitches.front() + shift;
+                    const int lastShifted = hookPitches.back() + shift;
+                    const int leftDelta = firstShifted - leftPitch;
+                    const int rightDelta = rightPitch - lastShifted;
+                    if (std::abs (leftDelta) > maxLeap
+                        || std::abs (rightDelta) > maxLeap
+                        || hasLargeReversal (leftDelta, firstInternalDelta)
+                        || hasLargeReversal (lastInternalDelta, rightDelta))
+                        continue;
+
+                    const int cost = std::abs (leftDelta) + std::abs (rightDelta)
+                        + (shift == 0 ? 2 : 0);
+                    if (cost < bestCost)
+                    {
+                        bestCost = cost;
+                        bestShift = shift;
+                    }
+                }
+
+                if (bestShift != std::numeric_limits<int>::max())
+                    for (size_t i = 0; i < hookNotes; ++i)
+                        section.notes[reprise[targetStart + i]].note
+                            = hookPitches[i] + bestShift;
+            }
+        }
     };
 
     AdaptiveProfile adaptive;
@@ -9451,7 +9497,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // about to be rewritten by the phrase architecture.
         repairLocalMelodyQuality (flat, identity);
         snapSectionOnsetsToMusicalGrid (flat.notes, flat.bars, arpRate);
-        applyFinalHarmonyGuard (flat);
+        applyFinalHarmonyGuard (flat, identity);
         traceMelodyStage (5, flat);
         const auto f=melodyFeatures(flat,identity);
         const float grooveQuality = midiforge::qa::scoreOrZero ("grooveQualityScore", grooveQualityScore (flat));
