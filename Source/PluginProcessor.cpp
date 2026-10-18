@@ -6065,6 +6065,85 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
                 tail.length = juce::jmin (6, juce::jmax (2, tail.length));
             }
         }
+
+        // Conventional-return candidates keep one complete, scale-safe hook
+        // window from the opening bar. The final note remains untouched so the
+        // cadence authored above can still resolve the loop.
+        if (developmentStyle == 0
+            && phraseBars[0].size() >= 7
+            && phraseBars[3].size() >= 8)
+        {
+            constexpr size_t hookNotes = 7;
+            const auto& opening = phraseBars[0];
+            auto& reprise = phraseBars[3];
+            const size_t sourceStart = opening.size() - hookNotes;
+            const size_t targetStart = reprise.size() - hookNotes - 1;
+            std::array<int, hookNotes> hookPitches {};
+            bool sourceContourSafe = true;
+
+            for (size_t i = 0; i < hookNotes; ++i)
+            {
+                hookPitches[i] = section.notes[opening[sourceStart + i]].note;
+                if (i > 0
+                    && std::abs (hookPitches[i] - hookPitches[i - 1]) > 12)
+                    sourceContourSafe = false;
+            }
+
+            const bool hasLeft = targetStart > 0 || ! phraseBars[2].empty();
+            const int leftPitch = targetStart > 0
+                ? section.notes[reprise[targetStart - 1]].note
+                : (! phraseBars[2].empty()
+                    ? section.notes[phraseBars[2].back()].note : 0);
+            const bool hasRight = targetStart + hookNotes < reprise.size();
+            const int rightPitch = hasRight
+                ? section.notes[reprise[targetStart + hookNotes]].note : 0;
+
+            int bestShift = std::numeric_limits<int>::max();
+            int bestCost = std::numeric_limits<int>::max();
+
+            if (sourceContourSafe)
+            {
+                // Octave-only transposition preserves every scale pitch and
+                // interval. Choose the register that also keeps both boundary
+                // leaps safe; if none fits, leave the generated phrase alone.
+                for (const int shift : { -24, -12, 0, 12, 24 })
+                {
+                    bool valid = true;
+                    for (const int pitch : hookPitches)
+                    {
+                        const int shifted = pitch + shift;
+                        if (shifted < 48 || shifted > 90 || ! inScale (shifted))
+                        {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (! valid)
+                        continue;
+
+                    const int first = hookPitches.front() + shift;
+                    const int last = hookPitches.back() + shift;
+                    if ((hasLeft && std::abs (first - leftPitch) > 12)
+                        || (hasRight && std::abs (rightPitch - last) > 12))
+                        continue;
+
+                    int cost = (hasLeft ? std::abs (first - leftPitch) : 0)
+                        + (hasRight ? std::abs (rightPitch - last) : 0);
+                    if (shift == 0)
+                        cost += 2; // Prefer a genuine octave answer when equally smooth.
+
+                    if (cost < bestCost)
+                    {
+                        bestCost = cost;
+                        bestShift = shift;
+                    }
+                }
+            }
+
+            if (bestShift != std::numeric_limits<int>::max())
+                for (size_t i = 0; i < hookNotes; ++i)
+                    section.notes[reprise[targetStart + i]].note = hookPitches[i] + bestShift;
+        }
     }
 
     cleanMelodyLine (section.notes);
