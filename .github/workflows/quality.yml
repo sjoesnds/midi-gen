@@ -144,12 +144,37 @@ jobs:
           grep -q clip_01.mid memorability-smoke-analysis/listening-pack-selection.csv
           grep -q clip_12.mid memorability-smoke-analysis/listening-pack-selection.csv
 
-      - name: Export one-off smoke MIDI pack from current main
+      - name: Export one-off listening pack from a broad deterministic candidate pool
         if: ${{ contains(github.event.head_commit.message, '[listen-pack]') }}
         run: |
           set -euo pipefail
           QA=$(find build-qa -type f -name MidiForgeQA -perm -u+x | head -n 1)
-          "$QA" --memorability-pack memorability-smoke-analysis/listening-pack-selection.csv memorability-smoke-listening-pack
+
+          # The 2-seed smoke report above only validates the analyzer. Do not
+          # use its 16 candidates for human listening: repeated packs were too
+          # likely to reuse the same seeds/slots. Select 12 clips from a wider,
+          # fixed 32-seed pool while keeping the filenames fully anonymous.
+          "$QA" --memorability-report 32 memorability-listening-report.csv | tee memorability-listening-report.log
+          test -s memorability-listening-report.csv
+          rows=$(wc -l < memorability-listening-report.csv)
+          test "$rows" -eq 257
+
+          python3 tools/memorability/analyze_baseline.py \
+            --input memorability-listening-report.csv \
+            --output-dir memorability-listening-analysis \
+            --expected-seeds 32 \
+            --expected-slots 8 \
+            --listening-items 12
+          test -s memorability-listening-analysis/listening-selection.csv
+          test -s memorability-listening-analysis/summary.md
+
+          python3 tools/memorability/prepare_blind_pack.py prepare \
+            --selection memorability-listening-analysis/listening-selection.csv \
+            --export-selection memorability-listening-analysis/listening-pack-selection.csv \
+            --answer-key memorability-listening-analysis/listening-answer-key.csv \
+            --expected-items 12
+
+          "$QA" --memorability-pack memorability-listening-analysis/listening-pack-selection.csv memorability-smoke-listening-pack
           clips=$(find memorability-smoke-listening-pack -type f -name '*.mid' | wc -l)
           test "$clips" -eq 12
           python3 tools/memorability/prepare_blind_pack.py finalize \
@@ -162,6 +187,18 @@ jobs:
         with:
           name: memorability-listening-pack-smoke
           path: memorability-smoke-listening-pack/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && contains(github.event.head_commit.message, '[listen-pack]') }}
+        with:
+          name: memorability-listening-pack-answer-key
+          path: |
+            memorability-listening-analysis/listening-answer-key.csv
+            memorability-listening-analysis/listening-selection.csv
+            memorability-listening-analysis/summary.md
+            memorability-listening-report.csv
+            memorability-listening-report.log
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
