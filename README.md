@@ -6,7 +6,8 @@ MIDI Forge is a JUCE 8 / C++17 VST3 plugin for generating editable MIDI loops in
 
 ## Current behavior
 
-- Creator-facing composition constraints: **Key, Scale and Bars**.
+- Creator-facing composition controls: **Key, Scale and Bars**.
+- MAGIC randomizes the root key and the **Major/Minor** mode on each press unless their individual lock icons are engaged; Bars remains fixed.
 - MAGIC generates a bank of eight variations; per-control locks preserve values the user wants to keep.
 - MAGIC is deterministic for a given saved plugin state, engine version and sequence of MAGIC presses. The persisted state stores the press counter; wall-clock time does not seed MAGIC.
 - Generated melody attacks are checked against the eighth-note grid and tonal/register contracts. QA checks support these invariants but do not prove every loop is musically strong.
