@@ -9259,7 +9259,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // Since this runs at the end of the guard, no later correction pass can
         // silently erase the motif. Leave the cadence note untouched.
         if (section.bars >= 4
-            && (hash32 (identity ^ 0xD37E10A9u) % 4u) == 0u)
+            && ((identity ^ 0xD37E10A9u) % 4u) == 0u)
         {
             constexpr size_t maxHookNotes = 7;
             const auto hasLargeReversal = [] (int firstDelta, int secondDelta)
