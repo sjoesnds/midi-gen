@@ -8890,7 +8890,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
     // first harmony pass. Re-check structural melody notes against the chord
     // actually starting in that part of the bar, not every chord used anywhere
     // in the bar. This is a local safety correction, not a judge/weight change.
-    auto applyFinalHarmonyGuard = [this] (Section& section, uint32_t identity)
+    auto applyFinalHarmonyGuard = [this, &hash32] (Section& section, uint32_t identity)
     {
         if (section.notes.empty() || ! melodyEnabled
             || soundProfileFor (soundTarget).soloLine)
