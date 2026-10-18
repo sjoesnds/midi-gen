@@ -8959,9 +8959,10 @@ void MidiForgeAudioProcessor::buildVariationBank()
         // pitch within the seam and local-leap limits.
         if (melody.size() >= 2)
         {
+            constexpr int maxSeamLeap = 9;
             const int firstPitch = section.notes[melody.front()].note;
             auto& last = section.notes[melody.back()];
-            if (std::abs (last.note - firstPitch) > maxLeap)
+            if (std::abs (last.note - firstPitch) > maxSeamLeap)
             {
                 const auto finalChord = chordAtStep (last.step);
                 const int previousPitch = section.notes[melody[melody.size() - 2]].note;
@@ -8973,7 +8974,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                     for (int candidate = laneLo; candidate <= laneHi; ++candidate)
                     {
                         if (! inScale (candidate)
-                            || std::abs (candidate - firstPitch) > maxLeap
+                            || std::abs (candidate - firstPitch) > maxSeamLeap
                             || std::abs (candidate - previousPitch) > adjacentLimit)
                             continue;
 
