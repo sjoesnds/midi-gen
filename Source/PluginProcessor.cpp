@@ -9261,7 +9261,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
         if (section.bars >= 4
             && (hash32 (identity ^ 0xD37E10A9u) % 4u) == 0u)
         {
-            constexpr size_t hookNotes = 7;
+            constexpr size_t maxHookNotes = 7;
             const auto hasLargeReversal = [] (int firstDelta, int secondDelta)
             {
                 return std::abs (firstDelta) >= 7
@@ -9283,12 +9283,16 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         reprise.push_back (index);
                 }
 
-                if (opening.size() < hookNotes || reprise.size() < hookNotes + 1)
+                // Use a short four-to-seven-note cell. Sparse melodies still
+                // get a usable return; denser ones can repeat a longer signature.
+                if (opening.size() < 4 || reprise.size() < 5)
                     continue;
 
+                const size_t hookNotes = std::min (
+                    maxHookNotes, std::min (opening.size(), reprise.size() - 1));
                 const size_t sourceStart = opening.size() - hookNotes;
                 const size_t targetStart = reprise.size() - hookNotes - 1;
-                std::array<int, hookNotes> hookPitches {};
+                std::array<int, maxHookNotes> hookPitches {};
                 bool sourceContourSafe = true;
 
                 for (size_t i = 0; i < hookNotes; ++i)
@@ -9353,8 +9357,8 @@ void MidiForgeAudioProcessor::buildVariationBank()
                     if (! valid)
                         continue;
 
-                    const int firstShifted = hookPitches.front() + shift;
-                    const int lastShifted = hookPitches.back() + shift;
+                    const int firstShifted = hookPitches[0] + shift;
+                    const int lastShifted = hookPitches[hookNotes - 1] + shift;
                     const int leftDelta = firstShifted - leftPitch;
                     const int rightDelta = rightPitch - lastShifted;
                     if (std::abs (leftDelta) > maxLeap
