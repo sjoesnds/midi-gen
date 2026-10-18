@@ -8950,6 +8950,62 @@ void MidiForgeAudioProcessor::buildVariationBank()
             if (bestCost < 100000)
                 note.note = bestPitch;
         }
+
+        // A loop seam is a real melody interval too. A soft closure blend can
+        // still leave the last note an octave-plus away from the opening, so
+        // repair only that boundary after all other pitch shaping is complete.
+        // Prefer an in-key tone from the chord active at the ending; fall back
+        // to another scale tone only when the active chord offers no usable
+        // pitch within the seam and local-leap limits.
+        if (melody.size() >= 2)
+        {
+            const int firstPitch = section.notes[melody.front()].note;
+            auto& last = section.notes[melody.back()];
+            if (std::abs (last.note - firstPitch) > maxLeap)
+            {
+                const auto finalChord = chordAtStep (last.step);
+                const int previousPitch = section.notes[melody[melody.size() - 2]].note;
+
+                auto findSeamPitch = [&] (bool requireChordTone, int adjacentLimit)
+                {
+                    int bestPitch = -1;
+                    int bestCost = std::numeric_limits<int>::max();
+                    for (int candidate = laneLo; candidate <= laneHi; ++candidate)
+                    {
+                        if (! inScale (candidate)
+                            || std::abs (candidate - firstPitch) > maxLeap
+                            || std::abs (candidate - previousPitch) > adjacentLimit)
+                            continue;
+
+                        if (requireChordTone
+                            && ! finalChord[(size_t) pitchClass (candidate)])
+                            continue;
+
+                        const int movement = std::abs (candidate - last.note);
+                        const int seamDistance = std::abs (candidate - firstPitch);
+                        const int localLeap = std::abs (candidate - previousPitch);
+                        const int cost = movement * 100 + seamDistance * 4 + localLeap;
+                        if (cost < bestCost)
+                        {
+                            bestCost = cost;
+                            bestPitch = candidate;
+                        }
+                    }
+                    return bestPitch;
+                };
+
+                int repairedPitch = findSeamPitch (true, maxLeap);
+                if (repairedPitch < 0)
+                    repairedPitch = findSeamPitch (true, 12);
+                if (repairedPitch < 0)
+                    repairedPitch = findSeamPitch (false, maxLeap);
+                if (repairedPitch < 0)
+                    repairedPitch = findSeamPitch (false, 12);
+
+                if (repairedPitch >= 0)
+                    last.note = repairedPitch;
+            }
+        }
     };
 
     AdaptiveProfile adaptive;

@@ -73,6 +73,7 @@ namespace
         bool tonal = true;
         bool registerSafe = true;
         bool leapsSafe = true;
+        bool seamSafe = true;
         int noteCount = 0;
         int melodyNotes = 0;
         int chordNotes = 0;
@@ -147,6 +148,9 @@ namespace
                     ++c.severeLeapReversals;
             }
         }
+
+        c.seamSafe = timeline.size() >= 2
+            && std::abs (timeline.back().second - timeline.front().second) <= 9;
         return c;
     }
 
@@ -1416,6 +1420,7 @@ int main (int argc, char** argv)
     bool allTonal = true;
     bool allRegisterSafe = true;
     bool allLeapsSafe = true;
+    bool allLoopSeamsSafe = true;
     bool allConstraintsPreserved = true;
     bool allPerformancePreserved = true;
     bool allLayerTogglesStayOn = true;
@@ -1485,6 +1490,7 @@ int main (int argc, char** argv)
             allTonal = allTonal && c.tonal;
             allRegisterSafe = allRegisterSafe && c.registerSafe;
             allLeapsSafe = allLeapsSafe && c.leapsSafe;
+            allLoopSeamsSafe = allLoopSeamsSafe && c.seamSafe;
             bankFingerprints.insert (fingerprint (notes));
         }
         if (slots == 8 && bankFingerprints.size() >= 6)
@@ -1510,6 +1516,9 @@ int main (int argc, char** argv)
           allRegisterSafe && checkedMelodyNotes > 0, "MIDI pitches 48–90");
     check ("Melody avoids unsafe pitch leaps",
           allLeapsSafe && checkedMelodyNotes > 0, "adjacent pitches differ by at most 12 semitones");
+    check ("Loop seam stays within a ninth",
+          allLoopSeamsSafe && checkedMelodyNotes > 0,
+          "first and last melody notes differ by at most 9 semitones");
     check ("Structural melody notes follow the active chord",
           checkedHarmonyAnchors > 0
               && (double) matchedHarmonyAnchors / (double) checkedHarmonyAnchors >= 0.72,
