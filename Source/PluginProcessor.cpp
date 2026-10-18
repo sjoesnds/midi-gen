@@ -9226,11 +9226,14 @@ void MidiForgeAudioProcessor::buildVariationBank()
 
                     const int leftJump = std::abs (candidate - previous.note);
                     const int rightJump = std::abs (next.note - candidate);
-                    int cost = std::abs (candidate - middle.note) * 40
-                        + juce::jmax (leftJump, rightJump) * 30
+                    // At this final stage the main goal is to remove a
+                    // conspicuous leap reversal. Keep the chord-tone preference,
+                    // but do not let it outweigh a clearly smoother legal contour.
+                    int cost = std::abs (candidate - middle.note) * 12
+                        + juce::jmax (leftJump, rightJump) * 40
                         + leftJump + rightJump;
                     if (preserveChordTone && ! pcs[(size_t) pitchClass (candidate)])
-                        cost += 1000;
+                        cost += 80;
                     if (candidate == previous.note || candidate == next.note)
                         cost += 500;
 
