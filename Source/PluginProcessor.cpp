@@ -9333,6 +9333,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                 for (const int shift : { -24, -12, 0, 12, 24 })
                 {
                     bool valid = true;
+                    int nonChordStructuralNotes = 0;
                     for (size_t i = 0; i < hookNotes; ++i)
                     {
                         const int shiftedPitch = hookPitches[i] + shift;
@@ -9348,12 +9349,14 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         const bool structural = (local % 4) == 0 || target.length >= 4;
                         if (structural
                             && ! chordAtStep (target.step)[(size_t) pitchClass (shiftedPitch)])
-                        {
-                            valid = false;
-                            break;
-                        }
+                            ++nonChordStructuralNotes;
                     }
 
+                    // A hook may retain a single tension note (or two in a
+                    // denser seven-note cell), but never let the reprise erase
+                    // the phrase just to satisfy every harmony anchor.
+                    if (nonChordStructuralNotes > juce::jmax (1, (int) hookNotes / 3))
+                        valid = false;
                     if (! valid)
                         continue;
 
