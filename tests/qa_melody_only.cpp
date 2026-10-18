@@ -256,6 +256,35 @@ namespace
         return key;
     }
 
+    // Normalize away absolute start time and pitch so transposed copies do not
+    // count as distinct melodic ideas. Rhythm, contour intervals and note lengths
+    // still have to differ for two candidates to pass as different contours.
+    std::string contourFingerprint (const std::vector<Note>& notes)
+    {
+        std::vector<Note> melody;
+        for (const auto& n : notes)
+            if (n.channel == 3) melody.push_back (n);
+
+        std::stable_sort (melody.begin(), melody.end(),
+            [] (const Note& a, const Note& b)
+            {
+                if (a.step != b.step) return a.step < b.step;
+                return a.note < b.note;
+            });
+
+        if (melody.empty())
+            return {};
+
+        const int firstStep = melody.front().step;
+        const int firstPitch = melody.front().note;
+        std::string key;
+        for (const auto& n : melody)
+            key += std::to_string (n.step - firstStep) + ":"
+                + std::to_string (n.note - firstPitch) + ":"
+                + std::to_string (n.length) + ";";
+        return key;
+    }
+
     std::string midiBankFingerprint (MidiForgeAudioProcessor& processor)
     {
         std::uint64_t hash = 14695981039346656037ull;
@@ -1433,6 +1462,7 @@ int main (int argc, char** argv)
     int checkedHarmonyAnchors = 0;
     int matchedHarmonyAnchors = 0;
     int diverseBanks = 0;
+    int diverseContourBanks = 0;
 
     // Exercise all declared scales with eight selected candidates per scale.
     for (int scale = 0; scale < 12; ++scale)
@@ -1466,6 +1496,7 @@ int main (int argc, char** argv)
             && ! p.getLeadStyleSoundCloud();
 
         std::set<std::string> bankFingerprints;
+        std::set<std::string> bankContourFingerprints;
         const int slots = p.getVariationCount();
         for (int v = 0; v < slots; ++v)
         {
@@ -1492,9 +1523,12 @@ int main (int argc, char** argv)
             allLeapsSafe = allLeapsSafe && c.leapsSafe;
             allLoopSeamsSafe = allLoopSeamsSafe && c.seamSafe;
             bankFingerprints.insert (fingerprint (notes));
+            bankContourFingerprints.insert (contourFingerprint (notes));
         }
         if (slots == 8 && bankFingerprints.size() >= 6)
             ++diverseBanks;
+        if (slots == 8 && bankContourFingerprints.size() >= 5)
+            ++diverseContourBanks;
     }
 
     check ("MAGIC produces melody, chords and bass",
@@ -1535,6 +1569,10 @@ int main (int argc, char** argv)
     check ("MAGIC variation bank retains meaningful diversity",
           diverseBanks >= 10,
           juce::String (diverseBanks) + " of 12 banks have at least six distinct ideas");
+    check ("MAGIC varies melodic contour, not just absolute pitch",
+          diverseContourBanks >= 10,
+          juce::String (diverseContourBanks)
+              + " of 12 banks have at least five transposition-normalized contours");
 
     // Mood should create a repeatable difference in melodic intent across seeds/archetypes,
     // rather than being washed out by hidden Character variation.
