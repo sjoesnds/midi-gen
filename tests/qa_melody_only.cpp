@@ -1763,7 +1763,7 @@ int main (int argc, char** argv)
                    + " resumed=" + juce::String (resumedNextBank.c_str()));
     }
 
-    // The unlocked key/mode rolls must explore all twelve roots and both familiar modes.
+    // Repeated unlocked MAGIC presses must sample multiple root keys and both familiar modes.
     {
         MidiForgeAudioProcessor keyModeRolls;
         keyModeRolls.setFeedbackLogFile (juce::File());
@@ -1783,7 +1783,7 @@ int main (int argc, char** argv)
                 && (generatedMode == MidiForgeAudioProcessor::Major
                     || generatedMode == MidiForgeAudioProcessor::Minor);
         }
-        check ("MAGIC randomizes all keys and major/minor modes",
+        check ("MAGIC randomizes root keys and major/minor modes",
                validKeyMode && rootsSeen.size() >= 4
                    && modesSeen.count (MidiForgeAudioProcessor::Major) == 1
                    && modesSeen.count (MidiForgeAudioProcessor::Minor) == 1,
