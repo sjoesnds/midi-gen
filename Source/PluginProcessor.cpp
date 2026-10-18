@@ -5871,11 +5871,19 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
             if (current.empty())
                 continue; // Preserve the rest; shape the other populated phrase bars.
 
+            // Keep a recognizable motif without forcing A' and A'' to become
+            // near-copies. Listening feedback on the prior pack showed that
+            // literal returns were not perceived as strong melodies, while a
+            // high-contrast phrase alone was not enough either. Leave more of
+            // each generated bar intact and use the motif as a compositional
+            // reference, not a replacement for the candidate's own line.
             const float pitchBlend = simple
-                ? (role == 1 ? 0.78f : role == 2 ? 0.58f : 0.84f)
-                : (role == 1 ? 0.84f : role == 2 ? 0.64f : 0.90f);
+                ? (role == 1 ? 0.60f : role == 2 ? 0.44f : 0.68f)
+                : (role == 1 ? 0.66f : role == 2 ? 0.48f : 0.74f);
 
-            const float rhythmBlend = role == 1 ? 0.64f : role == 2 ? 0.28f : 0.72f;
+            // A' borrows some rhythmic identity; B keeps most of its own
+            // rhythm for contrast; A'' recalls the opening without copying it.
+            const float rhythmBlend = role == 1 ? 0.46f : role == 2 ? 0.20f : 0.50f;
             const int currentAnchor = section.notes[current.front()].note;
 
             for (size_t i = 0; i < current.size(); ++i)
