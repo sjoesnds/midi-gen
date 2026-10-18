@@ -9161,7 +9161,7 @@ void MidiForgeAudioProcessor::buildVariationBank()
                                     std::abs (candidatePreviousDelta) >= 7
                                     && std::abs (candidateLastDelta) >= 7
                                     && ((candidatePreviousDelta > 0 && candidateLastDelta < 0)
-                                        || (candidatePreviousDelta < 0 && candidateLastDelta > 0);
+                                        || (candidatePreviousDelta < 0 && candidateLastDelta > 0));
                                 const int harmonyPenalty =
                                     (penultimateStructural && penultimateWasChordTone
                                          && ! previousChordTone ? 500 : 0)
