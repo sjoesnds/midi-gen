@@ -34,7 +34,8 @@ enum class MagicLock : int
     Progression, Rhythm, Octave, Mood, MelodyType,
     ChordDensity, BassDensity, MelodyDensity, Complexity, MotifStrength,
     VariationAmount, FillAmount, Energy, MelodyLength, PauseChance, LeapChance, GhostChance,
-    ChordExtensions, Inversions, ChordsEnabled, BassEnabled, Count
+    ChordExtensions, Inversions, ChordsEnabled, BassEnabled,
+    RootKey, ScaleMode, Count
 };
 static constexpr int kMagicLockCount = (int) MagicLock::Count;
 MidiForgeAudioProcessor();
