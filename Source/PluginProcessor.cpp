@@ -5813,6 +5813,42 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
         return best;
     };
 
+    auto shiftScaleDegrees = [&] (int pitch, int degreeShift)
+    {
+        std::vector<int> scalePitches;
+        scalePitches.reserve (48);
+        for (int p = laneLo; p <= laneHi; ++p)
+            if (inScale (p))
+                scalePitches.push_back (p);
+
+        if (scalePitches.empty())
+            return safePitch (pitch);
+
+        size_t nearestIndex = 0;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (size_t i = 0; i < scalePitches.size(); ++i)
+        {
+            const int distance = std::abs (scalePitches[i] - pitch);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                nearestIndex = i;
+            }
+        }
+
+        const int destination = juce::jlimit (
+            0, (int) scalePitches.size() - 1,
+            (int) nearestIndex + degreeShift);
+        return scalePitches[(size_t) destination];
+    };
+
+    // A candidate uses one of four phrase-development dialects. This changes
+    // how the same motif is developed, not how it is scored: sequence, inversion,
+    // retrograde contour and a freer call/response keep candidate lines from
+    // collapsing into the same A/A'/B/A'' template.
+    const int developmentStyle = (int) (
+        hash32 (identity ^ 0xD37E10A9u) % 4u);
+
     auto nearestChordTone = [&] (int bar, int pitch, int fallback)
     {
         int best = fallback, bestDistance = 1000;
@@ -5871,40 +5907,91 @@ void MidiForgeAudioProcessor::applyPhraseArchitecture (Section& section, uint32_
             if (current.empty())
                 continue; // Preserve the rest; shape the other populated phrase bars.
 
-            // Keep a recognizable motif without forcing A' and A'' to become
-            // near-copies. Listening feedback on the prior pack showed that
-            // literal returns were not perceived as strong melodies, while a
-            // high-contrast phrase alone was not enough either. Leave more of
-            // each generated bar intact and use the motif as a compositional
-            // reference, not a replacement for the candidate's own line.
-            const float pitchBlend = simple
-                ? (role == 1 ? 0.70f : role == 2 ? 0.54f : 0.76f)
-                : (role == 1 ? 0.74f : role == 2 ? 0.58f : 0.82f);
+            // Four deterministic development styles intentionally create
+            // different phrase behaviour while preserving a stable motif seed:
+            // 0 = conventional return, 1 = scale-step sequence, 2 = retrograde
+            // answer, 3 = alternating call/response. Styles are candidate-local,
+            // so MAGIC can return genuinely different phrase ideas in one bank.
+            float pitchBlend = 0.62f;
+            if (developmentStyle == 0)
+                pitchBlend = simple
+                    ? (role == 1 ? 0.70f : role == 2 ? 0.54f : 0.76f)
+                    : (role == 1 ? 0.74f : role == 2 ? 0.58f : 0.82f);
+            else if (developmentStyle == 1)
+                pitchBlend = simple
+                    ? (role == 1 ? 0.60f : role == 2 ? 0.40f : 0.66f)
+                    : (role == 1 ? 0.64f : role == 2 ? 0.42f : 0.68f);
+            else if (developmentStyle == 2)
+                pitchBlend = simple
+                    ? (role == 1 ? 0.66f : role == 2 ? 0.46f : 0.70f)
+                    : (role == 1 ? 0.70f : role == 2 ? 0.48f : 0.74f);
+            else
+                pitchBlend = simple
+                    ? (role == 1 ? 0.56f : role == 2 ? 0.38f : 0.62f)
+                    : (role == 1 ? 0.60f : role == 2 ? 0.40f : 0.64f);
 
-            // A' and A'' keep slightly more rhythmic identity than B, while
-            // retaining more of the candidate's own timing than before.
-            const float rhythmBlend = role == 1 ? 0.54f : role == 2 ? 0.24f : 0.60f;
+            float rhythmBlend = 0.40f;
+            if (developmentStyle == 0)
+                rhythmBlend = role == 1 ? 0.54f : role == 2 ? 0.24f : 0.60f;
+            else if (developmentStyle == 1)
+                rhythmBlend = role == 1 ? 0.42f : role == 2 ? 0.18f : 0.48f;
+            else if (developmentStyle == 2)
+                rhythmBlend = role == 1 ? 0.62f : role == 2 ? 0.30f : 0.66f;
+            else
+                rhythmBlend = role == 1 ? 0.46f : role == 2 ? 0.12f : 0.34f;
+
             const int currentAnchor = section.notes[current.front()].note;
 
             for (size_t i = 0; i < current.size(); ++i)
             {
                 auto& n = section.notes[current[i]];
                 const size_t src = sourceFor (i, current.size());
-                const int rel = motif.relativePitches[src];
+                size_t pitchSource = src;
+                const size_t motifCount = motif.relativePitches.size();
+
+                // Retrograde contour changes pitch order without reversing event
+                // timing. Rotated answers borrow a different part of the motif,
+                // rather than repeatedly sampling its first and last notes.
+                if (developmentStyle == 1 && role == 2)
+                    pitchSource = motifCount - 1 - src;
+                else if (developmentStyle == 2 && (role == 1 || role == 3))
+                    pitchSource = motifCount - 1 - src;
+                else if (developmentStyle == 3 && role == 3)
+                    pitchSource = (src + 1) % motifCount;
+
+                const int rel = motif.relativePitches[pitchSource];
                 int motifPitch = currentAnchor + rel;
+                const int identityShift = ((identity ^ (uint32_t) (i * 0x9e3779b9u)) & 1u) ? 3 : -3;
 
                 if (role == 2)
                 {
-                    const int shift = ((identity ^ (uint32_t) (i * 0x9e3779b9u)) & 1u) ? 3 : -3;
-                    motifPitch = currentAnchor - rel + shift;
+                    if (developmentStyle == 1)
+                        motifPitch = shiftScaleDegrees (currentAnchor + rel, 1);
+                    else if (developmentStyle == 2)
+                        motifPitch = shiftScaleDegrees (currentAnchor + rel, -1);
+                    else
+                        motifPitch = currentAnchor - rel + identityShift;
                 }
                 else if (role == 1)
                 {
-                    motifPitch += ((identity >> ((i & 3u) + 1u)) & 1u) ? 1 : 0;
+                    if (developmentStyle == 1)
+                        motifPitch = shiftScaleDegrees (motifPitch, 1);
+                    else if (developmentStyle == 2)
+                        motifPitch = currentAnchor - rel + identityShift;
+                    else if (developmentStyle == 3)
+                        motifPitch = shiftScaleDegrees (
+                            motifPitch, (i & 1u) == 0u ? 1 : -1);
+                    else
+                        motifPitch += ((identity >> ((i & 3u) + 1u)) & 1u) ? 1 : 0;
                 }
                 else
                 {
-                    motifPitch += ((identity >> ((i & 3u) + 4u)) & 1u) ? -1 : 0;
+                    if (developmentStyle == 1)
+                        motifPitch = shiftScaleDegrees (motifPitch, -1);
+                    else if (developmentStyle == 3)
+                        motifPitch = shiftScaleDegrees (motifPitch, -1);
+                    else
+                        motifPitch += ((identity >> ((i & 3u) + 4u)) & 1u) ? -1 : 0;
                 }
 
                 const int local = n.step % 16;
