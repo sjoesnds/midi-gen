@@ -8966,6 +8966,11 @@ void MidiForgeAudioProcessor::buildVariationBank()
             {
                 const auto finalChord = chordAtStep (last.step);
                 const int previousPitch = section.notes[melody[melody.size() - 2]].note;
+                const bool hasBeforePrevious = melody.size() >= 3;
+                const int beforePreviousPitch = hasBeforePrevious
+                    ? section.notes[melody[melody.size() - 3]].note : -1;
+                const int previousDelta = hasBeforePrevious
+                    ? previousPitch - beforePreviousPitch : 0;
 
                 auto findSeamPitch = [&] (bool requireChordTone, int adjacentLimit)
                 {
@@ -8985,7 +8990,18 @@ void MidiForgeAudioProcessor::buildVariationBank()
                         const int movement = std::abs (candidate - last.note);
                         const int seamDistance = std::abs (candidate - firstPitch);
                         const int localLeap = std::abs (candidate - previousPitch);
-                        const int cost = movement * 100 + seamDistance * 4 + localLeap;
+                        const int candidateDelta = candidate - previousPitch;
+                        const bool createsLargeReversal = hasBeforePrevious
+                            && std::abs (previousDelta) >= 7
+                            && std::abs (candidateDelta) >= 7
+                            && ((previousDelta > 0 && candidateDelta < 0)
+                                || (previousDelta < 0 && candidateDelta > 0));
+                        // Avoid introducing a new wide leap reversal at the same
+                        // time as fixing the loop boundary. Prefer another legal
+                        // chord/scale tone whenever one exists.
+                        const int reversalPenalty = createsLargeReversal ? 10000 : 0;
+                        const int cost = movement * 100 + seamDistance * 4
+                            + localLeap + reversalPenalty;
                         if (cost < bestCost)
                         {
                             bestCost = cost;
