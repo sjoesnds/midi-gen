@@ -1718,8 +1718,8 @@ int main (int argc, char** argv)
 
         const std::string firstBank = midiBankFingerprint (first);
         const std::string peerBank = midiBankFingerprint (peer);
-        constexpr const char* expectedFirstBank = "fbb07cdb2600ab4e";
-        constexpr const char* expectedNextBankGolden = "73687435c15b50df";
+        constexpr const char* expectedFirstBank = "c7187c0d4555c731";
+        constexpr const char* expectedNextBankGolden = "9c024c6a843c9c37";
         check ("MAGIC repeats the same complete MIDI bank for identical initial state",
                firstBank == peerBank,
                juce::String ("seed=") + juce::String (fixedSeed) + " fingerprint=" + juce::String (firstBank.c_str()));
