@@ -9107,8 +9107,148 @@ void MidiForgeAudioProcessor::buildVariationBank()
                     repairedPitch = findSeamPitch (false, 12);
 
                 if (repairedPitch >= 0)
+                {
                     last.note = repairedPitch;
+                }
+                else if (hasBeforePrevious)
+                {
+                    // If no legal pitch can satisfy both the seam and the
+                    // existing penultimate note, adjust the final two notes as
+                    // a pair instead of silently leaving a broken loop boundary.
+                    auto& penultimate = section.notes[melody[melody.size() - 2]];
+                    const auto& beforePenultimate = section.notes[melody[melody.size() - 3]];
+                    const auto penultimateChord = chordAtStep (penultimate.step);
+                    const bool penultimateStructural =
+                        ((penultimate.step % 16) % 4) == 0 || penultimate.length >= 4;
+                    const bool penultimateWasChordTone =
+                        penultimateChord[(size_t) pitchClass (penultimate.note)];
+                    int bestPrevious = -1;
+                    int bestLast = -1;
+                    int bestCost = std::numeric_limits<int>::max();
+
+                    auto searchPair = [&] (int adjacentLimit)
+                    {
+                        for (int candidatePrevious = laneLo;
+                             candidatePrevious <= laneHi; ++candidatePrevious)
+                        {
+                            if (! inScale (candidatePrevious)
+                                || std::abs (candidatePrevious - beforePenultimate.note) > adjacentLimit)
+                                continue;
+
+                            const bool previousChordTone =
+                                penultimateChord[(size_t) pitchClass (candidatePrevious)];
+
+                            for (int candidateLast = laneLo;
+                                 candidateLast <= laneHi; ++candidateLast)
+                            {
+                                if (! inScale (candidateLast)
+                                    || std::abs (candidateLast - firstPitch) > maxSeamLeap
+                                    || std::abs (candidateLast - candidatePrevious) > adjacentLimit)
+                                    continue;
+
+                                const bool lastChordTone =
+                                    finalChord[(size_t) pitchClass (candidateLast)];
+                                const int movement =
+                                    std::abs (candidatePrevious - penultimate.note)
+                                    + std::abs (candidateLast - last.note);
+                                const int seamDistance = std::abs (candidateLast - firstPitch);
+                                const int localLeap = std::abs (candidateLast - candidatePrevious);
+                                const int candidatePreviousDelta =
+                                    candidatePrevious - beforePenultimate.note;
+                                const int candidateLastDelta =
+                                    candidateLast - candidatePrevious;
+                                const bool largeReversal =
+                                    std::abs (candidatePreviousDelta) >= 7
+                                    && std::abs (candidateLastDelta) >= 7
+                                    && ((candidatePreviousDelta > 0 && candidateLastDelta < 0)
+                                        || (candidatePreviousDelta < 0 && candidateLastDelta > 0);
+                                const int harmonyPenalty =
+                                    (penultimateStructural && penultimateWasChordTone
+                                         && ! previousChordTone ? 500 : 0)
+                                    + (! lastChordTone ? 500 : 0);
+                                const int reversalPenalty = largeReversal ? 10000 : 0;
+                                const int cost = movement * 80 + seamDistance * 5
+                                    + localLeap * 2 + harmonyPenalty + reversalPenalty;
+                                if (cost < bestCost)
+                                {
+                                    bestCost = cost;
+                                    bestPrevious = candidatePrevious;
+                                    bestLast = candidateLast;
+                                }
+                            }
+                        }
+                    };
+
+                    searchPair (maxLeap);
+                    if (bestLast < 0)
+                        searchPair (12);
+                    if (bestLast >= 0)
+                    {
+                        penultimate.note = bestPrevious;
+                        last.note = bestLast;
+                    }
+                }
             }
+        }
+
+        // Harmony correction happens after the earlier melody-repair pass and
+        // can recreate one large leap reversal. Finish locally, preferring active
+        // chord tones when the middle note already has a structural harmony role.
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            bool changed = false;
+            for (size_t i = 1; i + 1 < melody.size(); ++i)
+            {
+                auto& previous = section.notes[melody[i - 1]];
+                auto& middle = section.notes[melody[i]];
+                auto& next = section.notes[melody[i + 1]];
+                const int leftDelta = middle.note - previous.note;
+                const int rightDelta = next.note - middle.note;
+                const bool reverses = (leftDelta > 0 && rightDelta < 0)
+                                   || (leftDelta < 0 && rightDelta > 0);
+                if (! reverses || std::abs (leftDelta) < 7 || std::abs (rightDelta) < 7)
+                    continue;
+
+                const auto pcs = chordAtStep (middle.step);
+                const int local = middle.step % 16;
+                const bool structural = (local % 4) == 0 || middle.length >= 4;
+                const bool preserveChordTone =
+                    structural && pcs[(size_t) pitchClass (middle.note)];
+                int bestPitch = middle.note;
+                int bestCost = std::numeric_limits<int>::max();
+
+                for (int candidate = laneLo; candidate <= laneHi; ++candidate)
+                {
+                    if (! inScale (candidate)
+                        || std::abs (candidate - previous.note) > maxLeap
+                        || std::abs (next.note - candidate) > maxLeap)
+                        continue;
+
+                    const int leftJump = std::abs (candidate - previous.note);
+                    const int rightJump = std::abs (next.note - candidate);
+                    int cost = std::abs (candidate - middle.note) * 40
+                        + juce::jmax (leftJump, rightJump) * 30
+                        + leftJump + rightJump;
+                    if (preserveChordTone && ! pcs[(size_t) pitchClass (candidate)])
+                        cost += 1000;
+                    if (candidate == previous.note || candidate == next.note)
+                        cost += 500;
+
+                    if (cost < bestCost)
+                    {
+                        bestCost = cost;
+                        bestPitch = candidate;
+                    }
+                }
+
+                if (bestPitch != middle.note)
+                {
+                    middle.note = bestPitch;
+                    changed = true;
+                }
+            }
+            if (! changed)
+                break;
         }
     };
 
