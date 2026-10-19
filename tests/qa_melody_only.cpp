@@ -1539,6 +1539,8 @@ int main (int argc, char** argv)
         // Keep the restored layers on while stress-testing every scale and MAGIC slot.
         p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ChordsEnabled, true);
         p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::BassEnabled, true);
+        p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::RootKey, true);
+        p.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ScaleMode, true);
 
         p.magicRandomize();
         p.waitForGeneration();
@@ -1709,6 +1711,11 @@ int main (int argc, char** argv)
         peer.setFeedbackLogFile (juce::File());
         first.setTasteEnabled (false);
         peer.setTasteEnabled (false);
+        // Keep this frozen MIDI golden independent of MAGIC's new key/mode rolls.
+        first.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::RootKey, true);
+        first.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ScaleMode, true);
+        peer.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::RootKey, true);
+        peer.setMagicParameterLocked (MidiForgeAudioProcessor::MagicLock::ScaleMode, true);
         first.setSeed (fixedSeed);
         peer.setSeed (fixedSeed);
         first.magicRandomize();
@@ -1756,6 +1763,35 @@ int main (int argc, char** argv)
                    + " resumed=" + juce::String (resumedNextBank.c_str()));
     }
 
+    // Repeated unlocked MAGIC presses must sample multiple keys and a broad set of the 12 scale/mode types.
+    {
+        MidiForgeAudioProcessor keyModeRolls;
+        keyModeRolls.setFeedbackLogFile (juce::File());
+        keyModeRolls.setTasteEnabled (false);
+        keyModeRolls.setSeed (106901);
+        std::set<int> rootsSeen, modesSeen;
+        bool validKeyMode = true;
+        for (int pass = 0; pass < 12; ++pass)
+        {
+            keyModeRolls.magicRandomize();
+            keyModeRolls.waitForGeneration();
+            const int generatedRoot = keyModeRolls.getRoot();
+            const int generatedMode = keyModeRolls.getScale();
+            rootsSeen.insert (generatedRoot);
+            modesSeen.insert (generatedMode);
+            validKeyMode = validKeyMode && generatedRoot >= 0 && generatedRoot <= 11
+                && generatedMode >= MidiForgeAudioProcessor::Major
+                && generatedMode <= MidiForgeAudioProcessor::Blues;
+        }
+        const bool samplesExtendedMode = std::any_of (modesSeen.begin(), modesSeen.end(),
+            [] (int mode) { return mode >= MidiForgeAudioProcessor::Dorian; });
+        check ("MAGIC randomizes root keys and all scale/mode types",
+               validKeyMode && rootsSeen.size() >= 4 && modesSeen.size() >= 5
+                   && samplesExtendedMode,
+               juce::String (rootsSeen.size()) + " distinct roots; "
+                   + juce::String (modesSeen.size()) + " of 12 scale/mode types observed");
+    }
+
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
     MidiForgeAudioProcessor locked;
     locked.setFeedbackLogFile (juce::File());
@@ -1777,13 +1813,16 @@ int main (int argc, char** argv)
     const float keepPause = locked.getPauseChance();
     const float keepLeap = locked.getLeapChance();
     const float keepGhost = locked.getGhostChance();
+    const int keepRoot = locked.getRoot();
+    const int keepScale = locked.getScale();
     const bool keepExtensions = locked.getChordExtensions();
     const bool keepInversions = locked.getInversions();
     const bool keepChords = locked.isChordsEnabled();
     const bool keepBass = locked.isBassEnabled();
     locked.magicRandomize();
     locked.waitForGeneration();
-    const bool lockContract = locked.getProgression() == keepProgression
+    const bool lockContract = locked.getRoot() == keepRoot && locked.getScale() == keepScale
+        && locked.getProgression() == keepProgression
         && locked.getRhythm() == keepRhythm && locked.getOctave() == keepOctave
         && locked.getMood() == keepMood && locked.getMelodyType() == keepMelodyType
         && std::abs (locked.getChordDensity() - keepChordDensity) < 0.0001f
@@ -1803,7 +1842,7 @@ int main (int argc, char** argv)
         && locked.isChordsEnabled() == keepChords
         && locked.isBassEnabled() == keepBass;
     check ("Every parameter lock survives MAGIC", lockContract,
-           "all 21 individual lockable values remain unchanged");
+           "all 23 individual lockable values remain unchanged");
 
     // Locks must preserve OFF as well as ON. Keep the other MAGIC parameters free.
     MidiForgeAudioProcessor lockedOffLayers;

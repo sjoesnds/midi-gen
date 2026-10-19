@@ -10943,7 +10943,7 @@ void MidiForgeAudioProcessor::magicRandomize()
 
     // Each visible control has its own MAGIC lock. Locks are independent:
     // protecting chord density must not also freeze progression or inversions.
-    // Key / Scale / Bars remain explicit creator constraints and are never randomized.
+    // Key and mode are now part of MAGIC's creative search. Bars remains an explicit constraint.
     if (!isMagicParameterLocked (MagicLock::Progression))
         progression = pick (7);
     if (!isMagicParameterLocked (MagicLock::ChordDensity))
@@ -11025,6 +11025,13 @@ void MidiForgeAudioProcessor::magicRandomize()
     // SoundCloud-specific generation lives in the separate Shakalizer project.
     // Retire that legacy mode unconditionally, even for old locked project state.
     leadStyleSoundCloud = false;
+
+    // Explore all existing tonal centers and scale/mode types on each MAGIC press.
+    // The same deterministic RNG and independent locks preserve repeatability and control.
+    if (! isMagicParameterLocked (MagicLock::RootKey))
+        rootPc = pick (12);
+    if (! isMagicParameterLocked (MagicLock::ScaleMode))
+        scale = pick (12);
 
     // Seed controls the candidate search; DNA seed remains stable for
     // REROLL, so REROLL explores the same musical universe.
