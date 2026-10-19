@@ -11026,14 +11026,12 @@ void MidiForgeAudioProcessor::magicRandomize()
     // Retire that legacy mode unconditionally, even for old locked project state.
     leadStyleSoundCloud = false;
 
-    // MAGIC may explore a different key center and major/minor character each press.
-    // Independent locks let the user preserve either choice; manual access to the other
-    // scale modes remains available in the Scale menu. Use the existing MAGIC RNG so the
-    // selection is deterministic for a saved state and press history.
+    // Explore all existing tonal centers and scale/mode types on each MAGIC press.
+    // The same deterministic RNG and independent locks preserve repeatability and control.
     if (! isMagicParameterLocked (MagicLock::RootKey))
         rootPc = pick (12);
     if (! isMagicParameterLocked (MagicLock::ScaleMode))
-        scale = pick (2) == 0 ? Major : Minor;
+        scale = pick (12);
 
     // Seed controls the candidate search; DNA seed remains stable for
     // REROLL, so REROLL explores the same musical universe.
