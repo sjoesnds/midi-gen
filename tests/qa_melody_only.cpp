@@ -1763,7 +1763,7 @@ int main (int argc, char** argv)
                    + " resumed=" + juce::String (resumedNextBank.c_str()));
     }
 
-    // Repeated unlocked MAGIC presses must sample multiple root keys and both familiar modes.
+    // Repeated unlocked MAGIC presses must sample multiple keys and a broad set of the 12 scale/mode types.
     {
         MidiForgeAudioProcessor keyModeRolls;
         keyModeRolls.setFeedbackLogFile (juce::File());
@@ -1780,15 +1780,16 @@ int main (int argc, char** argv)
             rootsSeen.insert (generatedRoot);
             modesSeen.insert (generatedMode);
             validKeyMode = validKeyMode && generatedRoot >= 0 && generatedRoot <= 11
-                && (generatedMode == MidiForgeAudioProcessor::Major
-                    || generatedMode == MidiForgeAudioProcessor::Minor);
+                && generatedMode >= MidiForgeAudioProcessor::Major
+                && generatedMode <= MidiForgeAudioProcessor::Blues;
         }
-        check ("MAGIC randomizes root keys and major/minor modes",
-               validKeyMode && rootsSeen.size() >= 4
-                   && modesSeen.count (MidiForgeAudioProcessor::Major) == 1
-                   && modesSeen.count (MidiForgeAudioProcessor::Minor) == 1,
+        const bool samplesExtendedMode = std::any_of (modesSeen.begin(), modesSeen.end(),
+            [] (int mode) { return mode >= MidiForgeAudioProcessor::Dorian; });
+        check ("MAGIC randomizes root keys and all scale/mode types",
+               validKeyMode && rootsSeen.size() >= 4 && modesSeen.size() >= 5
+                   && samplesExtendedMode,
                juce::String (rootsSeen.size()) + " distinct roots; "
-                   + juce::String (modesSeen.size()) + " modes observed");
+                   + juce::String (modesSeen.size()) + " of 12 scale/mode types observed");
     }
 
     // Every exposed randomizable value must survive MAGIC when its individual lock is on.
